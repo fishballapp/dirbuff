@@ -1,5 +1,12 @@
 # Changelog — DirBuff
 
+## 0.1.3
+
+- DirBuff is now open source (GPL-3.0). After the 14-day trial, a licence is $10, £10 or €10 a year and supports its development; the monthly plan is gone.
+- Stop whenever you like: if you cancel, you keep the last version released while you were paid up, and it keeps working. Only later versions need a renewal.
+- DirBuff's update check offers a cancelled licence only the versions it covers, and says when a later one is waiting for a renewal.
+- The buy buttons now read Support DirBuff…, or Renew DirBuff… once a licence has ended.
+
 ## 0.1.2
 
 - Folders are cleared on the hour, every hour, and at no other time: not when DirBuff opens, when the Mac wakes, or when you leave a folder's settings. An hour the Mac sleeps through is skipped.

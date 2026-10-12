@@ -46,13 +46,17 @@ public struct MainState: Sendable, Equatable {
   public var folders: [MainFolder]
   /// Why no folder can be made Temporary right now; nil while it can.
   public var licenceRefusal: String?
+  /// What the button beside that reason is called.
+  public var buyTitle: String
 
   public init(
-    overview: MenuBarState, folders: [MainFolder], licenceRefusal: String?
+    overview: MenuBarState, folders: [MainFolder], licenceRefusal: String?,
+    buyTitle: String = LicenceLine.Action.buy.title
   ) {
     self.overview = overview
     self.folders = folders
     self.licenceRefusal = licenceRefusal
+    self.buyTitle = buyTitle
   }
 }
 
@@ -78,6 +82,7 @@ extension MainState {
       binName: binName
     )
     self.licenceRefusal = licence.refusal
+    self.buyTitle = licence.buyTitle
     self.folders = reports.compactMap { report in
       guard let id = report.folder.id else { return nil }
       let isReadable = report.status != nil

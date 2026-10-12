@@ -135,6 +135,13 @@ enum Samples {
     reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: true,
     licence: .licensed, now: shownAt, calendar: calendar, binName: "Trash")
 
+  /// The last day Polar confirmed the key, in the sample's clock.
+  static let paidThrough = now.addingTimeInterval(-20 * 86_400)
+  /// The licence ended, and this version came out while it held.
+  static let kept = Licence.kept(paidThrough: paidThrough)
+  /// The licence ended, and this version came out after.
+  static let ended = Licence.ended(paidThrough: paidThrough)
+
   static func menuBar(_ licence: Licence) -> MenuBarState {
     MenuBarState(
       reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,

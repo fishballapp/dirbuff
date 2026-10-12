@@ -60,6 +60,7 @@ xcodebuild -project "$SCRIPT_DIR/DirBuff.xcodeproj" \
   -xcconfig "$SCRIPT_DIR/PolarProduction.xcconfig" \
   CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION" \
   MARKETING_VERSION="$MARKETING_VERSION" \
+  DIRBUFF_RELEASE_DATE="$(date -u +%Y-%m-%d)" \
   CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_STYLE="Manual" \

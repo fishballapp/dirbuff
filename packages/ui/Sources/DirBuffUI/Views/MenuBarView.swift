@@ -90,14 +90,14 @@ public struct MenuBarView: View {
       Divider()
       VStack(spacing: 0) {
         if let line = state.licenceLine {
-          Button(action: line.action == .buy ? onBuy : onCheckLicence) {
+          Button(action: line.action.isPurchase ? onBuy : onCheckLicence) {
             HStack {
               Text(line.action.title)
               Spacer()
               Text(line.text).foregroundStyle(.secondary)
             }
           }
-          if line.action == .buy {
+          if line.action.isPurchase {
             Button("Enter Licence Key…", action: onEnterKey)
           }
         }

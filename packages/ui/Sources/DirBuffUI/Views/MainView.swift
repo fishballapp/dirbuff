@@ -113,10 +113,10 @@ public struct MainView: View {
     VStack(alignment: .leading, spacing: 8) {
       Label(line.text, systemImage: line.isWarning ? "exclamationmark.circle" : "clock")
         .foregroundStyle(.secondary)
-      Button(action: line.action == .buy ? onBuy : onCheckLicence) {
+      Button(action: line.action.isPurchase ? onBuy : onCheckLicence) {
         Text(line.action.title).frame(maxWidth: .infinity)
       }
-      if line.action == .buy {
+      if line.action.isPurchase {
         Button(action: onEnterKey) {
           Text("Enter Licence Key…").frame(maxWidth: .infinity)
         }
@@ -167,6 +167,7 @@ public struct MainView: View {
         folder: folder,
         binName: binName,
         licenceRefusal: state.licenceRefusal,
+        buyTitle: state.buyTitle,
         onSetTemporary: { onSetTemporary(folder.id, $0) },
         onChangeSettings: { onChangeSettings(folder.id, $0) },
         onBuy: onBuy

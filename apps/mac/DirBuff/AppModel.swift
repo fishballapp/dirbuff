@@ -34,6 +34,7 @@ final class AppModel {
   private let polar: PolarLicensing
   private let polarSettings: PolarSettings
   private let machine: String
+  private let releaseDay: ReleaseDay
   private var cleanUpTimer: Timer?
 
   init() {
@@ -45,6 +46,7 @@ final class AppModel {
       licenceRecord = try engine.store.licence()
       polarSettings = try PolarSettings.fromInfoPlist()
       machine = try Machine.id()
+      releaseDay = try BuildInfo.releaseDay()
     } catch {
       Self.quit(because: error)
     }
@@ -65,20 +67,22 @@ final class AppModel {
   }
 
   /// Read afresh each time: the trial's days pass without the record changing.
-  var licence: Licence { Licence(licenceRecord, now: Date()) }
+  var licence: Licence { Licence(licenceRecord, now: Date(), release: releaseDay) }
 
   /// The windows pass the moment they draw at, so their countdowns tick (`CountdownSchedule`).
   func menuBarState(now: Date) -> MenuBarState {
     MenuBarState(
       reports: reports, journal: journal, freeSpace: freeSpace,
-      isFinderExtensionOff: isFinderExtensionOff, licence: Licence(licenceRecord, now: now),
+      isFinderExtensionOff: isFinderExtensionOff,
+      licence: Licence(licenceRecord, now: now, release: releaseDay),
       now: now)
   }
 
   func mainState(now: Date) -> MainState {
     MainState(
       reports: reports, journal: journal, freeSpace: freeSpace,
-      isFinderExtensionOff: isFinderExtensionOff, licence: Licence(licenceRecord, now: now),
+      isFinderExtensionOff: isFinderExtensionOff,
+      licence: Licence(licenceRecord, now: now, release: releaseDay),
       now: now)
   }
 
@@ -347,7 +351,7 @@ final class AppModel {
     let confirm = NSAlert()
     confirm.messageText = "Deactivate DirBuff on this Mac?"
     confirm.informativeText =
-      if case .trial = Licence(unlicensed, now: Date()) {
+      if case .trial = Licence(unlicensed, now: Date(), release: releaseDay) {
         "DirBuff goes back to its trial until you enter a key again."
       } else {
         "Your folders become plain folders until you enter a key again."
@@ -414,11 +418,15 @@ final class AppModel {
       }
     }
     await refresh()
-    await notify(
-      id: "licence.ended",
-      title: licence == .trialEnded
-        ? "DirBuff's trial has ended" : "Your DirBuff licence has ended",
-      body: "Your folders are plain folders again. Buy DirBuff to turn them back on.")
+    if licence == .trialEnded {
+      await notify(
+        id: "licence.ended", title: "DirBuff's trial has ended",
+        body: "Your folders are plain folders again. Support DirBuff to turn them back on.")
+    } else {
+      await notify(
+        id: "licence.ended", title: "Your DirBuff licence ended before this version",
+        body: "Your folders are plain folders again. Renew DirBuff to use this version.")
+    }
   }
 
   // MARK: - Running the rules
@@ -482,14 +490,14 @@ final class AppModel {
       await checkLicence(now: now)
     }
     await refresh()
-    let licence = Licence(licenceRecord, now: now)
+    let licence = Licence(licenceRecord, now: now, release: releaseDay)
     if licence.plainsFolders {
       await makeFoldersPlain(licence)
     }
     if licence == .trial(daysLeft: 1) {
       await notifyOncePerDay(
         id: "trialEndsTomorrow", now: now, title: "DirBuff's trial ends tomorrow",
-        body: "Then your folders become plain folders. Buy DirBuff to keep them Temporary.")
+        body: "Then your folders become plain folders. Support DirBuff to keep them Temporary.")
     }
   }
 
@@ -502,7 +510,7 @@ final class AppModel {
     isRunning = true
     defer { isRunning = false }
 
-    guard Licence(licenceRecord, now: hour).mayClean else {
+    guard Licence(licenceRecord, now: hour, release: releaseDay).mayClean else {
       await settleLicence(now: hour)
       return
     }

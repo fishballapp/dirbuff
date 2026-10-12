@@ -129,6 +129,16 @@ func main() async {
       nil
     ),
     (
+      "menubar-ended",
+      AnyView(MenuBarView(state: Samples.menuBar(Samples.ended))),
+      nil
+    ),
+    (
+      "menubar-kept",
+      AnyView(MenuBarView(state: Samples.menuBar(Samples.kept))),
+      nil
+    ),
+    (
       "menubar-paused",
       AnyView(MenuBarView(state: Samples.menuBar(.paused))),
       nil
@@ -157,12 +167,17 @@ func main() async {
     ),
     (
       "main-overview-licence-ended",
-      AnyView(MainView(state: Samples.main(.ended), selection: .constant(.overview))),
+      AnyView(MainView(state: Samples.main(Samples.ended), selection: .constant(.overview))),
+      mainSize
+    ),
+    (
+      "main-overview-licence-kept",
+      AnyView(MainView(state: Samples.main(Samples.kept), selection: .constant(.overview))),
       mainSize
     ),
     (
       "main-folder-licence-ended",
-      AnyView(MainView(state: Samples.main(.ended), selection: .constant(.folder(4)))),
+      AnyView(MainView(state: Samples.main(Samples.ended), selection: .constant(.folder(4)))),
       mainSize
     ),
 
@@ -180,6 +195,16 @@ func main() async {
     (
       "settings-paused",
       AnyView(SettingsView(state: Samples.settings(.paused))),
+      nil
+    ),
+    (
+      "settings-kept",
+      AnyView(SettingsView(state: Samples.settings(Samples.kept))),
+      nil
+    ),
+    (
+      "settings-ended",
+      AnyView(SettingsView(state: Samples.settings(Samples.ended))),
       nil
     ),
     (

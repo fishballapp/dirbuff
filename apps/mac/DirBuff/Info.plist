@@ -34,6 +34,8 @@
             </array>
         </dict>
     </array>
+    <key>DirBuffReleaseDate</key>
+    <string>$(DIRBUFF_RELEASE_DATE)</string>
     <key>DirBuffPolarAPI</key>
     <string>$(DIRBUFF_POLAR_API)</string>
     <key>DirBuffPolarOrganizationID</key>

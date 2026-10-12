@@ -45,8 +45,14 @@ public struct SettingsView: View {
             Button("Manage Subscription…", action: onManageSubscription)
           } else {
             Button("Enter Licence Key…", action: onEnterKey)
-            Button("Buy DirBuff…", action: onBuy)
+            Button(state.licence.buyTitle, action: onBuy)
           }
+        }
+        if !state.licence.hasKey {
+          Text(Pricing.pitch)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
 

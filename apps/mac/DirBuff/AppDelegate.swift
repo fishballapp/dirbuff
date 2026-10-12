@@ -4,9 +4,16 @@ import AppKit
 /// a window even when none is open yet.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  let appModel = AppModel()
+  let appModel: AppModel
+  let updates: Updates
   lazy var windows = WindowCoordinator(appModel: appModel)
-  let updates = Updates()
+
+  override init() {
+    let appModel = AppModel()
+    self.appModel = appModel
+    updates = Updates(licence: { appModel.licenceRecord })
+    super.init()
+  }
 
   /// Opened by the user, DirBuff shows its window; started by macOS at login, it stays in the menu
   /// bar.

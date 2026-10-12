@@ -9,6 +9,7 @@ public struct FolderDetailView: View {
   public var binName: String
   /// Set while the folders are plain because the trial or licence ended.
   public var licenceRefusal: String?
+  public var buyTitle: String
   public var onSetTemporary: (Bool) -> Void
   public var onChangeSettings: (TemporarySettings) -> Void
   public var onBuy: () -> Void
@@ -21,6 +22,7 @@ public struct FolderDetailView: View {
     folder: MainFolder,
     binName: String = SystemBin.name,
     licenceRefusal: String? = nil,
+    buyTitle: String = LicenceLine.Action.buy.title,
     onSetTemporary: @escaping (Bool) -> Void = { _ in },
     onChangeSettings: @escaping (TemporarySettings) -> Void = { _ in },
     onBuy: @escaping () -> Void = {}
@@ -28,6 +30,7 @@ public struct FolderDetailView: View {
     self.folder = folder
     self.binName = binName
     self.licenceRefusal = licenceRefusal
+    self.buyTitle = buyTitle
     self.onSetTemporary = onSetTemporary
     self.onChangeSettings = onChangeSettings
     self.onBuy = onBuy
@@ -62,7 +65,7 @@ public struct FolderDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
               Spacer()
-              Button("Buy DirBuff…", action: onBuy)
+              Button(buyTitle, action: onBuy)
                 .controlSize(.small)
             }
           }
