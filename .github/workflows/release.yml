@@ -3,9 +3,10 @@ name: Release
 # Run by hand from main (Actions → Release → Run workflow). The job builds, signs and notarises the
 # DMG, publishes it as a GitHub release, then points the update feed at it.
 #
-# Its secrets are the `release` environment's, which only main may read and which waits for a
-# maintainer's approval on every run: the pr/<number> branches the private monorepo pushes here
-# can't reach them.
+# Its secrets live in 1Password and load through varlock (apps/mac/.env.schema). The one GitHub
+# secret is DIRBUFF_OP_TOKEN, a service account that reads DirBuff's Environments only, held by the
+# `release` environment, which only main may read and which waits for a maintainer's approval on
+# every run: the pr/<number> branches the private monorepo pushes here can't reach it.
 on:
   workflow_dispatch:
 
@@ -38,9 +39,14 @@ jobs:
 
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v6
+
       - uses: actions/setup-node@v6
         with:
           node-version: 26
+
+      - name: Install the release tooling
+        run: pnpm install --frozen-lockfile --filter @dirbuff/mac
 
       # Before the build: a missing changelog section, a taken tag or a build number the feed would
       # not offer should cost seconds, not a notarisation round trip.
@@ -51,10 +57,29 @@ jobs:
       - name: Ensure XcodeGen
         run: command -v xcodegen || brew install xcodegen
 
-      - name: Setup throwaway keychain
+      # Every line of every value is masked before any later step can print it.
+      - name: Load secrets from 1Password
         env:
-          MAC_NATIVE_APP_APPLE_CERTIFICATE: ${{ secrets.MAC_NATIVE_APP_APPLE_CERTIFICATE }}
-          MAC_NATIVE_APP_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MAC_NATIVE_APP_APPLE_CERTIFICATE_PASSWORD }}
+          DIRBUFF_OP_TOKEN: ${{ secrets.DIRBUFF_OP_TOKEN }}
+        run: |
+          node -e '
+          const { execFileSync } = require("node:child_process");
+          const { appendFileSync } = require("node:fs");
+          const values = JSON.parse(
+            execFileSync("pnpm", ["-F", "@dirbuff/mac", "exec", "varlock", "load", "--format", "json"], {
+              encoding: "utf8",
+            }),
+          );
+          for (const [key, value] of Object.entries(values)) {
+            if (key === "DIRBUFF_OP_TOKEN" || typeof value !== "string" || value === "") continue;
+            for (const line of value.split(/\r?\n/)) {
+              if (line.trim() !== "") console.log(`::add-mask::${line}`);
+            }
+            appendFileSync(process.env.GITHUB_ENV, `${key}<<__EOF__\n${value}\n__EOF__\n`);
+          }
+          '
+
+      - name: Setup throwaway keychain
         run: |
           set -euo pipefail
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
@@ -78,10 +103,6 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "Developer ID Application: Fishball Ltd (9CWXH66CKT)"
 
       - name: Build, sign, and notarise app
-        env:
-          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: ./apps/mac/release.sh
 
       # The DMG goes up before the feed names it, and the tag comes with it: the feed must never
@@ -97,10 +118,6 @@ jobs:
             --latest
 
       - name: Publish the update feed
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: node --experimental-strip-types apps/mac/release/publish.ts
 
       - name: Job summary

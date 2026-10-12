@@ -23,5 +23,7 @@ allowBuilds:
 catalog:
   "@biomejs/biome": ^2.5.13
   "@types/node": ^24.13.4
+  "@varlock/1password-plugin": ^2.0.4
   typescript: ~7.0.2
+  varlock: ^1.19.0
   vitest: ^5.0.1

@@ -12,7 +12,7 @@ echo "=== DirBuff Mac Release Build ==="
 # Check secrets
 if [[ -z "${ASC_API_KEY_P8_BASE64:-}" || -z "${ASC_KEY_ID:-}" || -z "${ASC_ISSUER_ID:-}" ]]; then
   echo "Error: App Store Connect API key credentials (ASC_API_KEY_P8_BASE64, ASC_KEY_ID, ASC_ISSUER_ID) are missing." >&2
-  echo "Export them first; the release workflow takes them from its environment's secrets." >&2
+  echo "Run it through varlock, which loads them from 1Password: pnpm -F @dirbuff/mac exec varlock run -- ./release.sh" >&2
   exit 1
 fi
 
