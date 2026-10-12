@@ -1,0 +1,68 @@
+name: CI
+
+# Every gate, on every branch. The private monorepo this tree is ejected from pushes each of its
+# pull requests to the branch pr/<number> here, so these run before the private merge.
+on:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+# A newer snapshot of a branch supersedes the one under test.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  format:
+    name: Swift format
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - run: swift format lint --strict --recursive apps packages
+
+  test:
+    name: Test · ${{ matrix.package }}
+    # macOS minutes cost nothing on a public repo, so every package's tests run here, not only the
+    # core that also builds on Linux.
+    runs-on: macos-26
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [core, kit, ui]
+    steps:
+      - uses: actions/checkout@v6
+      - run: swift test --package-path packages/${{ matrix.package }}
+
+  app:
+    name: Build · app
+    # The packages' tests do not compile the app target or its Finder extension.
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - run: command -v xcodegen || brew install xcodegen
+      - run: xcodegen generate --spec project.yml --project .
+        working-directory: apps/mac
+      - run: >-
+          xcodebuild -project DirBuff.xcodeproj -scheme DirBuff -configuration Debug
+          -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build
+        working-directory: apps/mac
+
+  tooling:
+    name: Check · typecheck · test (release tooling)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm typecheck
+      - run: pnpm test

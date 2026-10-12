@@ -1,0 +1,572 @@
+import AppKit
+import DirBuffCore
+import DirBuffKit
+import DirBuffUI
+import FinderSync
+import ServiceManagement
+import UserNotifications
+import os
+
+private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "app")
+
+/// The app's state and every action the windows take. Engine calls touch the disk, so they run
+/// off the main actor.
+@Observable
+@MainActor
+final class AppModel {
+  static let showInMenuBarKey = "showInMenuBar"
+  static let protectedFolderExplanation =
+    "DirBuff doesn't clear your home folder, Desktop, Documents, Library, system folders or the top of a disk. Choose a folder inside one, such as Downloads."
+  /// Recent runs in the menu-bar window look back this far.
+  private static let recentRunWindow: TimeInterval = 7 * 86_400
+
+  private(set) var reports: [FolderReport] = []
+  private(set) var journal: [JournalEntry] = []
+  private(set) var freeSpace: Int64 = 0
+  private(set) var isFinderExtensionOff = false
+  private(set) var isLoginItemEnabled = false
+  private(set) var loginItemNeedsApproval = false
+  private(set) var isNotificationAuthorized = false
+  private(set) var licenceRecord: LicenceRecord
+  private var isRunning = false
+
+  private let engine: Engine
+  private let polar: PolarLicensing
+  private let polarSettings: PolarSettings
+  private let machine: String
+  private var cleanUpTimer: Timer?
+
+  init() {
+    do {
+      let directory = URL.applicationSupportDirectory.appendingPathComponent("DirBuff")
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      engine = Engine(
+        store: try Store(path: directory.appendingPathComponent("dirbuff.sqlite").path))
+      licenceRecord = try engine.store.licence()
+      polarSettings = try PolarSettings.fromInfoPlist()
+      machine = try Machine.id()
+    } catch {
+      Self.quit(because: error)
+    }
+    polar = PolarLicensing(api: polarSettings.api, organizationID: polarSettings.organizationID)
+    refreshSystemStatus()
+    startScheduler()
+  }
+
+  private static func quit(because error: any Error) -> Never {
+    logger.fault("Couldn't start: \(error.localizedDescription, privacy: .public)")
+    let alert = NSAlert()
+    alert.alertStyle = .critical
+    alert.messageText = "DirBuff can't start"
+    alert.informativeText = error.localizedDescription
+    alert.addButton(withTitle: "Quit")
+    alert.runModal()
+    exit(1)
+  }
+
+  /// Read afresh each time: the trial's days pass without the record changing.
+  var licence: Licence { Licence(licenceRecord, now: Date()) }
+
+  /// The windows pass the moment they draw at, so their countdowns tick (`CountdownSchedule`).
+  func menuBarState(now: Date) -> MenuBarState {
+    MenuBarState(
+      reports: reports, journal: journal, freeSpace: freeSpace,
+      isFinderExtensionOff: isFinderExtensionOff, licence: Licence(licenceRecord, now: now),
+      now: now)
+  }
+
+  func mainState(now: Date) -> MainState {
+    MainState(
+      reports: reports, journal: journal, freeSpace: freeSpace,
+      isFinderExtensionOff: isFinderExtensionOff, licence: Licence(licenceRecord, now: now),
+      now: now)
+  }
+
+  /// The folder at `url`, matched by canonical path: the store keeps `/private/var/…`
+  /// where Finder may hand over `/var/…`.
+  func report(for url: URL) -> FolderReport? {
+    let path = try? canonicalPath(of: url)
+    return reports.first { $0.folder.path == path }
+  }
+
+  // MARK: - System status
+
+  func refreshSystemStatus() {
+    isFinderExtensionOff = !FIFinderSyncController.isExtensionEnabled
+    isLoginItemEnabled = SMAppService.mainApp.status == .enabled
+    loginItemNeedsApproval = SMAppService.mainApp.status == .requiresApproval
+    Task {
+      let settings = await UNUserNotificationCenter.current().notificationSettings()
+      isNotificationAuthorized = settings.authorizationStatus == .authorized
+    }
+  }
+
+  func setOpenAtLogin(_ isOn: Bool) {
+    do {
+      if isOn {
+        try SMAppService.mainApp.register()
+      } else {
+        try SMAppService.mainApp.unregister()
+      }
+    } catch {
+      show(error, doing: isOn ? "turn on Open at login" : "turn off Open at login")
+    }
+    refreshSystemStatus()
+  }
+
+  func openLoginItemsSettings() {
+    SMAppService.openSystemSettingsLoginItems()
+  }
+
+  func openFinderExtensionsSettings() {
+    FIFinderSyncController.showExtensionManagementInterface()
+  }
+
+  func requestNotificationPermission() {
+    Task {
+      do {
+        isNotificationAuthorized = try await UNUserNotificationCenter.current()
+          .requestAuthorization(options: [.alert])
+      } catch {
+        logger.error("Notification permission: \(error.localizedDescription, privacy: .public)")
+      }
+    }
+  }
+
+  // MARK: - Folders
+
+  func refresh() async {
+    let engine = engine
+    let since = Date().addingTimeInterval(-Self.recentRunWindow)
+    do {
+      let (reports, journal) = try await Task.detached {
+        let reports = try engine.store.folders().map { folder in
+          FolderReport(folder: folder, status: folder.id.flatMap { id in Self.status(engine, id) })
+        }
+        return (reports, try engine.store.journal(since: since))
+      }.value
+      self.reports = reports
+      self.journal = journal
+      publishForFinder(reports)
+      freeSpace = Int64(
+        (try? URL.homeDirectory.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?
+          .volumeAvailableCapacity ?? 0)
+    } catch {
+      logger.error("Couldn't read the folders: \(error.localizedDescription, privacy: .public)")
+    }
+  }
+
+  /// Hands the Finder extension what its badge and item need: the Temporary folders (one whose tag
+  /// was removed in Finder loses its badge), every added folder, and the protected ones it offers
+  /// nothing on. The protected list changes as volumes mount.
+  private func publishForFinder(_ reports: [FolderReport]) {
+    guard let shared = FinderFolders.defaults else { return }
+    let temporaryPaths = reports.filter { $0.status?.isTagged == true }.map(\.folder.path)
+    if shared.temporaryFolderPaths != temporaryPaths {
+      shared.temporaryFolderPaths = temporaryPaths
+    }
+    let addedPaths = reports.map(\.folder.path)
+    if shared.addedFolderPaths != addedPaths {
+      shared.addedFolderPaths = addedPaths
+    }
+    let protectedPaths = System.protectedFolderPaths()
+    if shared.protectedFolderPaths != protectedPaths {
+      shared.protectedFolderPaths = protectedPaths
+    }
+  }
+
+  /// One unreadable folder (an unplugged drive) mustn't hide the others.
+  nonisolated private static func status(_ engine: Engine, _ id: Int64) -> Engine.FolderStatus? {
+    do {
+      return try engine.status(folderID: id)
+    } catch {
+      logger.error("Couldn't read folder \(id): \(error.localizedDescription, privacy: .public)")
+      return nil
+    }
+  }
+
+  @discardableResult
+  func addFolder(_ url: URL) async -> Folder? {
+    let engine = engine
+    do {
+      let folder = try await Task.detached { try engine.add(url) }.value
+      await refresh()
+      return folder
+    } catch {
+      show(error, doing: "add \(url.lastPathComponent)")
+      return nil
+    }
+  }
+
+  func setTemporary(_ folder: Folder, _ isOn: Bool) async {
+    let engine = engine
+    do {
+      try await Task.detached { try engine.setTemporary(folder, isOn) }.value
+    } catch {
+      show(
+        error,
+        doing: isOn
+          ? "make \(URL(fileURLWithPath: folder.path).lastPathComponent) Temporary"
+          : "make the folder plain again")
+    }
+    await refresh()
+    // Ask when the benefit is clear: right after the first folder is made Temporary.
+    if isOn, reports.count(where: { $0.status?.isTagged == true }) == 1 {
+      requestNotificationPermission()
+    }
+  }
+
+  func remove(_ folder: Folder) async {
+    let engine = engine
+    do {
+      try await Task.detached { try engine.remove(folder) }.value
+    } catch {
+      show(error, doing: "remove \(URL(fileURLWithPath: folder.path).lastPathComponent)")
+    }
+    await refresh()
+  }
+
+  func save(_ settings: TemporarySettings, for folder: Folder) async {
+    let engine = engine
+    var changed = folder
+    changed.settings = settings
+    do {
+      try await Task.detached { [changed] in try engine.store.save(changed) }.value
+    } catch {
+      show(error, doing: "save the folder's settings")
+    }
+    await refresh()
+  }
+
+  func putBack(_ run: RecentRun) async {
+    let engine = engine
+    var problems: [String] = []
+    for id in run.journalEntryIDs {
+      do {
+        try await Task.detached { try engine.undo(journalEntryID: id) }.value
+      } catch {
+        problems.append(Self.explain(error))
+      }
+    }
+    if !problems.isEmpty {
+      alert(
+        "Some items couldn't be put back", Array(Set(problems)).sorted().joined(separator: "\n"))
+    }
+    await refresh()
+  }
+
+  private static func explain(_ error: any Error) -> String {
+    guard let failure = error as? Engine.Failure else { return error.localizedDescription }
+    switch failure {
+    case .protectedFolder:
+      return Self.protectedFolderExplanation
+    case .originalPathTaken(let path):
+      let url = URL(fileURLWithPath: path)
+      return
+        "Something new is already called \(url.lastPathComponent) in \(url.deletingLastPathComponent().lastPathComponent), so it was left in the \(SystemBin.name)."
+    case .goneFromBin: return "An item is no longer in the \(SystemBin.name)."
+    case .deletedPermanently: return "Items deleted permanently can't be put back."
+    case .alreadyUndone: return "Those items were already put back."
+    case .changedSincePlanned(let path):
+      return "\(URL(fileURLWithPath: path).lastPathComponent) changed, so it was left alone."
+    case .folderNotFound, .journalEntryNotFound:
+      return "DirBuff no longer knows about that folder."
+    }
+  }
+
+  private func show(_ error: any Error, doing action: String) {
+    logger.error(
+      "Couldn't \(action, privacy: .public): \(error.localizedDescription, privacy: .public)")
+    alert("Couldn't \(action)", Self.explain(error))
+  }
+
+  private func alert(_ title: String, _ message: String) {
+    let alert = NSAlert()
+    alert.messageText = title
+    alert.informativeText = message
+    alert.runModal()
+  }
+
+  // MARK: - Licence
+
+  func openCheckout() {
+    NSWorkspace.shared.open(polarSettings.checkout)
+  }
+
+  func openCustomerPortal() {
+    NSWorkspace.shared.open(polarSettings.portal)
+  }
+
+  /// Activates the key on this Mac; returns why not, for the key window to show.
+  func activate(key: String) async -> PolarLicensing.Failure? {
+    let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    do {
+      let activationID = try await polar.activate(key: key, label: Machine.name, machine: machine)
+      licenceRecord = LicenceRecord(
+        trialStartedAt: licenceRecord.trialStartedAt, key: key, activationID: activationID,
+        lastCheckedAt: Date())
+      saveLicence()
+      return nil
+    } catch {
+      return error as? PolarLicensing.Failure ?? .unreachable
+    }
+  }
+
+  /// After a key is activated, offers back the folders the trial's or licence's end made plain.
+  func offerFoldersBack() async {
+    let folders = reports.map(\.folder).filter(\.turnedOffByLicence)
+    if !folders.isEmpty {
+      let names = folders.map { URL(fileURLWithPath: $0.path).lastPathComponent }
+      let alert = NSAlert()
+      alert.messageText =
+        folders.count == 1
+        ? "Make \(names[0]) Temporary again?"
+        : "Make these \(folders.count) folders Temporary again?"
+      alert.informativeText =
+        folders.count == 1
+        ? "It was made plain when DirBuff's licence ended." : names.joined(separator: ", ")
+      alert.addButton(withTitle: "Make Temporary")
+      alert.addButton(withTitle: "Not Now")
+      if alert.runModal() == .alertFirstButtonReturn {
+        for folder in folders { await setTemporary(folder, true) }
+      } else {
+        do {
+          try engine.store.forgetFoldersTurnedOffByLicence()
+        } catch {
+          logger.error(
+            "Couldn't forget plain folders: \(error.localizedDescription, privacy: .public)")
+        }
+      }
+    }
+    await refresh()
+  }
+
+  func deactivate() async {
+    guard let key = licenceRecord.key, let activationID = licenceRecord.activationID else { return }
+    let unlicensed = LicenceRecord(trialStartedAt: licenceRecord.trialStartedAt)
+    let confirm = NSAlert()
+    confirm.messageText = "Deactivate DirBuff on this Mac?"
+    confirm.informativeText =
+      if case .trial = Licence(unlicensed, now: Date()) {
+        "DirBuff goes back to its trial until you enter a key again."
+      } else {
+        "Your folders become plain folders until you enter a key again."
+      }
+    confirm.addButton(withTitle: "Deactivate")
+    confirm.addButton(withTitle: "Cancel")
+    guard confirm.runModal() == .alertFirstButtonReturn else { return }
+    do {
+      try await polar.deactivate(key: key, activationID: activationID)
+    } catch {
+      alert("Couldn't deactivate this Mac", PolarLicensing.Failure.unreachable.message)
+      return
+    }
+    licenceRecord = unlicensed
+    saveLicence()
+    await settleLicence(now: Date())
+  }
+
+  func checkLicenceNow() async {
+    await checkLicence(now: Date())
+    await settleLicence(now: Date())
+  }
+
+  /// No answer from Polar changes nothing: the offline grace covers it.
+  private func checkLicence(now: Date) async {
+    guard let key = licenceRecord.key, let activationID = licenceRecord.activationID else { return }
+    do {
+      let verdict = try await polar.validate(
+        key: key, activationID: activationID, machine: machine)
+      // The key may have been deactivated or replaced while Polar answered.
+      guard licenceRecord.activationID == activationID else { return }
+      switch verdict {
+      case .granted: licenceRecord.lastCheckedAt = now
+      case .ended: licenceRecord.hasEnded = true
+      }
+      saveLicence()
+    } catch {
+      logger.info("Couldn't check the licence: \(error.localizedDescription, privacy: .public)")
+    }
+  }
+
+  private func saveLicence() {
+    do {
+      try engine.store.save(licenceRecord)
+    } catch {
+      // Unsaved, the next launch forgets the key and falls back to the trial.
+      show(error, doing: "save DirBuff's licence")
+    }
+  }
+
+  /// Takes the tag off every Temporary folder once the trial or licence has ended. Folders already
+  /// plain are skipped, so it does its work once per end.
+  private func makeFoldersPlain(_ licence: Licence) async {
+    let engine = engine
+    let tagged = reports.filter { $0.status?.isTagged == true }.map(\.folder)
+    guard !tagged.isEmpty else { return }
+    for folder in tagged {
+      do {
+        try await Task.detached { try engine.turnOffByLicence(folder) }.value
+      } catch {
+        logger.error(
+          "Couldn't make \(folder.path, privacy: .public) plain: \(error.localizedDescription, privacy: .public)"
+        )
+      }
+    }
+    await refresh()
+    await notify(
+      id: "licence.ended",
+      title: licence == .trialEnded
+        ? "DirBuff's trial has ended" : "Your DirBuff licence has ended",
+      body: "Your folders are plain folders again. Buy DirBuff to turn them back on.")
+  }
+
+  // MARK: - Running the rules
+
+  /// The model lives as long as the app, so the observers below hold it strongly.
+  private func startScheduler() {
+    Task { await settleLicence(now: Date()) }
+    scheduleCleanUp(after: Date())
+    let workspace = NSWorkspace.shared.notificationCenter
+    // A timer that falls due while the Mac sleeps fires the moment it wakes, so it's dropped
+    // before sleep, synchronously: an hour slept through is skipped, never made up on waking.
+    workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) {
+      _ in MainActor.assumeIsolated { self.cleanUpTimer?.invalidate() }
+    }
+    workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) {
+      _ in
+      Task { @MainActor in
+        self.scheduleCleanUp(after: Date())
+        await self.settleLicence(now: Date())
+      }
+    }
+    for change in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange] {
+      NotificationCenter.default.addObserver(forName: change, object: nil, queue: .main) { _ in
+        Task { @MainActor in self.scheduleCleanUp(after: Date()) }
+      }
+    }
+    workspace.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) {
+      _ in Task { @MainActor in await self.refresh() }
+    }
+    workspace.addObserver(forName: NSWorkspace.didUnmountNotification, object: nil, queue: .main) {
+      _ in Task { @MainActor in await self.refresh() }
+    }
+    // Opening the menu-bar window doesn't activate an accessory app, so the status is re-read
+    // whenever one of its windows becomes key: back from System Settings, the warning must be gone.
+    NotificationCenter.default.addObserver(
+      forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+    ) { _ in Task { @MainActor in self.refreshSystemStatus() } }
+  }
+
+  /// Folders are cleared on the hour and at no other time (`nextCleanUp`), so the forecast can
+  /// say when.
+  private func scheduleCleanUp(after date: Date) {
+    cleanUpTimer?.invalidate()
+    let hour = nextCleanUp(after: date)
+    let timer = Timer(fire: hour, interval: 0, repeats: false) { _ in
+      Task { @MainActor in
+        // From the later of the two: a timer the system held back past the next hour mustn't
+        // schedule one already gone.
+        self.scheduleCleanUp(after: max(hour, Date()))
+        await self.cleanUp(at: hour)
+      }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    cleanUpTimer = timer
+  }
+
+  /// Checks the licence with Polar once a day, makes the folders plain once it has ended, and
+  /// says the day before the trial ends.
+  private func settleLicence(now: Date) async {
+    if licenceRecord.isCheckDue(now: now) {
+      await checkLicence(now: now)
+    }
+    await refresh()
+    let licence = Licence(licenceRecord, now: now)
+    if licence.plainsFolders {
+      await makeFoldersPlain(licence)
+    }
+    if licence == .trial(daysLeft: 1) {
+      await notifyOncePerDay(
+        id: "trialEndsTomorrow", now: now, title: "DirBuff's trial ends tomorrow",
+        body: "Then your folders become plain folders. Buy DirBuff to keep them Temporary.")
+    }
+  }
+
+  /// Runs every folder, one after another: each run reads free space after the last one freed
+  /// some. Each run counts from `hour`, not from when the timer fired, so it removes what the
+  /// forecast said would go at that hour. Polar is asked afterwards, not before (the offline grace
+  /// covers the gap), so the run starts on the hour, before the user can change what was shown.
+  private func cleanUp(at hour: Date) async {
+    guard !isRunning else { return }
+    isRunning = true
+    defer { isRunning = false }
+
+    guard Licence(licenceRecord, now: hour).mayClean else {
+      await settleLicence(now: hour)
+      return
+    }
+
+    let engine = engine
+    for id in reports.compactMap(\.folder.id) {
+      // The licence can end or be deactivated while earlier folders run.
+      guard self.licence.mayClean else { break }
+      do {
+        _ = try await Task.detached { try engine.run(folderID: id, now: hour) }.value
+      } catch {
+        logger.error("Run of folder \(id) failed: \(error.localizedDescription, privacy: .public)")
+      }
+    }
+    await settleLicence(now: hour)
+    await notifyWhatGoesTomorrow(now: hour)
+  }
+
+  // MARK: - Notifications
+
+  /// Once a day per folder: "Downloads: 3 items go to the Bin tomorrow".
+  private func notifyWhatGoesTomorrow(now: Date) async {
+    let calendar = Calendar.current
+    for report in reports {
+      guard let id = report.folder.id, let status = report.status else { continue }
+      let count = status.upcoming.count {
+        calendar.dateComponents(
+          [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: $0.date)
+        ).day == 1
+      }
+      guard count > 0 else { continue }
+      let items = count == 1 ? "1 item" : "\(count) items"
+      await notifyOncePerDay(
+        id: "tomorrow.\(id)", now: now,
+        title: URL(fileURLWithPath: report.folder.path).lastPathComponent,
+        body: report.folder.settings.disposal == .delete
+          ? "\(items) will be deleted permanently tomorrow."
+          : "\(items) will go to the \(SystemBin.name) tomorrow.")
+    }
+  }
+
+  private func notifyOncePerDay(id: String, now: Date, title: String, body: String) async {
+    let today = now.formatted(.iso8601.year().month().day())
+    let lastNotifiedKey = "notified.\(id)"
+    guard UserDefaults.standard.string(forKey: lastNotifiedKey) != today else { return }
+    if await notify(id: id, title: title, body: body) {
+      UserDefaults.standard.set(today, forKey: lastNotifiedKey)
+    }
+  }
+
+  /// A new notification with the same `id` replaces the last instead of stacking.
+  @discardableResult
+  private func notify(id: String, title: String, body: String) async -> Bool {
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.interruptionLevel = .passive
+    do {
+      try await UNUserNotificationCenter.current().add(
+        UNNotificationRequest(identifier: id, content: content, trigger: nil))
+      return true
+    } catch {
+      logger.error("Notification failed: \(error.localizedDescription, privacy: .public)")
+      return false
+    }
+  }
+}

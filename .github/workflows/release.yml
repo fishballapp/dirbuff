@@ -1,0 +1,123 @@
+name: Release
+
+# Run by hand from main (Actions → Release → Run workflow). The job builds, signs and notarises the
+# DMG, publishes it as a GitHub release, then points the update feed at it.
+#
+# Its secrets are the `release` environment's, which only main may read and which waits for a
+# maintainer's approval on every run: the pr/<number> branches the private monorepo pushes here
+# can't reach them.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, notarise, publish
+    # A public repo's macOS minutes are free.
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Guard (main branch only)
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::The release workflow may only run on refs/heads/main (current: $GITHUB_REF)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+
+      # Before the build: a missing changelog section, a taken tag or a build number the feed would
+      # not offer should cost seconds, not a notarisation round trip.
+      - name: Preflight check
+        id: preflight
+        run: node --experimental-strip-types apps/mac/release/publish.ts --check --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Ensure XcodeGen
+        run: command -v xcodegen || brew install xcodegen
+
+      - name: Setup throwaway keychain
+        env:
+          MAC_NATIVE_APP_APPLE_CERTIFICATE: ${{ secrets.MAC_NATIVE_APP_APPLE_CERTIFICATE }}
+          MAC_NATIVE_APP_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MAC_NATIVE_APP_APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$MAC_NATIVE_APP_APPLE_CERTIFICATE" | base64 -d > "$CERT_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$MAC_NATIVE_APP_APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$CERT_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # codesign looks for identities only in the search list, which a new keychain isn't on.
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "Developer ID Application: Fishball Ltd (9CWXH66CKT)"
+
+      - name: Build, sign, and notarise app
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: ./apps/mac/release.sh
+
+      # The DMG goes up before the feed names it, and the tag comes with it: the feed must never
+      # point at a file that is not there yet.
+      - name: Publish the GitHub release
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" "apps/mac/out/DirBuff-${VERSION}.dmg" \
+            --title "DirBuff ${VERSION}" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --target "$GITHUB_SHA" \
+            --latest
+
+      - name: Publish the update feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: node --experimental-strip-types apps/mac/release/publish.ts
+
+      - name: Job summary
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          # DirBuff ${VERSION}
+
+          - **Commit:** [\`${GITHUB_SHA:0:7}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
+          - **Release:** [v${VERSION}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION})
+          - **Update feed:** [appcast.xml](https://dirbuff.fishball.app/appcast.xml)
+          EOF
+
+      - name: Teardown keychain
+        if: always()
+        run: |
+          if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi

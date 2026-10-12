@@ -1,0 +1,69 @@
+name: DirBuff
+options:
+  bundleIdPrefix: app.fishball.dirbuff
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: "complete"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: 9CWXH66CKT
+    CODE_SIGN_IDENTITY: "Developer ID Application: Fishball Ltd (9CWXH66CKT)"
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "0.1.2"
+    CURRENT_PROJECT_VERSION: "2125"
+
+packages:
+  DirBuffUI:
+    path: ../../packages/ui
+  DirBuffKit:
+    path: ../../packages/kit
+  DirBuffCore:
+    path: ../../packages/core
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.10.0
+
+targets:
+  DirBuffFinder:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: DirBuffFinder
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: DirBuffFinder
+        PRODUCT_BUNDLE_IDENTIFIER: app.fishball.dirbuff.finder
+        INFOPLIST_FILE: DirBuffFinder/Info.plist
+        CODE_SIGN_ENTITLEMENTS: DirBuffFinder/DirBuffFinder.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+
+  DirBuff:
+    type: application
+    platform: macOS
+    sources:
+      - path: DirBuff
+      - path: Shared
+    dependencies:
+      - target: DirBuffFinder
+        embed: true
+      - package: DirBuffUI
+      - package: DirBuffKit
+      - package: DirBuffCore
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_NAME: DirBuff
+        PRODUCT_BUNDLE_IDENTIFIER: app.fishball.dirbuff
+        INFOPLIST_FILE: DirBuff/Info.plist
+        CODE_SIGN_ENTITLEMENTS: DirBuff/DirBuff.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DIRBUFF_POLAR_API: "https:/$()/sandbox-api.polar.sh"
+        DIRBUFF_POLAR_ORGANIZATION_ID: "06b3e001-297b-4ebd-bd97-c2008176dde0"
+        DIRBUFF_POLAR_CHECKOUT_URL: "https:/$()/sandbox-api.polar.sh/v1/checkout-links/polar_cl_MrvqdeDKkaPJYQ0RL1RSC2a0zZFMGwXhTOTY411JLPB/redirect"
+        DIRBUFF_POLAR_PORTAL_URL: "https:/$()/sandbox.polar.sh/fishball-ltd/portal"

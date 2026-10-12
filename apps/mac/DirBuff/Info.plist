@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundleExecutable</key>
+    <string>DirBuff</string>
+    <key>CFBundleIdentifier</key>
+    <string>app.fishball.dirbuff</string>
+    <key>CFBundleName</key>
+    <string>DirBuff</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>en-GB</string>
+    </array>
+    <key>LSUIElement</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>app.fishball.dirbuff</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>dirbuff</string>
+            </array>
+        </dict>
+    </array>
+    <key>DirBuffPolarAPI</key>
+    <string>$(DIRBUFF_POLAR_API)</string>
+    <key>DirBuffPolarOrganizationID</key>
+    <string>$(DIRBUFF_POLAR_ORGANIZATION_ID)</string>
+    <key>DirBuffPolarCheckoutURL</key>
+    <string>$(DIRBUFF_POLAR_CHECKOUT_URL)</string>
+    <key>DirBuffPolarPortalURL</key>
+    <string>$(DIRBUFF_POLAR_PORTAL_URL)</string>
+    <key>SUFeedURL</key>
+    <string>https://dirbuff.fishball.app/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>z/sgDmB4rkR9alOhkMUEunHFDIleM4Ki7kXqzHhf0ao=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+</dict>
+</plist>

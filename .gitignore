@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+tmp-previews/
+*.xcodeproj
+apps/mac/out/
+apps/mac/.derivedData/
+node_modules
+*.tsbuildinfo

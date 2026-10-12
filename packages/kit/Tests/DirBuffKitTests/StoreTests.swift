@@ -1,0 +1,110 @@
+import DirBuffCore
+import Foundation
+import GRDB
+import Testing
+
+@testable import DirBuffKit
+
+@Suite struct StoreTests {
+  let store: Store
+  let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+  init() throws {
+    store = try Store.inMemory()
+  }
+
+  private func folder(settings: TemporarySettings = TemporarySettings()) throws -> Folder {
+    try store.insert(
+      Folder(
+        bookmark: Data([1]), path: "/Users/me/Downloads", settings: settings,
+        createdAt: createdAt, lastRunAt: createdAt))
+  }
+
+  @Test func keepsAFoldersSettings() throws {
+    let settings = TemporarySettings(
+      maxAgeDays: nil, sizeLimit: 5_000_000_000, automatic: true, emptyOnRestart: true,
+      disposal: .delete)
+    let saved = try folder(settings: settings)
+    #expect(try store.folder(id: try #require(saved.id)) == saved)
+    #expect(try store.folders().map(\.settings) == [settings])
+  }
+
+  @Test func findsAFolderByPath() throws {
+    let saved = try folder()
+    #expect(try store.folder(path: "/Users/me/Downloads") == saved)
+    #expect(try store.folder(path: "/Users/me/Other") == nil)
+  }
+
+  @Test func keepsTheJournalNewestFirst() throws {
+    let folderID = try #require(folder().id)
+    let entries = try [1.0, 2.0].map { offset in
+      try store.insert(
+        JournalEntry(
+          folderID: folderID, disposal: .bin, name: "a", binnedPath: "/b", size: 10,
+          reasons: [.age, .size], performedAt: createdAt.addingTimeInterval(offset)))
+    }
+    #expect(try store.journal(folderID: folderID) == entries.reversed())
+  }
+
+  @Test func readsEveryFoldersJournalSinceADate() throws {
+    let first = try #require(folder().id)
+    let second = try #require(folder().id)
+    let entries = try [(first, -10.0), (second, 1.0), (first, 2.0)].map { folderID, offset in
+      try store.insert(
+        JournalEntry(
+          folderID: folderID, disposal: .bin, name: "a", size: 1, reasons: [.age],
+          performedAt: createdAt.addingTimeInterval(offset)))
+    }
+    #expect(try store.journal(since: createdAt) == [entries[2], entries[1]])
+  }
+
+  @Test func forgetsAFoldersJournalWithIt() throws {
+    let folderID = try #require(folder().id)
+    _ = try store.insert(
+      JournalEntry(
+        folderID: folderID, disposal: .delete, name: "a", size: 1, reasons: [.age],
+        performedAt: createdAt))
+    try store.deleteFolder(id: folderID)
+    #expect(try store.journal(folderID: folderID).isEmpty)
+  }
+
+  @Test func startsTheTrialWhenTheDatabaseIsCreated() throws {
+    let licence = try store.licence()
+    #expect(abs(licence.trialStartedAt.timeIntervalSinceNow) < 60)
+    #expect(licence == LicenceRecord(trialStartedAt: licence.trialStartedAt))
+  }
+
+  @Test func keepsTheLicence() throws {
+    let licence = LicenceRecord(
+      trialStartedAt: createdAt, key: "DIRBUFF-1", activationID: "a1",
+      lastCheckedAt: createdAt + 60, hasEnded: true)
+    try store.save(licence)
+    #expect(try store.licence() == licence)
+  }
+
+  @Test func forgetsFoldersTurnedOffByLicence() throws {
+    var saved = try folder()
+    saved.turnedOffByLicence = true
+    try store.save(saved)
+    try store.forgetFoldersTurnedOffByLicence()
+    #expect(try store.folders().map(\.turnedOffByLicence) == [false])
+  }
+
+  @Test func addsTheLicenceToADatabaseFromBeforeIt() throws {
+    let database = try DatabaseQueue()
+    try Store.migrator.migrate(database, upTo: "temporary folders and journal")
+    try database.write {
+      try $0.execute(
+        sql: """
+          INSERT INTO folder (bookmark, path, automatic, emptyOnRestart, disposal, createdAt,
+            lastRunAt)
+          VALUES (x'01', '/Users/me/Downloads', 0, 0, 'bin', ?, ?)
+          """,
+        arguments: [createdAt, createdAt])
+    }
+    try Store.migrator.migrate(database)
+    let folders = try database.read { try Folder.fetchAll($0) }
+    #expect(folders.map(\.turnedOffByLicence) == [false])
+    #expect(try database.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM licence") } == 1)
+  }
+}
