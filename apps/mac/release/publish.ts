@@ -259,14 +259,19 @@ const resolveStableRelease = (): ResolvedRelease => {
   return { version, build: getBuildNumber(), notes, githubNotes: notes };
 };
 
-/** The dev build of the checked-out commit of `main`; its notes are the commit's message. */
+/**
+ * The dev build of the checked-out commit of `main`; its notes are the commit's message, less the
+ * `ref-hash:` trailer naming the private commit it was exported from.
+ */
 const resolveDevRelease = (): ResolvedRelease => {
   const { version, build } = devRelease({
     marketingVersion: getMarketingVersion(),
     build: getBuildNumber(),
     commitCount: Number(git('rev-list', '--count', 'HEAD')),
   });
-  const notes = git('log', '-1', '--format=%B');
+  const notes = git('log', '-1', '--format=%B')
+    .replace(/^ref-hash: .*$/m, '')
+    .trim();
   const githubNotes = `Dev build of main at ${git('rev-parse', '--short=7', 'HEAD')}. Served to the dev update channel; not for general use.\n\n${notes}`;
   return { channel: 'dev', version, build, notes, githubNotes };
 };
