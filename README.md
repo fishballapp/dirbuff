@@ -71,7 +71,7 @@ team's in both `.entitlements` files and `apps/mac/Shared/FinderFolders.swift`.
 ## Releases
 
 A release is built, signed, notarised and published by [`release.yml`](.github/workflows/release.yml),
-run by hand from `main`. The DMG is a GitHub release asset; the update feed Sparkle reads is
+run by a version tag (`v<version>`) on a commit of `main`. The DMG is a GitHub release asset; the update feed Sparkle reads is
 `dirbuff.fishball.app/appcast.xml`, and an update installs only if it is signed with the key whose
 public half is `SUPublicEDKey` in `apps/mac/DirBuff/Info.plist`.
 

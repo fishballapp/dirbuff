@@ -34,6 +34,7 @@ const parseCliArgs = () => {
     args: rawArgs,
     options: {
       check: { type: 'boolean', default: false },
+      tag: { type: 'string' },
       'notes-file': { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
       prefix: { type: 'string', default: '' },
@@ -43,6 +44,7 @@ const parseCliArgs = () => {
 
   return {
     check: values.check ?? false,
+    tag: values.tag,
     notesFile: values['notes-file'],
     dryRun: values['dry-run'] ?? false,
     prefix: values.prefix ?? '',
@@ -197,7 +199,11 @@ const fetchLiveAppcast = async (): Promise<string | null> => {
   return await res.text();
 };
 
-export const runPreflightCheck = async (notesFile?: string): Promise<{ version: string }> => {
+/** Checks a release before its build: `tag` is the tag being released, which must name this version. */
+export const runPreflightCheck = async (
+  tag: string,
+  notesFile?: string,
+): Promise<{ version: string }> => {
   const version = getMarketingVersion();
   const build = getBuildNumber();
   console.log(`Checking release preflight for version ${version} (build ${build})...`);
@@ -209,14 +215,12 @@ export const runPreflightCheck = async (notesFile?: string): Promise<{ version: 
   console.log(`✓ CHANGELOG.md contains section for ## ${version}`);
   if (notesFile !== undefined) writeFileSync(notesFile, `${releaseNotes}\n`);
 
-  const tag = releaseTag(version);
-  const lsRemote = execFileSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
-    encoding: 'utf8',
-  }).trim();
-  if (lsRemote.length > 0) {
-    throw new Error(`Git tag "${tag}" already exists on origin.`);
+  if (tag !== releaseTag(version)) {
+    throw new Error(
+      `Tag "${tag}" does not name MARKETING_VERSION ${version}: release it as "${releaseTag(version)}".`,
+    );
   }
-  console.log(`✓ Remote tag "${tag}" does not exist`);
+  console.log(`✓ Tag "${tag}" names version ${version}`);
 
   assertNewRelease(await fetchLiveAppcast(), { shortVersionString: version, version: build });
   console.log(`✓ Build ${build} is above every build in the live appcast`);
@@ -233,7 +237,8 @@ const main = async () => {
   const options = parseCliArgs();
 
   if (options.check) {
-    await runPreflightCheck(options.notesFile);
+    if (options.tag === undefined) throw new Error('--check needs --tag <the tag being released>');
+    await runPreflightCheck(options.tag, options.notesFile);
     return;
   }
 

@@ -1,14 +1,16 @@
 name: Release
 
-# Run by hand from main (Actions → Release → Run workflow). The job builds, signs and notarises the
-# DMG, publishes it as a GitHub release, then points the update feed at it.
+# Runs on a version tag, `v<version>` on a commit of main. The private monorepo pushes it here when
+# its own `dirbuff-v<version>` tag is pushed (public-release-tags.yml there). The job builds, signs
+# and notarises the DMG, publishes it as the tag's GitHub release, then points the update feed at it.
 #
 # Its secrets live in 1Password and load through varlock (apps/mac/.env.schema). The one GitHub
 # secret is DIRBUFF_OP_TOKEN, a service account that reads DirBuff's Environments only, held by the
-# `release` environment, which only main may read and which waits for a maintainer's approval on
-# every run: the pr/<number> branches the private monorepo pushes here can't reach it.
+# `release` environment, which only `v*` tags may read and which waits for a maintainer's approval
+# on every run: the pr/<number> branches the private monorepo pushes here can't reach it.
 on:
-  workflow_dispatch:
+  push:
+    tags: ['v*']
 
 concurrency:
   group: release
@@ -30,14 +32,16 @@ jobs:
       GH_TOKEN: ${{ github.token }}
 
     steps:
-      - name: Guard (main branch only)
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Guard (a tag on main only)
         run: |
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "::error::The release workflow may only run on refs/heads/main (current: $GITHUB_REF)."
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main; only a commit of main is released."
             exit 1
           fi
-
-      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v6
 
@@ -48,11 +52,11 @@ jobs:
       - name: Install the release tooling
         run: pnpm install --frozen-lockfile --filter @dirbuff/mac
 
-      # Before the build: a missing changelog section, a taken tag or a build number the feed would
-      # not offer should cost seconds, not a notarisation round trip.
+      # Before the build: a missing changelog section, a tag that doesn't name MARKETING_VERSION or a
+      # build number the feed would not offer should cost seconds, not a notarisation round trip.
       - name: Preflight check
         id: preflight
-        run: node --experimental-strip-types apps/mac/release/publish.ts --check --notes-file "$RUNNER_TEMP/notes.md"
+        run: node --experimental-strip-types apps/mac/release/publish.ts --check --tag "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Ensure XcodeGen
         run: command -v xcodegen || brew install xcodegen
@@ -105,7 +109,7 @@ jobs:
       - name: Build, sign, and notarise app
         run: ./apps/mac/release.sh
 
-      # The DMG goes up before the feed names it, and the tag comes with it: the feed must never
+      # The DMG goes up, on the tag being released, before the feed names it: the feed must never
       # point at a file that is not there yet.
       - name: Publish the GitHub release
         env:
@@ -114,7 +118,7 @@ jobs:
           gh release create "v${VERSION}" "apps/mac/out/DirBuff-${VERSION}.dmg" \
             --title "DirBuff ${VERSION}" \
             --notes-file "$RUNNER_TEMP/notes.md" \
-            --target "$GITHUB_SHA" \
+            --verify-tag \
             --latest
 
       - name: Publish the update feed
