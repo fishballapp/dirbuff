@@ -1,5 +1,10 @@
 # Changelog — DirBuff
 
+## 0.1.4
+
+- Settings has an Updates section: the version you're running, a Check for Updates… button, and Get dev builds.
+- Turn on Get dev builds to get every change as soon as it's merged. Some will be broken.
+
 ## 0.1.3
 
 - DirBuff is now open source (GPL-3.0). After the 14-day trial, a licence is $10, £10 or €10 a year and supports its development; the monthly plan is gone.
