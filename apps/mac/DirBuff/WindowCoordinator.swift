@@ -16,11 +16,13 @@ final class MainWindowState {
 @MainActor
 final class WindowCoordinator {
   private let appModel: AppModel
+  private let updates: Updates
   let mainWindowState = MainWindowState()
   private var windows: [String: NSWindow] = [:]
 
-  init(appModel: AppModel) {
+  init(appModel: AppModel, updates: Updates) {
     self.appModel = appModel
+    self.updates = updates
   }
 
   func openMain(selecting url: URL? = nil) {
@@ -54,7 +56,7 @@ final class WindowCoordinator {
 
   func openSettings() {
     showContentSized(key: "settings", title: "DirBuff Settings") {
-      SettingsContainerView(appModel: appModel, coordinator: self)
+      SettingsContainerView(appModel: appModel, updates: updates, coordinator: self)
     }
   }
 

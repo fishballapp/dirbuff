@@ -114,10 +114,8 @@ private let licensed = LicenceRecord(
     #expect(!trial.limitsUpdates)
 
     let releases = [("0.1.2", "2027-01-10"), ("0.1.3", "2027-01-15"), ("0.1.4", "2027-01-16")]
-    let newest = ended.newestCovered(releases) { ReleaseDay($0.1) }
-    #expect(newest?.0 == "0.1.3")
-    #expect(ended.newestCovered([("0.1.4", "2027-01-16")]) { ReleaseDay($0.1) } == nil)
-    #expect(ended.newestCovered([("undated", "")]) { ReleaseDay($0.1) } == nil)
+    #expect(ended.covered(releases) { ReleaseDay($0.1) }.map(\.0) == ["0.1.2", "0.1.3"])
+    #expect(ended.covered([("undated", "")]) { ReleaseDay($0.1) }.isEmpty)
   }
 
   @Test func polarIsAskedOnceADayWhileThereIsAKey() {

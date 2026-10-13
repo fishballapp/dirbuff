@@ -148,10 +148,11 @@ enum Samples {
       licence: licence, now: shownAt, calendar: calendar, binName: "Trash")
   }
 
-  static func settings(_ licence: Licence) -> SettingsState {
+  static func settings(_ licence: Licence, shouldGetDevBuilds: Bool = false) -> SettingsState {
     SettingsState(
       openAtLogin: true, openAtLoginRequiresApproval: false, showInMenuBar: true,
-      licence: licence, licenceKey: "DIRBUFF-9AD0419A-553D-4FB1-A8C2-F40AE9E63D8D")
+      shouldGetDevBuilds: shouldGetDevBuilds, version: "0.1.3 (2126)", licence: licence,
+      licenceKey: "DIRBUFF-9AD0419A-553D-4FB1-A8C2-F40AE9E63D8D")
   }
 
   static let setup = SetupState(

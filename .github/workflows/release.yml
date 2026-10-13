@@ -1,20 +1,28 @@
 name: Release
 
-# Runs on a version tag, `v<version>` on a commit of main. The private monorepo pushes it here when
-# its own `dirbuff-v<version>` tag is pushed (public-release-tags.yml there). The job builds, signs
-# and notarises the DMG, publishes it as the tag's GitHub release, then points the update feed at it.
+# Two kinds of release, one job:
+# - A version tag, `v<version>` on a commit of main, is a stable release. The private monorepo
+#   pushes it here when its own `dirbuff-v<version>` tag is pushed (public-release-tags.yml there).
+# - Every push to main is a dev build of that commit, served only to copies that chose the `dev`
+#   update channel in Settings. The newest three are kept.
+# Each builds, signs and notarises the DMG, publishes it as a GitHub release, then points the update
+# feed at it.
 #
 # Its secrets live in 1Password and load through varlock (apps/mac/.env.schema). The one GitHub
 # secret is DIRBUFF_OP_TOKEN, a service account that reads DirBuff's Environments only, held by the
-# `release` environment, which only `v*` tags may read and which waits for a maintainer's approval
-# on every run: the pr/<number> branches the private monorepo pushes here can't reach it.
+# `release` environment, which only `main` and `v*` tags may read and which needs no approval: only
+# the deploy key and the repo's admins push either, and the pr/<number> branches the private
+# monorepo pushes here can't reach it.
 on:
   push:
     tags: ['v*']
+    branches: [main]
 
+# A newer push to main makes the dev build still running pointless. Releases run one at a time and
+# are never cancelled: two overlapping could leave GitHub's Latest and latest.json on the older one.
 concurrency:
-  group: release
-  cancel-in-progress: false
+  group: ${{ github.ref_type == 'tag' && 'release' || 'dev-build' }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 permissions:
   contents: read
@@ -37,6 +45,7 @@ jobs:
           fetch-depth: 0
 
       - name: Guard (a tag on main only)
+        if: github.ref_type == 'tag'
         run: |
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::$GITHUB_REF_NAME is not on main; only a commit of main is released."
@@ -54,9 +63,16 @@ jobs:
 
       # Before the build: a missing changelog section, a tag that doesn't name MARKETING_VERSION or a
       # build number the feed would not offer should cost seconds, not a notarisation round trip.
+      # It also names a dev build: its version and build number come from the commit count.
       - name: Preflight check
         id: preflight
-        run: node --experimental-strip-types apps/mac/release/publish.ts --check --tag "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == branch ]]; then
+            target=(--dev)
+          else
+            target=(--tag "$GITHUB_REF_NAME")
+          fi
+          node --experimental-strip-types apps/mac/release/publish.ts --check "${target[@]}" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Ensure XcodeGen
         run: command -v xcodegen || brew install xcodegen
@@ -107,29 +123,52 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "Developer ID Application: Fishball Ltd (9CWXH66CKT)"
 
       - name: Build, sign, and notarise app
+        env:
+          DIRBUFF_VERSION: ${{ steps.preflight.outputs.version }}
+          DIRBUFF_BUILD: ${{ steps.preflight.outputs.build }}
         run: ./apps/mac/release.sh
 
       # The DMG goes up, on the tag being released, before the feed names it: the feed must never
-      # point at a file that is not there yet.
+      # point at a file that is not there yet. A dev build has no tag yet: `--target` makes it, on
+      # the commit built. A tag made by GITHUB_TOKEN starts no workflow, so it can't start this one
+      # again (and the stable preflight would refuse it: it names no MARKETING_VERSION).
       - name: Publish the GitHub release
         env:
           VERSION: ${{ steps.preflight.outputs.version }}
         run: |
-          gh release create "v${VERSION}" "apps/mac/out/DirBuff-${VERSION}.dmg" \
-            --title "DirBuff ${VERSION}" \
-            --notes-file "$RUNNER_TEMP/notes.md" \
-            --verify-tag \
-            --latest
+          if [[ "$GITHUB_REF_TYPE" == branch ]]; then
+            gh release create "v${VERSION}" "apps/mac/out/DirBuff-${VERSION}.dmg" \
+              --title "DirBuff ${VERSION} (dev build)" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --latest=false
+          else
+            gh release create "v${VERSION}" "apps/mac/out/DirBuff-${VERSION}.dmg" \
+              --title "DirBuff ${VERSION}" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --verify-tag \
+              --latest
+          fi
 
+      # The feed, then (for a dev build) the dev releases it no longer keeps: the feed is never left
+      # naming a release that is gone.
       - name: Publish the update feed
-        run: node --experimental-strip-types apps/mac/release/publish.ts
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == branch ]]; then
+            node --experimental-strip-types apps/mac/release/publish.ts --dev
+          else
+            node --experimental-strip-types apps/mac/release/publish.ts
+          fi
 
       - name: Job summary
         env:
           VERSION: ${{ steps.preflight.outputs.version }}
         run: |
+          KIND=""
+          if [[ "$GITHUB_REF_TYPE" == branch ]]; then KIND=" (dev build)"; fi
           cat <<EOF >> "$GITHUB_STEP_SUMMARY"
-          # DirBuff ${VERSION}
+          # DirBuff ${VERSION}${KIND}
 
           - **Commit:** [\`${GITHUB_SHA:0:7}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
           - **Release:** [v${VERSION}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION})

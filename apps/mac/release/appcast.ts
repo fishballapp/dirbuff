@@ -1,4 +1,13 @@
+import { compareBuilds } from './version.ts';
+
+/** A stable release has no channel: every copy is offered it. A dev build is offered only to those who chose `dev`. */
+export type ReleaseChannel = 'dev';
+
+/** The newest dev items the feed keeps, matching the GitHub releases kept. */
+export const KEPT_DEV_ITEMS = 3;
+
 export type AppcastReleaseItem = {
+  readonly channel?: ReleaseChannel;
   readonly title: string;
   readonly pubDate: string;
   readonly version: string;
@@ -71,11 +80,19 @@ export const extractItemVersions = (
   };
 };
 
+export const extractItemChannel = (itemXml: string): ReleaseChannel | undefined =>
+  itemXml.match(/<sparkle:channel>([^<]+)<\/sparkle:channel>/i)?.[1]?.trim() === 'dev'
+    ? 'dev'
+    : undefined;
+
 export const formatItemXml = (release: AppcastReleaseItem, indent = '    '): string => {
   const lines = [
     `${indent}<item>`,
     `${indent}  <title>${escapeXml(release.title)}</title>`,
     `${indent}  <pubDate>${escapeXml(release.pubDate)}</pubDate>`,
+    ...(release.channel === undefined
+      ? []
+      : [`${indent}  <sparkle:channel>${escapeXml(release.channel)}</sparkle:channel>`]),
     `${indent}  <sparkle:version>${escapeXml(release.version)}</sparkle:version>`,
     `${indent}  <sparkle:shortVersionString>${escapeXml(release.shortVersionString)}</sparkle:shortVersionString>`,
     `${indent}  <sparkle:minimumSystemVersion>${escapeXml(release.minimumSystemVersion)}</sparkle:minimumSystemVersion>`,
@@ -88,11 +105,13 @@ export const formatItemXml = (release: AppcastReleaseItem, indent = '    '): str
 
 /**
  * Throws unless `release` is one Sparkle would offer: a version the feed doesn't have, and a build
- * number above every build in it (Sparkle compares builds, not the version people see).
+ * above the builds it is compared with (Sparkle compares builds, not the version people see). A
+ * dev build is compared with every item; a stable one with the stable items only, so the dev build
+ * of the commit that bumped the version (`2127.151`) doesn't block the release of `2127`.
  */
 export const assertNewRelease = (
   existingXml: string | null,
-  release: Pick<AppcastReleaseItem, 'shortVersionString' | 'version'>,
+  release: Pick<AppcastReleaseItem, 'shortVersionString' | 'version' | 'channel'>,
 ): void => {
   const existingItems = existingXml === null ? [] : extractItems(existingXml);
   for (const itemXml of existingItems) {
@@ -102,12 +121,16 @@ export const assertNewRelease = (
         `Duplicate release version: "${release.shortVersionString}" is already present in appcast.`,
       );
     }
-    if (version === release.version) {
+    if (version === null) continue;
+
+    const order = compareBuilds(version, release.version);
+    if (order === 0) {
       throw new Error(
         `Duplicate release build: "${release.version}" is already present in appcast.`,
       );
     }
-    if (version !== null && Number(version) > Number(release.version)) {
+    const isCompared = release.channel === 'dev' || extractItemChannel(itemXml) === undefined;
+    if (isCompared && order > 0) {
       throw new Error(
         `Release build "${release.version}" is below build "${version}" already in the appcast, so no installed copy would be offered it. Raise CURRENT_PROJECT_VERSION in project.yml.`,
       );
@@ -115,24 +138,57 @@ export const assertNewRelease = (
   }
 };
 
+const removeItem = (xml: string, itemXml: string): string => {
+  const end = xml.indexOf(itemXml) + itemXml.length;
+  const start = xml.slice(0, end - itemXml.length).replace(/[ \t]*$/, '').length;
+  return `${xml.slice(0, start)}${xml.slice(end).replace(/^\n/, '')}`;
+};
+
+/** The dev items of `xml`, newest build first. */
+const devItemsOf = (xml: string): { itemXml: string; build: string }[] =>
+  extractItems(xml)
+    .filter(itemXml => extractItemChannel(itemXml) === 'dev')
+    .flatMap(itemXml => {
+      const { version } = extractItemVersions(itemXml);
+      return version === null ? [] : [{ itemXml, build: version }];
+    })
+    .sort((a, b) => compareBuilds(b.build, a.build));
+
+/** The versions of the dev items in `xml`, newest first. */
+export const devVersionsOf = (xml: string): string[] =>
+  devItemsOf(xml).flatMap(({ itemXml }) => {
+    const { shortVersionString } = extractItemVersions(itemXml);
+    return shortVersionString === null ? [] : [shortVersionString];
+  });
+
+/** `xml` without any dev item beyond the newest `KEPT_DEV_ITEMS`. Stable items are never removed. */
+export const pruneDevItems = (xml: string): string =>
+  devItemsOf(xml)
+    .slice(KEPT_DEV_ITEMS)
+    .reduce((pruned, { itemXml }) => removeItem(pruned, itemXml), xml);
+
+const insertItem = (xml: string, newItemXml: string): string => {
+  const firstItemIndex = xml.search(/<item\b/i);
+  if (firstItemIndex !== -1) {
+    const lineStart = xml.lastIndexOf('\n', firstItemIndex) + 1;
+    return `${xml.slice(0, lineStart)}${newItemXml}\n${xml.slice(lineStart)}`;
+  }
+
+  const closeChannelIndex = xml.search(/<\/channel>/i);
+  if (closeChannelIndex !== -1) {
+    return `${xml.slice(0, closeChannelIndex)}${newItemXml}\n  ${xml.slice(closeChannelIndex)}`;
+  }
+
+  throw new Error('Invalid appcast XML: missing </channel> tag.');
+};
+
 export const updateAppcast = (existingXml: string | null, release: AppcastReleaseItem): string => {
   const baseXml = existingXml && existingXml.trim().length > 0 ? existingXml : createEmptyAppcast();
 
   assertNewRelease(baseXml, release);
 
-  const newItemXml = formatItemXml(release);
-
-  const firstItemIndex = baseXml.search(/<item\b/i);
-  if (firstItemIndex !== -1) {
-    return `${baseXml.slice(0, firstItemIndex)}${newItemXml}\n${baseXml.slice(firstItemIndex)}`;
-  }
-
-  const closeChannelIndex = baseXml.search(/<\/channel>/i);
-  if (closeChannelIndex !== -1) {
-    return `${baseXml.slice(0, closeChannelIndex)}${newItemXml}\n  ${baseXml.slice(closeChannelIndex)}`;
-  }
-
-  throw new Error('Invalid appcast XML: missing </channel> tag.');
+  const withRelease = insertItem(baseXml, formatItemXml(release));
+  return release.channel === 'dev' ? pruneDevItems(withRelease) : withRelease;
 };
 
 export const extractChangelogSection = (changelogContent: string, version: string): string => {

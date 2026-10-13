@@ -5,6 +5,8 @@ public struct SettingsView: View {
   public var state: SettingsState
   public var onToggleOpenAtLogin: (Bool) -> Void
   public var onToggleShowInMenuBar: (Bool) -> Void
+  public var onToggleGetDevBuilds: (Bool) -> Void
+  public var onCheckForUpdates: () -> Void
   public var onOpenLoginItemsSettings: () -> Void
   public var onOpenSetup: () -> Void
   public var onBuy: () -> Void
@@ -16,6 +18,8 @@ public struct SettingsView: View {
     state: SettingsState,
     onToggleOpenAtLogin: @escaping (Bool) -> Void = { _ in },
     onToggleShowInMenuBar: @escaping (Bool) -> Void = { _ in },
+    onToggleGetDevBuilds: @escaping (Bool) -> Void = { _ in },
+    onCheckForUpdates: @escaping () -> Void = {},
     onOpenLoginItemsSettings: @escaping () -> Void = {},
     onOpenSetup: @escaping () -> Void = {},
     onBuy: @escaping () -> Void = {},
@@ -26,6 +30,8 @@ public struct SettingsView: View {
     self.state = state
     self.onToggleOpenAtLogin = onToggleOpenAtLogin
     self.onToggleShowInMenuBar = onToggleShowInMenuBar
+    self.onToggleGetDevBuilds = onToggleGetDevBuilds
+    self.onCheckForUpdates = onCheckForUpdates
     self.onOpenLoginItemsSettings = onOpenLoginItemsSettings
     self.onOpenSetup = onOpenSetup
     self.onBuy = onBuy
@@ -75,6 +81,25 @@ public struct SettingsView: View {
           isOn: Binding(get: { state.showInMenuBar }, set: { onToggleShowInMenuBar($0) }))
       } footer: {
         Text("DirBuff keeps clearing your folders when its icon is hidden.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Section {
+        LabeledContent {
+          Button("Check for Updates…", action: onCheckForUpdates)
+            .disabled(!state.canCheckForUpdates)
+        } label: {
+          Text("Version \(state.version)")
+        }
+
+        Toggle(
+          "Get dev builds",
+          isOn: Binding(get: { state.shouldGetDevBuilds }, set: { onToggleGetDevBuilds($0) }))
+      } header: {
+        Text("Updates")
+      } footer: {
+        Text("Every change as soon as it's merged. Some will be broken.")
           .font(.caption)
           .foregroundStyle(.secondary)
       }

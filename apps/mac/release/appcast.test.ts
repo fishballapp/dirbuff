@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type AppcastReleaseItem,
   assertNewRelease,
+  devVersionsOf,
   extractChangelogSection,
   extractItems,
   extractItemVersions,
@@ -194,5 +195,91 @@ Initial public release of DirBuff for macOS:
     expect(() => extractChangelogSection(changelog, '9.9.9')).toThrowError(
       /Section "## 9.9.9" not found in CHANGELOG/,
     );
+  });
+
+  describe('dev builds', () => {
+    const stable = (version: string, build: string): AppcastReleaseItem => ({
+      ...sampleRelease,
+      title: `Version ${version}`,
+      shortVersionString: version,
+      version: build,
+    });
+    const dev = (count: number, build = `2126.${count}`): AppcastReleaseItem => ({
+      ...sampleRelease,
+      channel: 'dev',
+      title: `Version 0.1.4-dev.${count}`,
+      shortVersionString: `0.1.4-dev.${count}`,
+      version: build,
+    });
+
+    it('writes the dev channel on a dev item and on no stable one', () => {
+      const xml = updateAppcast(updateAppcast(null, stable('0.1.3', '2126')), dev(150));
+      const [devItem, stableItem] = extractItems(xml);
+      expect(devItem).toContain('<sparkle:channel>dev</sparkle:channel>');
+      expect(stableItem).not.toContain('<sparkle:channel>');
+    });
+
+    it('compares builds segment by segment, not as one number', () => {
+      const xml = updateAppcast(null, dev(150));
+      expect(() => updateAppcast(xml, dev(20))).toThrowError(
+        /build "2126.20" is below build "2126.150"/,
+      );
+      expect(() => updateAppcast(xml, dev(151))).not.toThrow();
+    });
+
+    it('refuses a dev build below a stable one, but not a stable build below a dev one', () => {
+      const withStable = updateAppcast(null, stable('0.1.3', '2126'));
+      expect(() => updateAppcast(withStable, dev(150, '2125.150'))).toThrowError(/is below build/);
+
+      const withDev = updateAppcast(withStable, dev(150));
+      expect(() => assertNewRelease(withDev, stable('0.1.4', '2127'))).not.toThrow();
+      expect(() => assertNewRelease(withDev, stable('0.1.4', '2126'))).toThrowError(
+        /Duplicate release build|below/,
+      );
+    });
+
+    it('lets a stable release follow the dev build of the commit that bumped its version', () => {
+      const xml = updateAppcast(updateAppcast(null, stable('0.1.3', '2126')), dev(151, '2127.151'));
+      const released = updateAppcast(xml, stable('0.1.4', '2127'));
+      expect(extractItems(released)).toHaveLength(3);
+    });
+
+    it('refuses a stable build below a stable one already in the feed', () => {
+      const xml = updateAppcast(null, stable('0.1.3', '2126'));
+      expect(() => assertNewRelease(xml, stable('0.1.4', '2125'))).toThrowError(/is below build/);
+    });
+
+    it('keeps the newest three dev items, newest by build, and every stable item', () => {
+      const start = updateAppcast(
+        updateAppcast(null, stable('0.1.2', '2125')),
+        stable('0.1.3', '2126'),
+      );
+      const xml = [148, 149, 150, 151, 152].reduce(
+        (feed, count) => updateAppcast(feed, dev(count)),
+        start,
+      );
+
+      expect(devVersionsOf(xml)).toEqual(['0.1.4-dev.152', '0.1.4-dev.151', '0.1.4-dev.150']);
+      const versions = extractItems(xml).map(item => extractItemVersions(item).shortVersionString);
+      expect(versions).toEqual([
+        '0.1.4-dev.152',
+        '0.1.4-dev.151',
+        '0.1.4-dev.150',
+        '0.1.3',
+        '0.1.2',
+      ]);
+      expect(xml).not.toContain('dev.149');
+      expect(xml).toMatch(/<\/item>\n {2}<\/channel>/);
+    });
+
+    it('does not prune when a stable item is published', () => {
+      const withDevs = [148, 149, 150, 151].reduce(
+        (feed, count) => updateAppcast(feed, dev(count)),
+        null as string | null,
+      );
+      const released = updateAppcast(withDevs, stable('0.1.4', '2127'));
+      expect(devVersionsOf(released)).toHaveLength(3);
+      expect(extractItems(released)).toHaveLength(4);
+    });
   });
 });

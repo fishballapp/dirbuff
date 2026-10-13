@@ -6,7 +6,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
   let appModel: AppModel
   let updates: Updates
-  lazy var windows = WindowCoordinator(appModel: appModel)
+  lazy var windows = WindowCoordinator(appModel: appModel, updates: updates)
 
   override init() {
     let appModel = AppModel()

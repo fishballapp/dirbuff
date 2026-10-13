@@ -28,13 +28,20 @@ KEY_PATH="$TMP_DIR/AuthKey_${ASC_KEY_ID}.p8"
 echo "$ASC_API_KEY_P8_BASE64" | base64 -d > "$KEY_PATH"
 chmod 600 "$KEY_PATH"
 
-# Extract versions: both are bumped by hand in the release's pull request
-MARKETING_VERSION=$(sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/project.yml")
+# Both are bumped by hand in the release's pull request. A dev build of main sets
+# DIRBUFF_VERSION and DIRBUFF_BUILD instead (release/publish.ts --check --dev computes them).
+MARKETING_VERSION="${DIRBUFF_VERSION:-}"
+if [[ -z "$MARKETING_VERSION" ]]; then
+  MARKETING_VERSION=$(sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/project.yml")
+fi
 if [[ -z "$MARKETING_VERSION" ]]; then
   echo "Error: Could not extract MARKETING_VERSION from $SCRIPT_DIR/project.yml" >&2
   exit 1
 fi
-CURRENT_PROJECT_VERSION=$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/project.yml")
+CURRENT_PROJECT_VERSION="${DIRBUFF_BUILD:-}"
+if [[ -z "$CURRENT_PROJECT_VERSION" ]]; then
+  CURRENT_PROJECT_VERSION=$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/project.yml")
+fi
 if [[ -z "$CURRENT_PROJECT_VERSION" ]]; then
   echo "Error: Could not extract CURRENT_PROJECT_VERSION from $SCRIPT_DIR/project.yml" >&2
   exit 1

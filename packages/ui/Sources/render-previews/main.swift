@@ -193,6 +193,11 @@ func main() async {
       nil
     ),
     (
+      "settings-licensed-dev-builds",
+      AnyView(SettingsView(state: Samples.settings(.licensed, shouldGetDevBuilds: true))),
+      nil
+    ),
+    (
       "settings-paused",
       AnyView(SettingsView(state: Samples.settings(.paused))),
       nil

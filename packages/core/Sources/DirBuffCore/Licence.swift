@@ -38,14 +38,12 @@ public struct LicenceRecord: Sendable, Equatable {
   /// the trial, may take the newest. Once it has ended, only the versions it covered.
   public var limitsUpdates: Bool { hasEnded }
 
-  /// The newest of `releases` this licence covers, by release day; nil if none (or none is dated).
-  public func newestCovered<Release>(
+  /// The `releases` this licence covers, by release day; an undated one is not covered. Which of
+  /// them is newest is the caller's to say: several come out on one day (a release and a dev build).
+  public func covered<Release>(
     _ releases: [Release], releasedOn day: (Release) -> ReleaseDay?
-  ) -> Release? {
-    releases
-      .compactMap { release in day(release).map { (release, $0) } }
-      .filter { covers(release: $0.1) }
-      .max { $0.1 < $1.1 }?.0
+  ) -> [Release] {
+    releases.filter { release in day(release).map(covers(release:)) ?? false }
   }
 
   /// A good answer from Polar holds for a day: its public endpoints allow only a few calls a

@@ -7,9 +7,11 @@ import { parseArgs } from 'node:util';
 import {
   type AppcastReleaseItem,
   assertNewRelease,
+  devVersionsOf,
   extractChangelogSection,
   updateAppcast,
 } from './appcast.ts';
+import { devRelease, staleDevTags } from './version.ts';
 
 const SCRIPT_DIR = import.meta.dirname;
 const APP_DIR = resolve(SCRIPT_DIR, '..');
@@ -34,6 +36,7 @@ const parseCliArgs = () => {
     args: rawArgs,
     options: {
       check: { type: 'boolean', default: false },
+      dev: { type: 'boolean', default: false },
       tag: { type: 'string' },
       'notes-file': { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
@@ -44,6 +47,7 @@ const parseCliArgs = () => {
 
   return {
     check: values.check ?? false,
+    isDev: values.dev ?? false,
     tag: values.tag,
     notesFile: values['notes-file'],
     dryRun: values['dry-run'] ?? false,
@@ -99,7 +103,8 @@ const r2Request = async (
   key: string,
   body: string | Buffer | null = null,
   contentType?: string,
-): Promise<{ status: number; text: () => Promise<string> }> => {
+  conditions: Record<string, string> = {},
+): Promise<Response> => {
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
   if (!accessKeyId || !secretAccessKey) {
@@ -123,6 +128,8 @@ const r2Request = async (
   if (contentType) {
     headers['content-type'] = contentType;
   }
+  // Signed with the rest: a conditional header left out of SignedHeaders is ignored or refused.
+  Object.assign(headers, conditions);
 
   const signedHeaders = Object.keys(headers).sort().join(';');
   const canonicalHeaders = Object.keys(headers)
@@ -155,28 +162,53 @@ const r2Request = async (
   });
 };
 
-const fetchR2Object = async (key: string): Promise<string | null> => {
+/** An object and the ETag a conditional write against it must quote; `null` when it doesn't exist. */
+const fetchR2Object = async (key: string): Promise<{ body: string; etag: string } | null> => {
   const res = await r2Request('GET', key);
-  if (res.status === 200) {
-    return await res.text();
+  if (res.status === 404) return null;
+  if (res.status !== 200) {
+    throw new Error(`R2 GET ${key} failed (status ${res.status}):\n${await res.text()}`);
   }
-  if (res.status === 404) {
-    return null;
-  }
-  const body = await res.text();
-  throw new Error(`R2 GET ${key} failed (status ${res.status}):\n${body}`);
+  const etag = res.headers.get('etag');
+  if (etag === null) throw new Error(`R2 GET ${key} returned no ETag.`);
+  return { body: await res.text(), etag };
 };
 
+/** Resolves `false` when the precondition failed: someone else wrote the object first. */
 const putR2Object = async (
   key: string,
   body: string | Buffer,
   contentType: string,
-): Promise<void> => {
-  const res = await r2Request('PUT', key, body, contentType);
+  conditions: Record<string, string> = {},
+): Promise<boolean> => {
+  const res = await r2Request('PUT', key, body, contentType, conditions);
+  if (res.status === 412) return false;
   if (res.status !== 200 && res.status !== 204) {
-    const text = await res.text();
-    throw new Error(`R2 PUT ${key} failed (status ${res.status}): ${text}`);
+    throw new Error(`R2 PUT ${key} failed (status ${res.status}): ${await res.text()}`);
   }
+  return true;
+};
+
+const FEED_WRITE_ATTEMPTS = 5;
+
+/**
+ * Read-modify-write of the feed. A dev run on `main` and a tag run on the same commit can both
+ * write it, so the write only lands if the feed is still the one `change` was made from (R2 answers
+ * 412 otherwise); then it is read again and `change` re-applied.
+ */
+export const writeAppcast = async (
+  key: string,
+  change: (existingXml: string | null) => string,
+): Promise<string> => {
+  for (let attempt = 1; attempt <= FEED_WRITE_ATTEMPTS; attempt++) {
+    const existing = await fetchR2Object(key);
+    const xml = change(existing?.body ?? null);
+    const conditions: Record<string, string> =
+      existing === null ? { 'if-none-match': '*' } : { 'if-match': existing.etag };
+    if (await putR2Object(key, xml, 'application/xml; charset=utf-8', conditions)) return xml;
+    console.log(`The feed changed under this run (attempt ${attempt}); reading it again...`);
+  }
+  throw new Error(`The feed kept changing: gave up after ${FEED_WRITE_ATTEMPTS} attempts.`);
 };
 
 /** `sign_update -p` prints only the base64 EdDSA signature: 64 bytes, 88 characters. */
@@ -199,63 +231,134 @@ const fetchLiveAppcast = async (): Promise<string | null> => {
   return await res.text();
 };
 
-/** Checks a release before its build: `tag` is the tag being released, which must name this version. */
-export const runPreflightCheck = async (
-  tag: string,
-  notesFile?: string,
-): Promise<{ version: string }> => {
-  const version = getMarketingVersion();
-  const build = getBuildNumber();
-  console.log(`Checking release preflight for version ${version} (build ${build})...`);
+const git = (...args: string[]): string =>
+  execFileSync('git', args, { cwd: APP_DIR, encoding: 'utf8' }).trim();
 
+type ResolvedRelease = {
+  readonly channel?: 'dev';
+  /** The version people see. */
+  readonly version: string;
+  readonly build: string;
+  /** The feed item's notes. */
+  readonly notes: string;
+  /** The GitHub release's notes. */
+  readonly githubNotes: string;
+};
+
+/** The release `project.yml` and CHANGELOG.md describe. */
+const resolveStableRelease = (): ResolvedRelease => {
+  const version = getMarketingVersion();
   if (!existsSync(CHANGELOG_PATH)) {
     throw new Error(`CHANGELOG.md not found at ${CHANGELOG_PATH}`);
   }
-  const releaseNotes = extractChangelogSection(readFileSync(CHANGELOG_PATH, 'utf8'), version);
+  const notes = extractChangelogSection(readFileSync(CHANGELOG_PATH, 'utf8'), version);
   console.log(`✓ CHANGELOG.md contains section for ## ${version}`);
-  if (notesFile !== undefined) writeFileSync(notesFile, `${releaseNotes}\n`);
+  return { version, build: getBuildNumber(), notes, githubNotes: notes };
+};
 
-  if (tag !== releaseTag(version)) {
+/** The dev build of the checked-out commit of `main`; its notes are the commit's message. */
+const resolveDevRelease = (): ResolvedRelease => {
+  const { version, build } = devRelease({
+    marketingVersion: getMarketingVersion(),
+    build: getBuildNumber(),
+    commitCount: Number(git('rev-list', '--count', 'HEAD')),
+  });
+  const notes = git('log', '-1', '--format=%B');
+  const githubNotes = `Dev build of main at ${git('rev-parse', '--short=7', 'HEAD')}. Served to the dev update channel; not for general use.\n\n${notes}`;
+  return { channel: 'dev', version, build, notes, githubNotes };
+};
+
+/**
+ * Checks a release before its build. A stable one is released by `tag`, which must name this
+ * version; a dev build has no tag of its own, it is made from the commit.
+ */
+export const runPreflightCheck = async ({
+  isDev,
+  tag,
+  notesFile,
+}: {
+  isDev: boolean;
+  tag?: string;
+  notesFile?: string;
+}): Promise<ResolvedRelease> => {
+  const release = isDev ? resolveDevRelease() : resolveStableRelease();
+  console.log(
+    `Checking release preflight for ${isDev ? 'dev build ' : 'version '}${release.version} (build ${release.build})...`,
+  );
+  if (notesFile !== undefined) writeFileSync(notesFile, `${release.githubNotes}\n`);
+
+  if (!isDev && tag !== releaseTag(release.version)) {
     throw new Error(
-      `Tag "${tag}" does not name MARKETING_VERSION ${version}: release it as "${releaseTag(version)}".`,
+      `Tag "${tag}" does not name MARKETING_VERSION ${release.version}: release it as "${releaseTag(release.version)}".`,
     );
   }
-  console.log(`✓ Tag "${tag}" names version ${version}`);
+  if (!isDev) console.log(`✓ Tag "${tag}" names version ${release.version}`);
 
-  assertNewRelease(await fetchLiveAppcast(), { shortVersionString: version, version: build });
-  console.log(`✓ Build ${build} is above every build in the live appcast`);
+  assertNewRelease(await fetchLiveAppcast(), {
+    shortVersionString: release.version,
+    version: release.build,
+    channel: release.channel,
+  });
+  console.log(
+    `✓ Build ${release.build} is above every build it is compared with in the live appcast`,
+  );
 
   if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `version=${release.version}\nbuild=${release.build}\n`,
+    );
   }
 
-  console.log(`Preflight check passed: ready to cut release ${version}`);
-  return { version };
+  console.log(`Preflight check passed: ready to cut release ${release.version}`);
+  return release;
+};
+
+/** Deletes the GitHub dev releases the feed no longer keeps, with their tags. */
+const pruneDevReleases = (keptVersions: readonly string[]): void => {
+  const releases: { tagName: string }[] = JSON.parse(
+    execFileSync(
+      'gh',
+      ['release', 'list', '--repo', REPOSITORY, '--limit', '100', '--json', 'tagName'],
+      { encoding: 'utf8' },
+    ),
+  );
+  const stale = staleDevTags(
+    releases.map(({ tagName }) => tagName),
+    keptVersions.map(releaseTag),
+  );
+  for (const tag of stale) {
+    console.log(`Pruning dev release ${tag}...`);
+    execFileSync('gh', ['release', 'delete', tag, '--cleanup-tag', '--yes', '--repo', REPOSITORY], {
+      stdio: 'inherit',
+    });
+  }
 };
 
 const main = async () => {
   const options = parseCliArgs();
 
   if (options.check) {
-    if (options.tag === undefined) throw new Error('--check needs --tag <the tag being released>');
-    await runPreflightCheck(options.tag, options.notesFile);
+    if (!options.isDev && options.tag === undefined) {
+      throw new Error('--check needs --tag <the tag being released>, or --dev');
+    }
+    await runPreflightCheck({
+      isDev: options.isDev,
+      tag: options.tag,
+      notesFile: options.notesFile,
+    });
     return;
   }
 
   console.log('=== DirBuff Release Publisher ===');
-  const marketingVersion = getMarketingVersion();
+  const release = options.isDev ? resolveDevRelease() : resolveStableRelease();
   const minimumSystemVersion = getMinimumSystemVersion();
-  console.log(`Target version: ${marketingVersion} (min macOS: ${minimumSystemVersion})`);
+  console.log(
+    `Target version: ${release.version} (build ${release.build}, min macOS: ${minimumSystemVersion})`,
+  );
+  console.log(`Release notes: ${release.notes.length} chars`);
 
-  // The build number release.sh gave CFBundleVersion.
-  const buildNumber = getBuildNumber();
-  console.log(`Release build number: ${buildNumber}`);
-
-  const changelogContent = readFileSync(CHANGELOG_PATH, 'utf8');
-  const releaseNotes = extractChangelogSection(changelogContent, marketingVersion);
-  console.log(`Extracted release notes for ${marketingVersion} (${releaseNotes.length} chars)`);
-
-  const dmgFilename = dmgFilenameOf(marketingVersion);
+  const dmgFilename = dmgFilenameOf(release.version);
   const dmgPath = join(OUT_DIR, dmgFilename);
   const signUpdatePath = join(OUT_DIR, 'sign_update');
 
@@ -285,44 +388,45 @@ const main = async () => {
   }
 
   const releaseItem: AppcastReleaseItem = {
-    title: `Version ${marketingVersion}`,
+    channel: release.channel,
+    title: `Version ${release.version}`,
     pubDate: new Date().toUTCString(),
-    version: buildNumber,
-    shortVersionString: marketingVersion,
+    version: release.build,
+    shortVersionString: release.version,
     minimumSystemVersion,
-    releaseNotes,
-    enclosureUrl: dmgUrlOf(marketingVersion),
+    releaseNotes: release.notes,
+    enclosureUrl: dmgUrlOf(release.version),
     enclosureLength: dmgStat.size,
     enclosureType: 'application/x-apple-diskimage',
     edSignature,
   };
 
   const appcastKey = `${options.prefix}appcast.xml`;
-  let existingAppcastXml: string | null = null;
-
-  if (options.dryRun && (!process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCESS_KEY)) {
-    console.log('[dry-run] R2 credentials not set; generating appcast from scratch.');
-  } else {
-    console.log(`Fetching live appcast from R2 (${appcastKey})...`);
-    existingAppcastXml = await fetchR2Object(appcastKey);
-    if (existingAppcastXml === null) {
-      console.log('No existing appcast found in R2; creating new feed.');
-    } else {
-      console.log('Fetched existing appcast. Validating version & build uniqueness...');
-    }
-  }
-
-  const newAppcastXml = updateAppcast(existingAppcastXml, releaseItem);
-
-  // The site's /download redirects to `url`.
-  const latestJson = `${JSON.stringify({ version: marketingVersion, url: dmgUrlOf(marketingVersion) }, null, 2)}\n`;
-
+  // `latest.json` is what the site's /download redirects to: stable releases only.
   const latestKey = `${options.prefix}latest.json`;
+  const latestJson = `${JSON.stringify({ version: release.version, url: dmgUrlOf(release.version) }, null, 2)}\n`;
 
   if (options.dryRun) {
-    console.log('\n[dry-run] Planned R2 Uploads (in order):');
-    console.log(`1. Appcast: ${appcastKey} (${newAppcastXml.length} chars, application/xml)`);
-    console.log(`2. Latest: ${latestKey} (${latestJson.trim()})`);
+    const hasCredentials = process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY;
+    console.log(
+      hasCredentials
+        ? `Fetching live appcast from R2 (${appcastKey})...`
+        : '[dry-run] R2 credentials not set; reading the public feed.',
+    );
+    const existingXml = hasCredentials
+      ? ((await fetchR2Object(appcastKey))?.body ?? null)
+      : await fetchLiveAppcast();
+    const newAppcastXml = updateAppcast(existingXml, releaseItem);
+
+    console.log('\n[dry-run] Planned writes (in order):');
+    console.log(
+      `1. Appcast: ${appcastKey} (${newAppcastXml.length} chars, application/xml), only if it is still the feed just read`,
+    );
+    console.log(
+      release.channel === 'dev'
+        ? `2. GitHub dev releases older than the feed's newest and not among ${devVersionsOf(newAppcastXml).map(releaseTag).join(', ')} are deleted with their tags (latest.json is not touched)`
+        : `2. Latest: ${latestKey} (${latestJson.trim()})`,
+    );
     console.log('\n[dry-run] Preview of new appcast:');
     console.log(newAppcastXml);
     console.log('\n[dry-run] Complete. Nothing was uploaded to R2.');
@@ -331,16 +435,20 @@ const main = async () => {
 
   // The DMG is already a published GitHub release asset: the appcast must name only a file that
   // exists, so this runs after the release is created.
-  console.log(`\nUploading 1/2: appcast.xml -> ${appcastKey}...`);
-  await putR2Object(appcastKey, newAppcastXml, 'application/xml; charset=utf-8');
+  console.log(`\nUpdating the feed: ${appcastKey}...`);
+  const newAppcastXml = await writeAppcast(appcastKey, existingXml =>
+    updateAppcast(existingXml, releaseItem),
+  );
 
-  console.log(`Uploading 2/2: latest.json -> ${latestKey}...`);
-  await putR2Object(latestKey, latestJson, 'application/json; charset=utf-8');
+  if (release.channel === 'dev') {
+    pruneDevReleases(devVersionsOf(newAppcastXml));
+  } else {
+    console.log(`Uploading latest.json -> ${latestKey}...`);
+    await putR2Object(latestKey, latestJson, 'application/json; charset=utf-8');
+  }
 
   console.log('\n=== Publication Complete ===');
-  console.log(
-    `Version ${marketingVersion} (build ${buildNumber}) published: the feed and latest.json are on R2.`,
-  );
+  console.log(`Version ${release.version} (build ${release.build}) published to the feed.`);
 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {

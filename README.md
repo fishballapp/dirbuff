@@ -75,6 +75,10 @@ run by a version tag (`v<version>`) on a commit of `main`. The DMG is a GitHub r
 `dirbuff.fishball.app/appcast.xml`, and an update installs only if it is signed with the key whose
 public half is `SUPublicEDKey` in `apps/mac/DirBuff/Info.plist`.
 
+Every commit to `main` also ships a signed dev build (a prerelease, `v<version>-dev.<n>`), offered
+only to copies that switch on **Get dev builds** in Settings. The newest three are kept; some will
+be broken.
+
 ## Contributing
 
 This repository is an exported copy of a private monorepo, so a pull request merged here would be
