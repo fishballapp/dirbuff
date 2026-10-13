@@ -122,6 +122,9 @@ const r2Request = async (
 
   const headers: Record<string, string> = {
     host,
+    // The bytes as stored. Fetch asks for gzip by default, and R2 then compresses the feed and
+    // answers with a weak ETag (`W/"…"`), which an `If-Match` never matches: every write is a 412.
+    'accept-encoding': 'identity',
     'x-amz-content-sha256': payloadHash,
     'x-amz-date': amzDate,
   };

@@ -53,6 +53,15 @@ describe('writeAppcast', () => {
     expect(put?.headers.Authorization).toMatch(/SignedHeaders=[^,]*\bif-match\b/);
   });
 
+  it('reads the feed as stored, so its ETag is the strong one a write can quote', async () => {
+    const calls = stubR2({ feed: '<feed/>' });
+
+    await writeAppcast('appcast.xml', existing => `${existing}<item/>`);
+
+    const [get] = calls.filter(({ method }) => method === 'GET');
+    expect(get?.headers['accept-encoding']).toBe('identity');
+  });
+
   it('creates the feed only if it is still absent', async () => {
     const calls = stubR2({ feed: null });
 
