@@ -5,8 +5,9 @@ name: Release
 #   pushes it here when its own `dirbuff-v<version>` tag is pushed (public-release-tags.yml there).
 # - Every push to main is a dev build of that commit, served only to copies that chose the `dev`
 #   update channel in Settings. The newest three are kept.
-# Each builds, signs and notarises the DMG, publishes it as a GitHub release, then points the update
-# feed at it.
+# Each builds, signs and notarises the DMG and publishes it as a GitHub release, with its own
+# appcast item beside it. feed.yml rebuilds the update feed from the releases when this workflow
+# completes, however it ends, so a run that changed a release and then failed still updates it.
 #
 # Its secrets live in 1Password and load through varlock (apps/mac/.env.schema). The one GitHub
 # secret is DIRBUFF_OP_TOKEN, a service account that reads DirBuff's Environments only, held by the
@@ -19,7 +20,7 @@ on:
     branches: [main]
 
 # A newer push to main makes the dev build still running pointless. Releases run one at a time and
-# are never cancelled: two overlapping could leave GitHub's Latest and latest.json on the older one.
+# are never cancelled: two overlapping could leave GitHub's Latest on the older one.
 concurrency:
   group: ${{ github.ref_type == 'tag' && 'release' || 'dev-build' }}
   cancel-in-progress: ${{ github.ref_type == 'branch' }}
@@ -128,38 +129,43 @@ jobs:
           DIRBUFF_BUILD: ${{ steps.preflight.outputs.build }}
         run: ./apps/mac/release.sh
 
-      # The DMG goes up, on the tag being released, before the feed names it: the feed must never
-      # point at a file that is not there yet. A dev build has no tag yet: `--target` makes it, on
+      # Signs the DMG and writes the item the feed will list for it.
+      - name: Write the appcast item
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == branch ]]; then
+            node --experimental-strip-types apps/mac/release/publish.ts --item --dev
+          else
+            node --experimental-strip-types apps/mac/release/publish.ts --item
+          fi
+
+      # The DMG and its item go up together: gh uploads a release's assets before it publishes it,
+      # so no published release lacks either. A dev build has no tag yet: `--target` makes it, on
       # the commit built. A tag made by GITHUB_TOKEN starts no workflow, so it can't start this one
       # again (and the stable preflight would refuse it: it names no MARKETING_VERSION).
       - name: Publish the GitHub release
         env:
           VERSION: ${{ steps.preflight.outputs.version }}
         run: |
+          ASSETS=("apps/mac/out/DirBuff-${VERSION}.dmg" apps/mac/out/appcast-item.xml)
           if [[ "$GITHUB_REF_TYPE" == branch ]]; then
-            gh release create "v${VERSION}" "apps/mac/out/DirBuff-${VERSION}.dmg" \
+            gh release create "v${VERSION}" "${ASSETS[@]}" \
               --title "DirBuff ${VERSION} (dev build)" \
               --notes-file "$RUNNER_TEMP/notes.md" \
               --target "$GITHUB_SHA" \
               --prerelease \
               --latest=false
           else
-            gh release create "v${VERSION}" "apps/mac/out/DirBuff-${VERSION}.dmg" \
+            gh release create "v${VERSION}" "${ASSETS[@]}" \
               --title "DirBuff ${VERSION}" \
               --notes-file "$RUNNER_TEMP/notes.md" \
               --verify-tag \
               --latest
           fi
 
-      # The feed, then (for a dev build) the dev releases it no longer keeps: the feed is never left
-      # naming a release that is gone.
-      - name: Publish the update feed
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == branch ]]; then
-            node --experimental-strip-types apps/mac/release/publish.ts --dev
-          else
-            node --experimental-strip-types apps/mac/release/publish.ts
-          fi
+      # The feed is whatever releases exist, so keeping three dev builds is deleting the older ones.
+      - name: Prune old dev builds
+        if: github.ref_type == 'branch'
+        run: node --experimental-strip-types apps/mac/release/publish.ts --prune-dev
 
       - name: Job summary
         env:

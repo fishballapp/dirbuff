@@ -53,22 +53,12 @@ describe('devCountOf', () => {
 describe('staleDevTags', () => {
   const tag = (count: number) => `v0.1.4-dev.${count}`;
 
-  it('names the dev tags the feed no longer keeps', () => {
-    const tags = ['v0.1.3', tag(152), tag(151), tag(150), tag(149), tag(148)];
-    expect(staleDevTags(tags, [tag(152), tag(151), tag(150)])).toEqual([tag(149), tag(148)]);
+  it('names every dev tag but the newest three, by commit count', () => {
+    const tags = ['v0.1.3', tag(148), tag(152), tag(9), tag(151), tag(150)];
+    expect(staleDevTags(tags)).toEqual([tag(148), tag(9)]);
   });
 
-  it('keeps a dev release newer than the feed, which a run is still publishing', () => {
-    expect(staleDevTags([tag(153), tag(152), tag(149)], [tag(152)])).toEqual([tag(149)]);
-  });
-
-  it('removes a release left by a cancelled run, never a kept one or a stable one', () => {
-    expect(staleDevTags(['v0.1.3', tag(152), tag(151), tag(150)], [tag(152), tag(150)])).toEqual([
-      tag(151),
-    ]);
-  });
-
-  it('deletes nothing when the feed keeps no dev build', () => {
-    expect(staleDevTags(['v0.1.3', tag(150)], [])).toEqual([]);
+  it('never names a stable tag, and nothing while three or fewer dev tags exist', () => {
+    expect(staleDevTags(['v0.1.2', 'v0.1.3', tag(150), tag(151), tag(152)])).toEqual([]);
   });
 });

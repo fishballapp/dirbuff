@@ -1,5 +1,8 @@
+/** Whether `build` is digits and dots, the only builds we ship and compare. */
+export const isBuild = (build: string): boolean => /^\d+(\.\d+)*$/.test(build);
+
 const segmentsOf = (build: string): number[] => {
-  if (!/^\d+(\.\d+)*$/.test(build)) throw new Error(`Build "${build}" is not digits and dots.`);
+  if (!isBuild(build)) throw new Error(`Build "${build}" is not digits and dots.`);
   return build.split('.').map(Number);
 };
 
@@ -48,15 +51,16 @@ export const devCountOf = (versionOrTag: string): number | null => {
   return match?.[1] === undefined ? null : Number(match[1]);
 };
 
-/**
- * The dev release tags to delete once the feed keeps `keptTags`: the dev tags among `tags` that it
- * doesn't keep and that are older than the newest it does. A dev release newer than that is a run
- * still publishing, and any other tag is a stable release.
- */
-export const staleDevTags = (tags: readonly string[], keptTags: readonly string[]): string[] => {
-  const newestKept = Math.max(-1, ...keptTags.map(tag => devCountOf(tag) ?? -1));
-  return tags.filter(tag => {
-    const count = devCountOf(tag);
-    return count !== null && count < newestKept && !keptTags.includes(tag);
-  });
-};
+/** The dev releases kept on GitHub, so in the feed: the newest, and two to step back to. */
+export const KEPT_DEV_RELEASES = 3;
+
+/** The dev tags among `tags` to delete: all but the newest `KEPT_DEV_RELEASES`. Any other tag is a stable release. */
+export const staleDevTags = (tags: readonly string[]): string[] =>
+  tags
+    .flatMap(tag => {
+      const count = devCountOf(tag);
+      return count === null ? [] : [{ tag, count }];
+    })
+    .toSorted((a, b) => b.count - a.count)
+    .slice(KEPT_DEV_RELEASES)
+    .map(({ tag }) => tag);

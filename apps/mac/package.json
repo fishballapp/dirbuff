@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "publish": "node --experimental-strip-types release/publish.ts"
+    "feed": "node --experimental-strip-types release/feed.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

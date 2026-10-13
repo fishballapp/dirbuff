@@ -1,0 +1,87 @@
+name: Update feed
+
+# The Sparkle feed (appcast.xml) and latest.json, built from the published GitHub releases (each
+# carries its own appcast item) and deployed to this repo's GitHub Pages. dirbuff.fishball.app
+# serves /appcast.xml and /download from there, so installed copies keep the feed URL they have.
+#
+# Runs whenever the releases change: when release.yml completes, whatever its conclusion (a release
+# it publishes or deletes with GITHUB_TOKEN fires no release event, and a failed or cancelled run
+# may still have changed one), and on a release event for a release someone edits, unpublishes or
+# deletes by hand. Also on a change to the feed's own code, and by hand: a release event runs the
+# workflow file of the release's own tag, so a tag older than this file runs nothing.
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  release:
+    types: [published, unpublished, deleted, edited]
+  push:
+    branches: [main]
+    paths:
+      - apps/mac/release/**
+      - .github/workflows/feed.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time. Each reads the releases as they are when it runs, so the last one queued
+# deploys the current feed.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # A release event runs with the tag as its ref, and the github-pages environment deploys from main
+  # only (workflow_run already runs main's file, on main). Start the build again on main rather than
+  # let a tag deploy: the feed is built by main's code, never by whatever a tag points at.
+  from-main:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run feed.yml --repo "$GITHUB_REPOSITORY" --ref main
+
+  deploy:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+
+      - run: pnpm install --frozen-lockfile --filter @dirbuff/mac
+
+      # Fails, and so keeps the last feed live, on any release it can't list: one with no item, or
+      # an item that names another version, channel or download.
+      - name: Build the feed
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node --experimental-strip-types apps/mac/release/feed.ts --out "$RUNNER_TEMP/feed"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/feed
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -3,9 +3,6 @@ import { compareBuilds } from './version.ts';
 /** A stable release has no channel: every copy is offered it. A dev build is offered only to those who chose `dev`. */
 export type ReleaseChannel = 'dev';
 
-/** The newest dev items the feed keeps, matching the GitHub releases kept. */
-export const KEPT_DEV_ITEMS = 3;
-
 export type AppcastReleaseItem = {
   readonly channel?: ReleaseChannel;
   readonly title: string;
@@ -29,29 +26,6 @@ export const escapeXml = (value: string): string =>
     .replaceAll("'", '&apos;');
 
 export const escapeCdata = (value: string): string => value.replaceAll(']]>', ']]]]><![CDATA[>');
-
-export const createEmptyAppcast = (metadata?: {
-  readonly title?: string;
-  readonly link?: string;
-  readonly description?: string;
-  readonly language?: string;
-}): string => {
-  const title = metadata?.title ?? 'DirBuff';
-  const link = metadata?.link ?? 'https://dirbuff.fishball.app/appcast.xml';
-  const description = metadata?.description ?? 'Most recent changes with links to updates.';
-  const language = metadata?.language ?? 'en';
-
-  return `<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <channel>
-    <title>${escapeXml(title)}</title>
-    <link>${escapeXml(link)}</link>
-    <description>${escapeXml(description)}</description>
-    <language>${escapeXml(language)}</language>
-  </channel>
-</rss>
-`;
-};
 
 export const extractItems = (xml: string): string[] => {
   const matches = xml.match(/<item\b[\s\S]*?<\/item>/gi);
@@ -80,14 +54,30 @@ export const extractItemVersions = (
   };
 };
 
-export const extractItemChannel = (itemXml: string): ReleaseChannel | undefined =>
-  itemXml.match(/<sparkle:channel>([^<]+)<\/sparkle:channel>/i)?.[1]?.trim() === 'dev'
-    ? 'dev'
-    : undefined;
+/** The item's channel as written, any name; `undefined` for an item with none (a stable release). */
+export const extractItemChannel = (itemXml: string): string | undefined =>
+  itemXml.match(/<sparkle:channel>([^<]+)<\/sparkle:channel>/i)?.[1]?.trim();
 
-export const formatItemXml = (release: AppcastReleaseItem, indent = '    '): string => {
+export const extractPubDate = (itemXml: string): string | null =>
+  itemXml.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1]?.trim() ?? null;
+
+/** The update an item names: its download, its size, and the EdDSA signature Sparkle checks. */
+export const extractEnclosure = (
+  itemXml: string,
+): { url: string | null; length: string | null; edSignature: string | null } => {
+  const enclosure = itemXml.match(/<enclosure\b[^>]*>/i)?.[0] ?? '';
+  return {
+    url: enclosure.match(/\burl="([^"]+)"/)?.[1] ?? null,
+    length: enclosure.match(/\blength="([^"]+)"/)?.[1] ?? null,
+    edSignature: enclosure.match(/\bsparkle:edSignature="([^"]+)"/)?.[1] ?? null,
+  };
+};
+
+/** One item, as its release carries it; `createAppcast` indents its first line. */
+export const formatItemXml = (release: AppcastReleaseItem): string => {
+  const indent = '    ';
   const lines = [
-    `${indent}<item>`,
+    '<item>',
     `${indent}  <title>${escapeXml(release.title)}</title>`,
     `${indent}  <pubDate>${escapeXml(release.pubDate)}</pubDate>`,
     ...(release.channel === undefined
@@ -110,10 +100,9 @@ export const formatItemXml = (release: AppcastReleaseItem, indent = '    '): str
  * of the commit that bumped the version (`2127.151`) doesn't block the release of `2127`.
  */
 export const assertNewRelease = (
-  existingXml: string | null,
+  existingItems: readonly string[],
   release: Pick<AppcastReleaseItem, 'shortVersionString' | 'version' | 'channel'>,
 ): void => {
-  const existingItems = existingXml === null ? [] : extractItems(existingXml);
   for (const itemXml of existingItems) {
     const { shortVersionString, version } = extractItemVersions(itemXml);
     if (shortVersionString === release.shortVersionString) {
@@ -138,57 +127,28 @@ export const assertNewRelease = (
   }
 };
 
-const removeItem = (xml: string, itemXml: string): string => {
-  const end = xml.indexOf(itemXml) + itemXml.length;
-  const start = xml.slice(0, end - itemXml.length).replace(/[ \t]*$/, '').length;
-  return `${xml.slice(0, start)}${xml.slice(end).replace(/^\n/, '')}`;
-};
-
-/** The dev items of `xml`, newest build first. */
-const devItemsOf = (xml: string): { itemXml: string; build: string }[] =>
-  extractItems(xml)
-    .filter(itemXml => extractItemChannel(itemXml) === 'dev')
-    .flatMap(itemXml => {
+/**
+ * The feed: every item, newest build first, as Sparkle reads it. Each item is the one its release
+ * carries, verbatim, so its EdDSA signature and date are what the release job wrote.
+ */
+export const createAppcast = (items: readonly string[]): string => {
+  const newestFirst = items
+    .map(itemXml => {
       const { version } = extractItemVersions(itemXml);
-      return version === null ? [] : [{ itemXml, build: version }];
+      if (version === null) throw new Error(`An appcast item has no build:\n${itemXml}`);
+      return { itemXml: itemXml.trim(), build: version };
     })
-    .sort((a, b) => compareBuilds(b.build, a.build));
-
-/** The versions of the dev items in `xml`, newest first. */
-export const devVersionsOf = (xml: string): string[] =>
-  devItemsOf(xml).flatMap(({ itemXml }) => {
-    const { shortVersionString } = extractItemVersions(itemXml);
-    return shortVersionString === null ? [] : [shortVersionString];
-  });
-
-/** `xml` without any dev item beyond the newest `KEPT_DEV_ITEMS`. Stable items are never removed. */
-export const pruneDevItems = (xml: string): string =>
-  devItemsOf(xml)
-    .slice(KEPT_DEV_ITEMS)
-    .reduce((pruned, { itemXml }) => removeItem(pruned, itemXml), xml);
-
-const insertItem = (xml: string, newItemXml: string): string => {
-  const firstItemIndex = xml.search(/<item\b/i);
-  if (firstItemIndex !== -1) {
-    const lineStart = xml.lastIndexOf('\n', firstItemIndex) + 1;
-    return `${xml.slice(0, lineStart)}${newItemXml}\n${xml.slice(lineStart)}`;
-  }
-
-  const closeChannelIndex = xml.search(/<\/channel>/i);
-  if (closeChannelIndex !== -1) {
-    return `${xml.slice(0, closeChannelIndex)}${newItemXml}\n  ${xml.slice(closeChannelIndex)}`;
-  }
-
-  throw new Error('Invalid appcast XML: missing </channel> tag.');
-};
-
-export const updateAppcast = (existingXml: string | null, release: AppcastReleaseItem): string => {
-  const baseXml = existingXml && existingXml.trim().length > 0 ? existingXml : createEmptyAppcast();
-
-  assertNewRelease(baseXml, release);
-
-  const withRelease = insertItem(baseXml, formatItemXml(release));
-  return release.channel === 'dev' ? pruneDevItems(withRelease) : withRelease;
+    .toSorted((a, b) => compareBuilds(b.build, a.build));
+  return `<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>DirBuff</title>
+    <link>https://dirbuff.fishball.app/appcast.xml</link>
+    <description>Most recent changes with links to updates.</description>
+    <language>en</language>
+${newestFirst.map(({ itemXml }) => `    ${itemXml}\n`).join('')}  </channel>
+</rss>
+`;
 };
 
 export const extractChangelogSection = (changelogContent: string, version: string): string => {
