@@ -5,6 +5,9 @@ import Foundation
 
 /// Made-up folders, files and runs for the preview renders. Not anyone's real data.
 enum Samples {
+  /// The Bin's name in the site's and the app's language (UK English), so the previews don't
+  /// read the Mac they're drawn on.
+  static let binName = "Bin"
   static let now = Date(timeIntervalSince1970: 1_792_051_200)  // Tue 14 Oct 2026, 08:00 UTC
   /// The windows are drawn between clean-ups, so their countdowns read "In 23 min".
   static let shownAt = now.addingTimeInterval(37 * 60)
@@ -108,12 +111,12 @@ enum Samples {
 
   static let busy = MenuBarState(
     reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: "Trash")
+    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   /// The minute before a clean-up, when the countdown is to the second.
   static let lastMinute = MenuBarState(
     reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: now.addingTimeInterval(3_558), calendar: calendar, binName: "Trash")
+    licence: .licensed, now: now.addingTimeInterval(3_558), calendar: calendar, binName: binName)
 
   static let quiet = MenuBarState(
     reports: [
@@ -125,15 +128,15 @@ enum Samples {
         status: status("Scratch", [], scratchSettings)),
     ],
     journal: [], freeSpace: 280_000_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: "Trash")
+    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   static let noFolders = MenuBarState(
     reports: [], journal: [], freeSpace: 280_000_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: "Trash")
+    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   static let extensionOff = MenuBarState(
     reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: true,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: "Trash")
+    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   /// The last day Polar confirmed the key, in the sample's clock.
   static let paidThrough = now.addingTimeInterval(-20 * 86_400)
@@ -145,8 +148,31 @@ enum Samples {
   static func menuBar(_ licence: Licence) -> MenuBarState {
     MenuBarState(
       reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-      licence: licence, now: shownAt, calendar: calendar, binName: "Trash")
+      licence: licence, now: shownAt, calendar: calendar, binName: binName)
   }
+
+  /// The site's main window: one Temporary Downloads folder with every rule on, and three items
+  /// due in the coming week.
+  static let siteDownloadsSettings = TemporarySettings(
+    maxAgeDays: 90, sizeLimit: 10_000_000_000, automatic: false, emptyOnRestart: true,
+    disposal: .bin)
+  static let siteDownloadsItems = [
+    item("Downloads", "Xcode_Helper.dmg", daysOld: 89.2, size: 7_300_000),
+    item("Downloads", "invoice-2026-07.pdf", daysOld: 87.4, size: 2_100_000),
+    item("Downloads", "Zoom_installer.pkg", daysOld: 85.6, size: 6_300_000),
+    item("Downloads", "design-brief-v1.pdf", daysOld: 12, size: 3_100_000),
+    item("Downloads", "boarding-pass.pdf", daysOld: 2, size: 90_000),
+  ]
+
+  /// The site's sidebar: Downloads with the site's rules, then the other sample folders.
+  static let site = MainState(
+    reports: [
+      FolderReport(
+        folder: folder(1, "Downloads", siteDownloadsSettings),
+        status: status("Downloads", siteDownloadsItems, siteDownloadsSettings))
+    ] + reports.dropFirst(),
+    journal: [], freeSpace: 124_500_000_000, isFinderExtensionOff: false,
+    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   static func settings(_ licence: Licence, shouldGetDevBuilds: Bool = false) -> SettingsState {
     SettingsState(
@@ -161,11 +187,11 @@ enum Samples {
 
   static let main = MainState(
     reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: "Trash")
+    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   static func main(_ licence: Licence) -> MainState {
     MainState(
       reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-      licence: licence, now: shownAt, calendar: calendar, binName: "Trash")
+      licence: licence, now: shownAt, calendar: calendar, binName: binName)
   }
 }

@@ -160,7 +160,7 @@ public struct FolderDetailView: View {
 
   private var header: some View {
     HStack(spacing: 12) {
-      Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+      Image(nsImage: folderIcon(atPath: folder.path))
         .resizable()
         .frame(width: 32, height: 32)
         .accessibilityHidden(true)

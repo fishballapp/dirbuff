@@ -142,7 +142,7 @@ public struct MainView: View {
 
   private func folderRow(_ folder: MainFolder) -> some View {
     HStack(spacing: 8) {
-      Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+      Image(nsImage: folderIcon(atPath: folder.path))
         .resizable()
         .frame(width: 16, height: 16)
         .accessibilityHidden(true)

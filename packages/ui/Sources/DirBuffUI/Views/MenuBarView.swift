@@ -124,7 +124,7 @@ public struct MenuBarView: View {
 
   private func folderRow(_ folder: FolderSummary) -> some View {
     HStack(spacing: 8) {
-      Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+      Image(nsImage: folderIcon(atPath: folder.path))
         .resizable()
         .frame(width: 18, height: 18)
         .accessibilityHidden(true)
