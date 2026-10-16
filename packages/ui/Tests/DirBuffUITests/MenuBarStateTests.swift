@@ -183,6 +183,20 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
     #expect(runs[1].detail.hasPrefix("Folder1 · "))
   }
 
+  @Test func namesTheDayOfARunBeforeToday() {
+    let details = state(
+      [report(1)],
+      journal: [entry(1, at: -60), entry(2, at: -oneDay), entry(3, at: -3 * oneDay)]
+    ).recentRuns.map(\.detail)
+    #expect(!details[0].contains(","))
+    #expect(details[1].hasPrefix("Folder1 · Yesterday, "))
+    let threeDaysAgo = now.addingTimeInterval(-3 * oneDay)
+      .formatted(
+        Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
+          .weekday(.abbreviated).day().month(.abbreviated))
+    #expect(details[2].hasPrefix("Folder1 · \(threeDaysAgo), "))
+  }
+
   @Test func showsARunThatWasPutBack() {
     let run = state([report(1)], journal: [entry(1, at: -60, undone: true)]).recentRuns[0]
     #expect(run.summary == "1 item put back")

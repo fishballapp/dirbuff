@@ -7,11 +7,13 @@ struct RecentRunRow: View {
 
   var body: some View {
     HStack(spacing: 6) {
-      Text(run.summary).lineLimit(1)
-      Text(run.detail)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(run.summary).lineLimit(1)
+        Text(run.detail)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
       Spacer()
       if run.canPutBack {
         Button("Put Back") { onPutBack(run) }

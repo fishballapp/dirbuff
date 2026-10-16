@@ -17,12 +17,35 @@ func daysAhead(_ date: Date, now: Date, calendar: Calendar) -> Int {
   ).day ?? 0
 }
 
+/// Dates read in `calendar`'s time zone, the one the day counts are in.
+private func dateStyle(_ calendar: Calendar) -> Date.FormatStyle {
+  Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
+}
+
+/// "Thu 16 Oct".
+private func weekdayAndDate(_ date: Date, calendar: Calendar) -> String {
+  date.formatted(dateStyle(calendar).weekday(.abbreviated).day().month(.abbreviated))
+}
+
 /// "Today", "Tomorrow" or "Thu 16 Oct".
 func day(_ date: Date, now: Date, calendar: Calendar) -> String {
   switch daysAhead(date, now: now, calendar: calendar) {
   case ...0: "Today"
   case 1: "Tomorrow"
-  default: date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+  default: weekdayAndDate(date, calendar: calendar)
+  }
+}
+
+/// "14:05", "Yesterday, 14:05" or "Mon 13 Oct, 14:05": when something that already happened did.
+func past(_ date: Date, now: Date, calendar: Calendar) -> String {
+  let time = date.formatted(
+    Date.FormatStyle(
+      date: .omitted, time: .shortened, calendar: calendar, timeZone: calendar.timeZone)
+  )
+  switch daysAhead(date, now: now, calendar: calendar) {
+  case 0...: return time
+  case -1: return "Yesterday, \(time)"
+  default: return "\(weekdayAndDate(date, calendar: calendar)), \(time)"
   }
 }
 

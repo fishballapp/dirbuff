@@ -118,7 +118,7 @@ extension MenuBarState {
           )
         }
       },
-      recentRuns: runs(journal, reports: reports, calendar: calendar, binName: binName)
+      recentRuns: runs(journal, reports: reports, now: now, calendar: calendar, binName: binName)
     )
   }
 }
@@ -249,6 +249,7 @@ func distanceToGoing(
 private func runs(
   _ journal: [JournalEntry],
   reports: [FolderReport],
+  now: Date,
   calendar: Calendar,
   binName: String
 ) -> [RecentRun] {
@@ -280,7 +281,7 @@ private func runs(
       id: first,
       summary: summary,
       detail:
-        "\(names[key.folderID] ?? "Removed folder") · \(key.performedAt.formatted(date: .omitted, time: .shortened))",
+        "\(names[key.folderID] ?? "Removed folder") · \(past(key.performedAt, now: now, calendar: calendar))",
       journalEntryIDs: ids,
       canPutBack: !isPermanent && !isPutBack,
       putBackLabel: "Put \(items(count)) back"

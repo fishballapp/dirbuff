@@ -8,7 +8,7 @@ enum Samples {
   /// The Bin's name in the site's and the app's language (UK English), so the previews don't
   /// read the Mac they're drawn on.
   static let binName = "Bin"
-  static let now = Date(timeIntervalSince1970: 1_792_051_200)  // Tue 14 Oct 2026, 08:00 UTC
+  static let now = Date(timeIntervalSince1970: 1_792_051_200)  // Thu 15 Oct 2026, 08:00 UTC
   /// The windows are drawn between clean-ups, so their countdowns read "In 23 min".
   static let shownAt = now.addingTimeInterval(37 * 60)
   private static let day: TimeInterval = 86_400
