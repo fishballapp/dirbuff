@@ -6,6 +6,8 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
   let appModel: AppModel
   let updates: Updates
+  /// Kept up to date for the Finder extension from launch, whether or not a window opens.
+  private let volumeTopFolders = VolumeTopFolders()
   lazy var windows = WindowCoordinator(appModel: appModel, updates: updates)
 
   override init() {

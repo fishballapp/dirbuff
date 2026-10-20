@@ -20,6 +20,13 @@ extension UserDefaults {
     set { set(newValue, forKey: #function) }
   }
 
+  /// The folders at the top of every volume but the startup disk, which the extension watches in
+  /// place of the volume.
+  @objc dynamic var volumeTopFolderPaths: [String] {
+    get { stringArray(forKey: #function) ?? [] }
+    set { set(newValue, forKey: #function) }
+  }
+
   @objc dynamic var protectedFolderPaths: [String] {
     get { stringArray(forKey: #function) ?? [] }
     set { set(newValue, forKey: #function) }

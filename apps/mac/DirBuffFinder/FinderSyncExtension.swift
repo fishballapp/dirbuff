@@ -7,15 +7,16 @@ private let extLogger = Logger(subsystem: "app.fishball.dirbuff", category: "fin
 
 @objc(FinderSyncExtension)
 final class FinderSyncExtension: FIFinderSync {
-  /// Held for as long as its observation: an observation doesn't keep its object alive.
+  /// Held for as long as its observations: an observation doesn't keep its object alive.
   private let shared = FinderFolders.defaults
   private var listObservation: NSKeyValueObservation?
+  private var volumeTopObservation: NSKeyValueObservation?
 
   override init() {
     super.init()
     extLogger.info("DirBuff FinderSyncExtension initializing")
 
-    Self.updateMonitoredDirectories()
+    Self.watch(volumeTopFolderPaths: shared?.volumeTopFolderPaths ?? [])
     FIFinderSyncController.default().setBadgeImage(
       NSImage(resource: .temporaryBadge), label: "DirBuff: Temporary",
       forBadgeIdentifier: Self.temporaryBadge)
@@ -24,31 +25,18 @@ final class FinderSyncExtension: FIFinderSync {
     ) { _, change in
       Self.rebadge(from: Set(change.oldValue ?? []), to: Set(change.newValue ?? []))
     }
-
-    // Refresh monitored directories on volume mount/unmount (external disks, DMGs)
-    for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
-      NSWorkspace.shared.notificationCenter.addObserver(
-        forName: name,
-        object: nil,
-        queue: .main
-      ) { _ in
-        Self.updateMonitoredDirectories()
-      }
+    volumeTopObservation = shared?.observe(\.volumeTopFolderPaths, options: [.new]) { _, change in
+      Self.watch(volumeTopFolderPaths: change.newValue ?? [])
     }
   }
 
-  /// Registers `/` and every mounted volume (DECISION 22).
-  private static func updateMonitoredDirectories() {
-    let rootURL = URL(fileURLWithPath: "/")
-    let mountedVolumes =
-      FileManager.default.mountedVolumeURLs(
-        includingResourceValuesForKeys: nil,
-        options: [.skipHiddenVolumes]
-      ) ?? []
-
-    let directories = Set([rootURL] + mountedVolumes)
+  /// `/` covers the startup disk only. Another volume is covered through the folders at its top,
+  /// which the app lists: watching the volume itself would put DirBuff's icon on it in Finder's
+  /// sidebar.
+  private static func watch(volumeTopFolderPaths: [String]) {
+    let directories = Set((["/"] + volumeTopFolderPaths).map { URL(fileURLWithPath: $0) })
     FIFinderSyncController.default().directoryURLs = directories
-    extLogger.info("Observing \(directories.count, privacy: .public) root directories")
+    extLogger.info("Watching \(directories.count, privacy: .public) folders")
   }
 
   // MARK: - Badge

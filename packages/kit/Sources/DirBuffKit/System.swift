@@ -47,6 +47,23 @@ public enum System {
     .sorted()
   }
 
+  /// The folders at the top of each volume: hidden items, files and packages left out. A volume
+  /// that can't be listed (unplugged as it's read) has none.
+  public static func topFolderPaths(of volumes: [URL]) -> [String] {
+    let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey]
+    return volumes.flatMap { volume in
+      let items =
+        (try? FileManager.default.contentsOfDirectory(
+          at: volume, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles)) ?? []
+      return items.filter { item in
+        let values = try? item.resourceValues(forKeys: keys)
+        return values?.isDirectory == true && values?.isPackage != true
+      }
+    }
+    .map { $0.resolvingSymlinksInPath().path }
+    .sorted()
+  }
+
   public static func isProtected(
     _ folder: URL,
     home: URL = FileManager.default.homeDirectoryForCurrentUser,
