@@ -1,5 +1,11 @@
 # Changelog — DirBuff
 
+## 0.1.5
+
+- Buying a licence and managing it now happen in DirBuff's own Polar store, so checkout and the customer portal say DirBuff.
+- DirBuff's icon no longer shows on drives in Finder's sidebar.
+- Recent runs name the day of a run before today.
+
 ## 0.1.4
 
 - Settings has an Updates section: the version you're running, a Check for Updates… button, and Get dev builds.

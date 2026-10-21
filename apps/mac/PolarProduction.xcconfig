@@ -1,6 +1,6 @@
 // The Polar a release build talks to. Every other build keeps project.yml's sandbox.
 // `$()` keeps `//` from starting a comment.
 DIRBUFF_POLAR_API = https:/$()/api.polar.sh
-DIRBUFF_POLAR_ORGANIZATION_ID = af3e0e60-236e-43cc-94e4-468e00c9f7b7
-DIRBUFF_POLAR_CHECKOUT_URL = https:/$()/buy.polar.sh/polar_cl_AzcU1RjE3rAYqkpm0z3AuB7ZaArzCVuSti0WU2LCvNL
-DIRBUFF_POLAR_PORTAL_URL = https:/$()/polar.sh/fishball-ltd/portal
+DIRBUFF_POLAR_ORGANIZATION_ID = 4f8007b1-7b2b-4a29-830e-c56a5297916b
+DIRBUFF_POLAR_CHECKOUT_URL = https:/$()/buy.polar.sh/polar_cl_ANYU7ZmPCC3mDTXV5fjF8jidWVsiqLXoUQ1py4buoti
+DIRBUFF_POLAR_PORTAL_URL = https:/$()/polar.sh/dirbuff/portal
