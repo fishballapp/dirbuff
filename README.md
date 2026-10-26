@@ -35,7 +35,7 @@ Every capability runs the same pipeline: **snapshot** the folder → **plan** wh
 | Path | What |
 | --- | --- |
 | `packages/core` | `DirBuffCore`: the rules and the plan. Pure, no file access |
-| `packages/kit` | `DirBuffKit`: the inventory, the Finder tag, the SQLite store ([GRDB](https://github.com/groue/GRDB.swift)), the engine, licence checks |
+| `packages/kit` | `DirBuffKit`: the inventory, the SQLite store ([GRDB](https://github.com/groue/GRDB.swift)), the engine, licence checks |
 | `packages/ui` | `DirBuffUI`: the SwiftUI views and the state they show |
 | `apps/mac` | The app, its Finder extension, and the release tooling |
 

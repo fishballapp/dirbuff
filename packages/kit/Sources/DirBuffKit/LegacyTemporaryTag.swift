@@ -1,21 +1,18 @@
 import Foundation
 
-/// The Finder tag that marks a Temporary folder. Removing it in Finder turns the folder back into a
-/// plain folder.
-public enum TemporaryTag {
-  public static let name = "DirBuff: Temporary"
+/// The Finder tag that versions before 0.2.0 put on each Temporary folder. DirBuff writes no tags
+/// now: this is read and taken off once per folder, when the folder's Temporary setting moves into
+/// the database (`Engine`).
+enum LegacyTemporaryTag {
+  static let name = "DirBuff: Temporary"
 
-  public static func isSet(on folder: URL) -> Bool {
-    (try? tags(of: folder).contains(name)) ?? false
+  /// Throws when the folder can't be read, so a folder that can't be reached stays pending rather
+  /// than being read as untagged.
+  static func isSet(on folder: URL) throws -> Bool {
+    try tags(of: folder).contains(name)
   }
 
-  public static func set(on folder: URL) throws {
-    let tags = try tags(of: folder)
-    guard !tags.contains(name) else { return }
-    try write(tags + [name], to: folder)
-  }
-
-  public static func remove(from folder: URL) throws {
+  static func remove(from folder: URL) throws {
     let tags = try tags(of: folder)
     guard tags.contains(name) else { return }
     try write(tags.filter { $0 != name }, to: folder)

@@ -25,12 +25,14 @@ public struct Engine: Sendable {
     case originalPathTaken(String)
     /// A folder DirBuff never clears (`protectedRoots`), so it can't be added.
     case protectedFolder
+    /// Temporary wasn't taken off this folder, or the day it could be put back has passed.
+    case cannotPutBack
   }
 
   /// A folder as its rules see it now: what a run would remove, and when the rest follows.
   public struct FolderStatus: Sendable {
     public var url: URL
-    public var isTagged: Bool
+    public var wearsTemporary: Bool
     public var isProtectedRoot: Bool
     public var items: [Item]
     public var dueNow: [Removal]
@@ -38,14 +40,14 @@ public struct Engine: Sendable {
 
     public init(
       url: URL,
-      isTagged: Bool,
+      wearsTemporary: Bool,
       isProtectedRoot: Bool,
       items: [Item],
       dueNow: [Removal],
       upcoming: [Upcoming]
     ) {
       self.url = url
-      self.isTagged = isTagged
+      self.wearsTemporary = wearsTemporary
       self.isProtectedRoot = isProtectedRoot
       self.items = items
       self.dueNow = dueNow
@@ -62,7 +64,7 @@ public struct Engine: Sendable {
     public var failures: [(item: Item, error: any Error)]
   }
 
-  /// Adds a folder to DirBuff with default settings, untagged. If already added, returns the
+  /// Adds a folder to DirBuff with default settings, not Temporary. If already added, returns the
   /// existing record.
   public func add(_ folder: URL, now: Date = Date()) throws -> Folder {
     if System.isProtected(folder) {
@@ -82,46 +84,70 @@ public struct Engine: Sendable {
       ))
   }
 
-  /// Sets or removes the Temporary tag. Turning it on resets `lastRunAt` so the folder's first run
-  /// after being tagged never counts as the first run after a reboot. Either way the user has
-  /// decided, so the folder no longer waits to be turned back on after a licence ended. A protected
-  /// folder added before `add` refused one can't be turned on.
+  /// Makes the folder Temporary or plain. Turning it on resets `lastRunAt` so the folder's first run
+  /// after that never counts as the first run after a reboot. Turning it off records when, so it
+  /// can be put back for a day (`canPutBack`). Either way the user has decided, so the folder no
+  /// longer waits to be turned back on after a licence ended. A protected folder can't be turned on.
   public func setTemporary(_ folder: Folder, _ isOn: Bool, now: Date = Date()) throws {
-    let (located, url) = try locate(folder)
+    let (located, url) = try locate(folderID: try require(folder.id))
     var updated = located
     if isOn {
       guard !System.isProtected(url) else { throw Failure.protectedFolder }
-      try TemporaryTag.set(on: url)
       updated.lastRunAt = now
-    } else {
-      try TemporaryTag.remove(from: url)
+      updated.takenOffAt = nil
+    } else if updated.wearsTemporary {
+      updated.takenOffAt = now
     }
+    updated.wearsTemporary = isOn
     updated.turnedOffByLicence = false
     try store.save(updated)
   }
 
-  /// Removes the Temporary tag when the trial or licence ends, remembering the folder so buying
-  /// can turn it back on in one click.
+  /// Makes the folder plain when the trial or licence ends, remembering the folder so buying can
+  /// turn it back on in one click. Unlike a user's switch-off, this can't be put back.
   public func turnOffByLicence(_ folder: Folder) throws {
-    let (located, url) = try locate(folder)
-    try TemporaryTag.remove(from: url)
+    let (located, _) = try locate(folderID: try require(folder.id))
     var updated = located
+    updated.wearsTemporary = false
+    updated.takenOffAt = nil
     updated.turnedOffByLicence = true
     try store.save(updated)
   }
 
-  /// Untags the folder and forgets it, journal included.
-  public func remove(_ folder: Folder) throws {
-    let id = try require(folder.id)
-    if let url = try? locate(folder).url { try TemporaryTag.remove(from: url) }
-    try store.deleteFolder(id: id)
+  /// Whether Temporary taken off this folder by the user can still be put back at `now`: until the
+  /// same time the next day. A licence pause, or Temporary going on again, ends the chance.
+  public func canPutBack(_ folder: Folder, now: Date = Date()) -> Bool {
+    guard !folder.wearsTemporary, !folder.turnedOffByLicence, let takenOffAt = folder.takenOffAt
+    else { return false }
+    guard let deadline = Calendar.current.date(byAdding: .day, value: 1, to: takenOffAt) else {
+      return false
+    }
+    return now < deadline
   }
 
-  /// A folder's status. Removes nothing.
+  /// Turns Temporary back on with the folder's settings unchanged, if `canPutBack` allows it.
+  public func putBack(_ folder: Folder, now: Date = Date()) throws {
+    let (located, _) = try locate(folderID: try require(folder.id))
+    guard canPutBack(located, now: now) else { throw Failure.cannotPutBack }
+    try setTemporary(located, true, now: now)
+  }
+
+  /// Saves the folder's settings only. The folder may be a copy from before a Temporary switch or a
+  /// licence change, so nothing else is written.
+  public func saveSettings(_ settings: TemporarySettings, for folder: Folder) throws {
+    try store.saveSettings(settings, folderID: try require(folder.id))
+  }
+
+  /// Forgets the folder and its journal. The folder's files are left alone.
+  public func remove(_ folder: Folder) throws {
+    try store.deleteFolder(id: try require(folder.id))
+  }
+
+  /// A folder's status. Removes no items.
   public func status(folderID: Int64, now: Date = Date()) throws -> FolderStatus {
     let (folder, url) = try locate(folderID: folderID)
     return try status(
-      of: url, isTagged: TemporaryTag.isSet(on: url), settings: folder.settings,
+      of: url, wearsTemporary: folder.wearsTemporary, settings: folder.settings,
       lastRunAt: folder.lastRunAt, now: now)
   }
 
@@ -130,13 +156,13 @@ public struct Engine: Sendable {
   public func run(folderID: Int64, now: Date = Date()) throws -> RunResult {
     let (folder, url) = try locate(folderID: folderID)
     let removals = try status(
-      of: url, isTagged: TemporaryTag.isSet(on: url), settings: folder.settings,
+      of: url, wearsTemporary: folder.wearsTemporary, settings: folder.settings,
       lastRunAt: folder.lastRunAt, now: now
     ).dueNow
     var result = RunResult(journal: [], failures: [])
     for removal in removals {
-      // Removing earlier items can take a while; the user may untag the folder meanwhile.
-      guard TemporaryTag.isSet(on: url) else { break }
+      // Removing earlier items can take a while; the user may take Temporary off meanwhile.
+      guard try store.folder(id: folderID)?.wearsTemporary == true else { break }
       do {
         result.journal.append(try dispose(removal, of: folder, now: now))
       } catch {
@@ -146,9 +172,7 @@ public struct Engine: Sendable {
         )
       }
     }
-    var ran = folder
-    ran.lastRunAt = now
-    try store.save(ran)
+    try store.recordRun(folderID: folderID, at: now)
     Self.logger.info("Removed \(result.journal.count) items, \(result.failures.count) failed")
     return result
   }
@@ -172,23 +196,16 @@ public struct Engine: Sendable {
     try store.save(entry)
   }
 
-  private func locate(folderID: Int64) throws -> (folder: Folder, url: URL) {
-    guard let folder = try store.folder(id: folderID) else {
-      throw Failure.folderNotFound(id: folderID)
-    }
-    return try locate(folder)
-  }
-
   private func status(
     of url: URL,
-    isTagged: Bool,
+    wearsTemporary: Bool,
     settings: TemporarySettings,
     lastRunAt: Date,
     now: Date
   ) throws -> FolderStatus {
     let capacity = try System.capacity(of: url)
     let snapshot = FolderSnapshot(
-      isTagged: isTagged,
+      wearsTemporary: wearsTemporary,
       isProtectedRoot: System.isProtected(url),
       items: try Inventory.items(in: url)
     )
@@ -201,7 +218,7 @@ public struct Engine: Sendable {
     )
     return FolderStatus(
       url: url,
-      isTagged: snapshot.isTagged,
+      wearsTemporary: snapshot.wearsTemporary,
       isProtectedRoot: snapshot.isProtectedRoot,
       items: snapshot.items,
       dueNow: plan(snapshot, settings: settings, conditions: conditions),
@@ -209,17 +226,40 @@ public struct Engine: Sendable {
     )
   }
 
-  /// Resolves the bookmark, recording where the folder now is if it moved.
-  private func locate(_ folder: Folder) throws -> (folder: Folder, url: URL) {
+  /// Reads the folder from the database and resolves its bookmark, recording where the folder now
+  /// is if it moved. A folder still owing its legacy tag's removal takes that first, so nothing
+  /// acts on a folder before its Temporary setting is in the database.
+  private func locate(folderID: Int64) throws -> (folder: Folder, url: URL) {
+    guard var folder = try store.folder(id: folderID) else {
+      throw Failure.folderNotFound(id: folderID)
+    }
     var isStale = false
     let url = try URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &isStale)
-    guard isStale || url.path != folder.path else { return (folder, url) }
+    if isStale || url.path != folder.path {
+      folder.path = url.path
+      folder.bookmark = try url.bookmarkData()
+      try store.save(folder)
+    }
+    guard try store.hasLegacyTag(folderID: folderID) else { return (folder, url) }
+    try takeOffLegacyTag(folderID: folderID, at: url)
+    return (try require(store.folder(id: folderID)), url)
+  }
 
-    var moved = folder
-    moved.path = url.path
-    moved.bookmark = try url.bookmarkData()
-    try store.save(moved)
-    return (moved, url)
+  /// Sets the folder's Temporary from its legacy tag, then takes the tag off. The setting is written
+  /// first: a crash between the two leaves a tag nothing reads, where the other order could lose
+  /// the setting. A folder that can't be read throws and stays pending.
+  private func takeOffLegacyTag(folderID: Int64, at url: URL) throws {
+    let hadTag = try LegacyTemporaryTag.isSet(on: url)
+    guard try store.finishLegacyTag(folderID: folderID, wearsTemporary: hadTag) else { return }
+    do {
+      try LegacyTemporaryTag.remove(from: url)
+    } catch {
+      // ponytail: if removing the tag fails, it stays on the folder, where Finder shows it, but
+      // nothing reads it. Un-park if a user reports the tag still showing.
+      Self.logger.error(
+        "Couldn't take the old tag off \(url.path, privacy: .private): \(error.localizedDescription, privacy: .public)"
+      )
+    }
   }
 
   private func dispose(_ removal: Removal, of folder: Folder, now: Date) throws

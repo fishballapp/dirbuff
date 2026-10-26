@@ -73,7 +73,7 @@ extension MenuBarState {
     calendar: Calendar = .current,
     binName: String = SystemBin.name
   ) {
-    let temporaryReports = reports.filter { $0.status?.isTagged != false }
+    let temporaryReports = reports.filter { $0.status?.wearsTemporary != false }
     let next = nextCleanUp(after: now, calendar: calendar)
     let cleanUps = temporaryReports.compactMap(\.status).flatMap {
       $0.cleanUps(now: now, calendar: calendar).map(\.at)
@@ -230,7 +230,7 @@ func distanceToGoing(
   _ report: FolderReport, licence: Licence, now: Date, calendar: Calendar
 ) -> String {
   guard let status = report.status else { return "Can't read this folder" }
-  guard status.isTagged else { return "Off" }
+  guard status.wearsTemporary else { return "Off" }
   guard licence.mayClean else { return "Paused" }
   let settings = report.folder.settings
   let cleanUps = status.cleanUps(now: now, calendar: calendar)

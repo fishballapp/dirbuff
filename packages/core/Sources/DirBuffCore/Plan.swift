@@ -20,13 +20,13 @@ public struct Removal: Sendable, Equatable {
 
 /// What a Temporary folder looks like at the start of a run.
 public struct FolderSnapshot: Sendable {
-  /// False once the user removes the Finder tag: the folder is then a plain folder again.
-  public var isTagged: Bool
+  /// False once the folder stops wearing Temporary: a plain folder is never cleaned.
+  public var wearsTemporary: Bool
   public var isProtectedRoot: Bool
   public var items: [Item]
 
-  public init(isTagged: Bool, isProtectedRoot: Bool, items: [Item]) {
-    self.isTagged = isTagged
+  public init(wearsTemporary: Bool, isProtectedRoot: Bool, items: [Item]) {
+    self.wearsTemporary = wearsTemporary
     self.isProtectedRoot = isProtectedRoot
     self.items = items
   }
@@ -65,7 +65,7 @@ public func plan(
   settings: TemporarySettings,
   conditions: RunConditions
 ) -> [Removal] {
-  guard folder.isTagged, !folder.isProtectedRoot else { return [] }
+  guard folder.wearsTemporary, !folder.isProtectedRoot else { return [] }
 
   let oldestFirst = folder.items
     .compactMap { item in item.freshness.map { DatedItem(item: item, freshness: $0) } }

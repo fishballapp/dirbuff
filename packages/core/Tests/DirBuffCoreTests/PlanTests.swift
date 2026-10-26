@@ -34,10 +34,11 @@ private func removals(
   _ items: [Item],
   _ settings: TemporarySettings,
   _ conditions: RunConditions = conditions(),
-  isTagged: Bool = true,
+  wearsTemporary: Bool = true,
   isProtectedRoot: Bool = false
 ) -> [String: Set<Rule>] {
-  let snapshot = FolderSnapshot(isTagged: isTagged, isProtectedRoot: isProtectedRoot, items: items)
+  let snapshot = FolderSnapshot(
+    wearsTemporary: wearsTemporary, isProtectedRoot: isProtectedRoot, items: items)
   return Dictionary(
     uniqueKeysWithValues: plan(snapshot, settings: settings, conditions: conditions).map {
       ($0.item.url.lastPathComponent, $0.reasons)
@@ -150,7 +151,7 @@ private let noRules = TemporarySettings(maxAgeDays: nil)
 
   @Test func isOldestFirst() {
     let items = [item("b", daysOld: 40), item("a", daysOld: 50), item("c", daysOld: 45)]
-    let snapshot = FolderSnapshot(isTagged: true, isProtectedRoot: false, items: items)
+    let snapshot = FolderSnapshot(wearsTemporary: true, isProtectedRoot: false, items: items)
     let settings = TemporarySettings(maxAgeDays: 30)
     let names = plan(snapshot, settings: settings, conditions: conditions()).map {
       $0.item.url.lastPathComponent
@@ -167,7 +168,7 @@ private let noRules = TemporarySettings(maxAgeDays: nil)
 
   @Test func doesNothingOnceTheTagIsGone() {
     #expect(
-      removals([item("old", daysOld: 99)], TemporarySettings(maxAgeDays: 30), isTagged: false)
+      removals([item("old", daysOld: 99)], TemporarySettings(maxAgeDays: 30), wearsTemporary: false)
         .isEmpty)
   }
 
@@ -193,7 +194,7 @@ private let noRules = TemporarySettings(maxAgeDays: nil)
 
 @Suite struct Upcoming {
   private let snapshot = FolderSnapshot(
-    isTagged: true, isProtectedRoot: false,
+    wearsTemporary: true, isProtectedRoot: false,
     items: [item("new", daysOld: 1), item("undated", daysOld: nil), item("old", daysOld: 25)])
 
   @Test func datesEachItemByWhenItCrossesTheAgeLimit() {
@@ -206,8 +207,8 @@ private let noRules = TemporarySettings(maxAgeDays: nil)
 
   @Test func isEmptyWithoutTheAgeRuleOrTheTag() {
     #expect(upcoming(snapshot, settings: noRules).isEmpty)
-    var untagged = snapshot
-    untagged.isTagged = false
-    #expect(upcoming(untagged, settings: TemporarySettings()).isEmpty)
+    var notTemporary = snapshot
+    notTemporary.wearsTemporary = false
+    #expect(upcoming(notTemporary, settings: TemporarySettings()).isEmpty)
   }
 }

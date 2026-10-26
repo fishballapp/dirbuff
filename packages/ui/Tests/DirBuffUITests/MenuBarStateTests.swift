@@ -137,8 +137,8 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
   }
 
   @Test func leavesOutFoldersThatAreOff() {
-    #expect(distance(report(1, isTagged: false)) == nil)
-    let menu = state([report(1, isTagged: false)])
+    #expect(distance(report(1, wearsTemporary: false)) == nil)
+    let menu = state([report(1, wearsTemporary: false)])
     #expect(menu.folders.isEmpty)
     #expect(menu.hasNoFolders)
     #expect(menu.headline == "No Temporary folders yet")

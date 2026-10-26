@@ -24,7 +24,7 @@ func report(
   items: [Item] = [],
   dueNow: [Item] = [],
   upcoming: [(Item, TimeInterval)] = [],
-  isTagged: Bool = true,
+  wearsTemporary: Bool = true,
   isProtectedRoot: Bool = false,
   readable: Bool = true
 ) -> FolderReport {
@@ -35,7 +35,7 @@ func report(
       createdAt: now, lastRunAt: now),
     status: readable
       ? Engine.FolderStatus(
-        url: URL(fileURLWithPath: "/Users/me/\(folderName)"), isTagged: isTagged,
+        url: URL(fileURLWithPath: "/Users/me/\(folderName)"), wearsTemporary: wearsTemporary,
         isProtectedRoot: isProtectedRoot, items: items + dueNow + upcoming.map(\.0),
         dueNow: dueNow.map { Removal(item: $0, reasons: [.age]) },
         upcoming: upcoming.map { Upcoming(item: $0.0, date: now.addingTimeInterval($0.1)) })

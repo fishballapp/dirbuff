@@ -86,7 +86,7 @@ extension MainState {
     self.folders = reports.compactMap { report in
       guard let id = report.folder.id else { return nil }
       let isReadable = report.status != nil
-      let isTemporary = report.status?.isTagged == true
+      let isTemporary = report.status?.wearsTemporary == true
       let distance = distanceToGoing(report, licence: licence, now: now, calendar: calendar)
       let preview: FolderPreview = {
         guard let status = report.status else {

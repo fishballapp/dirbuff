@@ -107,4 +107,50 @@ import Testing
     #expect(folders.map(\.turnedOffByLicence) == [false])
     #expect(try database.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM licence") } == 1)
   }
+
+  @Test func keepsWhetherItWearsTemporaryAndWhenItWasTakenOff() throws {
+    var saved = try folder()
+    saved.wearsTemporary = true
+    saved.takenOffAt = createdAt
+    try store.save(saved)
+    #expect(try store.folder(id: try #require(saved.id)) == saved)
+  }
+
+  @Test func aFolderFromBeforeOwesItsLegacyTagUntilItIsRead() throws {
+    let store = try legacyStore([(Data([1]), "/Users/me/Downloads")])
+    let folderID = try #require(store.folders().first?.id)
+    #expect(try store.hasLegacyTag(folderID: folderID))
+
+    #expect(try store.finishLegacyTag(folderID: folderID, wearsTemporary: true))
+    #expect(try !store.hasLegacyTag(folderID: folderID))
+    #expect(try store.folder(id: folderID)?.wearsTemporary == true)
+  }
+
+  @Test func aLegacyTagIsFinishedOnce() throws {
+    let store = try legacyStore([(Data([1]), "/Users/me/Downloads")])
+    let folderID = try #require(store.folders().first?.id)
+    _ = try store.finishLegacyTag(folderID: folderID, wearsTemporary: true)
+
+    #expect(try !store.finishLegacyTag(folderID: folderID, wearsTemporary: false))
+    #expect(try store.folder(id: folderID)?.wearsTemporary == true)
+  }
+
+  @Test func aFolderAddedNowOwesNoLegacyTag() throws {
+    let folderID = try #require(folder().id)
+    #expect(try !store.hasLegacyTag(folderID: folderID))
+  }
+
+  @Test func recordingARunChangesOnlyItsTime() throws {
+    var saved = try folder()
+    let folderID = try #require(saved.id)
+    saved.wearsTemporary = true
+    try store.save(saved)
+
+    let ran = createdAt.addingTimeInterval(60)
+    try store.recordRun(folderID: folderID, at: ran)
+
+    let stored = try #require(try store.folder(id: folderID))
+    #expect(stored.lastRunAt == ran)
+    #expect(stored.wearsTemporary)
+  }
 }

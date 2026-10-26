@@ -2,7 +2,7 @@ import DirBuffCore
 import Foundation
 import GRDB
 
-/// A folder the user added to DirBuff. It is Temporary while its Finder tag is set.
+/// A folder the user added to DirBuff. It is Temporary while `wearsTemporary` is set.
 public struct Folder: Sendable, Equatable {
   public internal(set) var id: Int64?
   /// Finds the folder again after it is renamed or moved. Not security-scoped: the app is not
@@ -11,7 +11,11 @@ public struct Folder: Sendable, Equatable {
   /// Where the folder was last seen.
   public internal(set) var path: String
   public var settings: TemporarySettings
-  /// DirBuff took the folder's tag away when the trial or licence ended; buying offers it back.
+  /// Whether the folder is Temporary. DirBuff keeps this itself, so no Finder tag can change it.
+  public internal(set) var wearsTemporary: Bool
+  /// When Temporary was last taken off by the user, so it can be put back for a day.
+  public internal(set) var takenOffAt: Date?
+  /// DirBuff stopped the folder's Temporary when the trial or licence ended; buying offers it back.
   public internal(set) var turnedOffByLicence: Bool
   public internal(set) var createdAt: Date
   /// Starts at `createdAt`, so marking a folder never counts as the first run after a reboot.
@@ -22,6 +26,8 @@ public struct Folder: Sendable, Equatable {
     bookmark: Data,
     path: String,
     settings: TemporarySettings,
+    wearsTemporary: Bool = false,
+    takenOffAt: Date? = nil,
     turnedOffByLicence: Bool = false,
     createdAt: Date,
     lastRunAt: Date
@@ -30,6 +36,8 @@ public struct Folder: Sendable, Equatable {
     self.bookmark = bookmark
     self.path = path
     self.settings = settings
+    self.wearsTemporary = wearsTemporary
+    self.takenOffAt = takenOffAt
     self.turnedOffByLicence = turnedOffByLicence
     self.createdAt = createdAt
     self.lastRunAt = lastRunAt
@@ -88,7 +96,7 @@ public struct Store: Sendable {
     try Store(DatabaseQueue())
   }
 
-  private init(_ database: DatabaseQueue) throws {
+  init(_ database: DatabaseQueue) throws {
     self.database = database
     try Self.migrator.migrate(database)
   }
@@ -136,6 +144,18 @@ public struct Store: Sendable {
       try db.execute(
         sql: "INSERT INTO licence (trialStartedAt, hasEnded) VALUES (?, 0)", arguments: [Date()])
     }
+    // Temporary moves from a Finder tag into the database. Folders that exist now still owe the
+    // tag's removal (`Engine` takes it off the first time it reaches one), so they are listed here.
+    migrator.registerMigration("temporary in the database") { db in
+      try db.alter(table: "folder") { t in
+        t.add(column: "wearsTemporary", .boolean).notNull().defaults(to: false)
+        t.add(column: "takenOffAt", .datetime)
+      }
+      try db.create(table: "legacyTagPending") { t in
+        t.primaryKey("folderID", .integer).references("folder", onDelete: .cascade)
+      }
+      try db.execute(sql: "INSERT INTO legacyTagPending (folderID) SELECT id FROM folder")
+    }
     return migrator
   }
 
@@ -166,6 +186,51 @@ public struct Store: Sendable {
   /// The user said no to turning the folders back on after buying.
   public func forgetFoldersTurnedOffByLicence() throws {
     try database.write { try $0.execute(sql: "UPDATE folder SET turnedOffByLicence = 0") }
+  }
+
+  func hasLegacyTag(folderID: Int64) throws -> Bool {
+    try database.read {
+      try Bool.fetchOne(
+        $0, sql: "SELECT EXISTS (SELECT 1 FROM legacyTagPending WHERE folderID = ?)",
+        arguments: [folderID]) ?? false
+    }
+  }
+
+  /// Sets the folder's Temporary from its legacy tag and marks the tag done, in one write. Returns
+  /// false when another read already did it.
+  func finishLegacyTag(folderID: Int64, wearsTemporary: Bool) throws -> Bool {
+    try database.write { db in
+      try db.execute(sql: "DELETE FROM legacyTagPending WHERE folderID = ?", arguments: [folderID])
+      guard db.changesCount == 1 else { return false }
+      try db.execute(
+        sql: "UPDATE folder SET wearsTemporary = ? WHERE id = ?",
+        arguments: [wearsTemporary, folderID])
+      return true
+    }
+  }
+
+  /// Writes only the run's time: a run must not write back a setting the user changed while it ran.
+  func recordRun(folderID: Int64, at date: Date) throws {
+    try database.write {
+      try $0.execute(
+        sql: "UPDATE folder SET lastRunAt = ? WHERE id = ?", arguments: [date, folderID])
+    }
+  }
+
+  /// Writes only the settings columns, so a copy of the folder taken before a Temporary switch or a
+  /// licence change can't write those back.
+  func saveSettings(_ settings: TemporarySettings, folderID: Int64) throws {
+    try database.write {
+      try $0.execute(
+        sql: """
+          UPDATE folder SET maxAgeDays = ?, sizeLimit = ?, automatic = ?, emptyOnRestart = ?,
+            disposal = ? WHERE id = ?
+          """,
+        arguments: [
+          settings.maxAgeDays, settings.sizeLimit, settings.automatic, settings.emptyOnRestart,
+          settings.disposal.rawValue, folderID,
+        ])
+    }
   }
 
   public func licence() throws -> LicenceRecord {
@@ -247,6 +312,8 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
       emptyOnRestart: row["emptyOnRestart"],
       disposal: disposal
     )
+    wearsTemporary = row["wearsTemporary"]
+    takenOffAt = row["takenOffAt"]
     turnedOffByLicence = row["turnedOffByLicence"]
     createdAt = row["createdAt"]
     lastRunAt = row["lastRunAt"]
@@ -261,6 +328,8 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
     container["automatic"] = settings.automatic
     container["emptyOnRestart"] = settings.emptyOnRestart
     container["disposal"] = settings.disposal.rawValue
+    container["wearsTemporary"] = wearsTemporary
+    container["takenOffAt"] = takenOffAt
     container["turnedOffByLicence"] = turnedOffByLicence
     container["createdAt"] = createdAt
     container["lastRunAt"] = lastRunAt

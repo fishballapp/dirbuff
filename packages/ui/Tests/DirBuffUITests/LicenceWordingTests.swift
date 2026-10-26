@@ -80,7 +80,7 @@ private let paidThrough = Date(timeIntervalSince1970: 1_800_000_000)
 
   @Test func refusesTemporaryInTheMainWindowOnceTheLicenceEnded() {
     let main = MainState(
-      reports: [report(1, isTagged: false)], journal: [], freeSpace: 50_000_000_000,
+      reports: [report(1, wearsTemporary: false)], journal: [], freeSpace: 50_000_000_000,
       isFinderExtensionOff: false, licence: .ended(paidThrough: paidThrough), now: now,
       calendar: calendar, binName: "Bin")
     #expect(main.licenceRefusal == Licence.ended(paidThrough: paidThrough).refusal)

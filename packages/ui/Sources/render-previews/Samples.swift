@@ -30,11 +30,12 @@ enum Samples {
 
   /// A status as the engine would report it for these items under `settings`.
   private static func status(
-    _ name: String, _ items: [Item], _ settings: TemporarySettings, isTagged: Bool = true
+    _ name: String, _ items: [Item], _ settings: TemporarySettings, wearsTemporary: Bool = true
   ) -> Engine.FolderStatus {
-    let snapshot = FolderSnapshot(isTagged: isTagged, isProtectedRoot: false, items: items)
+    let snapshot = FolderSnapshot(
+      wearsTemporary: wearsTemporary, isProtectedRoot: false, items: items)
     return Engine.FolderStatus(
-      url: URL(fileURLWithPath: "/Users/sample/\(name)"), isTagged: isTagged,
+      url: URL(fileURLWithPath: "/Users/sample/\(name)"), wearsTemporary: wearsTemporary,
       isProtectedRoot: false, items: items,
       dueNow: plan(
         snapshot, settings: settings,
@@ -82,7 +83,7 @@ enum Samples {
       status: status("Recordings", recordingsItems, recordingsSettings)),
     FolderReport(
       folder: folder(4, "Archive", archiveSettings),
-      status: status("Archive", archiveItems, archiveSettings, isTagged: false)),
+      status: status("Archive", archiveItems, archiveSettings, wearsTemporary: false)),
   ]
 
   static let journal: [JournalEntry] = [

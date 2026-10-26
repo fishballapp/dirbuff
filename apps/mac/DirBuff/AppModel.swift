@@ -160,12 +160,12 @@ final class AppModel {
     }
   }
 
-  /// Hands the Finder extension what its badge and item need: the Temporary folders (one whose tag
-  /// was removed in Finder loses its badge), every added folder, and the protected ones it offers
-  /// nothing on. The protected list changes as volumes mount.
+  /// Hands the Finder extension what its badge and item need: the Temporary folders, every added
+  /// folder, and the protected ones it offers nothing on. The protected list changes as volumes
+  /// mount.
   private func publishForFinder(_ reports: [FolderReport]) {
     guard let shared = FinderFolders.defaults else { return }
-    let temporaryPaths = reports.filter { $0.status?.isTagged == true }.map(\.folder.path)
+    let temporaryPaths = reports.filter { $0.status?.wearsTemporary == true }.map(\.folder.path)
     if shared.temporaryFolderPaths != temporaryPaths {
       shared.temporaryFolderPaths = temporaryPaths
     }
@@ -215,7 +215,7 @@ final class AppModel {
     }
     await refresh()
     // Ask when the benefit is clear: right after the first folder is made Temporary.
-    if isOn, reports.count(where: { $0.status?.isTagged == true }) == 1 {
+    if isOn, reports.count(where: { $0.status?.wearsTemporary == true }) == 1 {
       requestNotificationPermission()
     }
   }
@@ -232,10 +232,8 @@ final class AppModel {
 
   func save(_ settings: TemporarySettings, for folder: Folder) async {
     let engine = engine
-    var changed = folder
-    changed.settings = settings
     do {
-      try await Task.detached { [changed] in try engine.store.save(changed) }.value
+      try await Task.detached { try engine.saveSettings(settings, for: folder) }.value
     } catch {
       show(error, doing: "save the folder's settings")
     }
@@ -275,6 +273,8 @@ final class AppModel {
       return "\(URL(fileURLWithPath: path).lastPathComponent) changed, so it was left alone."
     case .folderNotFound, .journalEntryNotFound:
       return "DirBuff no longer knows about that folder."
+    case .cannotPutBack:
+      return "Temporary can't be put back on that folder any more."
     }
   }
 
@@ -402,13 +402,13 @@ final class AppModel {
     }
   }
 
-  /// Takes the tag off every Temporary folder once the trial or licence has ended. Folders already
-  /// plain are skipped, so it does its work once per end.
+  /// Makes every Temporary folder plain once the trial or licence has ended. Folders already plain
+  /// are skipped, so it does its work once per end.
   private func makeFoldersPlain(_ licence: Licence) async {
     let engine = engine
-    let tagged = reports.filter { $0.status?.isTagged == true }.map(\.folder)
-    guard !tagged.isEmpty else { return }
-    for folder in tagged {
+    let temporary = reports.filter { $0.status?.wearsTemporary == true }.map(\.folder)
+    guard !temporary.isEmpty else { return }
+    for folder in temporary {
       do {
         try await Task.detached { try engine.turnOffByLicence(folder) }.value
       } catch {

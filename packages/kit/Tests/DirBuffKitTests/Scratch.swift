@@ -32,6 +32,17 @@ final class Scratch {
   }
 }
 
+/// Sets the Finder tags on `url`, the way 0.1.x marked a folder.
+func setFinderTags(_ names: [String], on url: URL) throws {
+  try (url as NSURL).setResourceValue(names, forKey: .tagNamesKey)
+}
+
+/// The Finder tags on `url`, read through a fresh URL: one that already read them returns its
+/// cached values.
+func finderTags(of url: URL) throws -> [String] {
+  try URL(fileURLWithPath: url.path).resourceValues(forKeys: [.tagNamesKey]).tagNames ?? []
+}
+
 func setModified(_ date: Date, of url: URL) throws {
   try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
 }

@@ -13,7 +13,7 @@ private func mainState(_ reports: [FolderReport], journal: [JournalEntry] = []) 
 
 @Suite struct MainStateMapping {
   @Test func folderThatIsOffReadsOff() {
-    let state = mainState([report(1, isTagged: false)])
+    let state = mainState([report(1, wearsTemporary: false)])
     #expect(state.folders.count == 1)
     let folder = state.folders[0]
     #expect(!folder.isTemporary)
@@ -45,9 +45,9 @@ private func mainState(_ reports: [FolderReport], journal: [JournalEntry] = []) 
 
   @Test func menuBarStateLeavesOutFoldersThatAreOff() {
     let reports = [
-      report(1, name: "On1", isTagged: true),
-      report(2, name: "Off", isTagged: false),
-      report(3, name: "On2", isTagged: true),
+      report(1, name: "On1", wearsTemporary: true),
+      report(2, name: "Off", wearsTemporary: false),
+      report(3, name: "On2", wearsTemporary: true),
       report(4, name: "Unreadable", readable: false),
     ]
     let state = mainState(reports)
@@ -59,7 +59,7 @@ private func mainState(_ reports: [FolderReport], journal: [JournalEntry] = []) 
   @Test func mapsSettings() {
     let settings = TemporarySettings(maxAgeDays: 14, disposal: .delete)
     let state = mainState([
-      report(1, settings, isTagged: true)
+      report(1, settings, wearsTemporary: true)
     ])
     #expect(state.folders[0].isTemporary)
     #expect(state.folders[0].settings == settings)
