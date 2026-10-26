@@ -219,6 +219,7 @@ func main() {
   let mainSize = CGSize(width: 760, height: 560)
 
   let states: [(name: String, view: AnyView, size: CGSize?)] = [
+    ("foundation", AnyView(FoundationSheet()), nil),
     // Menu bar states
     (
       "menubar-busy",

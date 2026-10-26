@@ -63,6 +63,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: DirBuff/DirBuff.entitlements
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         DIRBUFF_POLAR_API: "https:/$()/sandbox-api.polar.sh"
         DIRBUFF_POLAR_ORGANIZATION_ID: "06b3e001-297b-4ebd-bd97-c2008176dde0"
         DIRBUFF_POLAR_CHECKOUT_URL: "https:/$()/sandbox-api.polar.sh/v1/checkout-links/polar_cl_MrvqdeDKkaPJYQ0RL1RSC2a0zZFMGwXhTOTY411JLPB/redirect"

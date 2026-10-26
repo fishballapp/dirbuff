@@ -27,7 +27,8 @@ let package = Package(
       dependencies: [
         .product(name: "DirBuffCore", package: "core"),
         .product(name: "DirBuffKit", package: "kit"),
-      ]
+      ],
+      resources: [.copy("Resources/Fonts")]
     ),
     .executableTarget(
       name: "render-previews",
