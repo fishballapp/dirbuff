@@ -6,3 +6,4 @@ apps/mac/out/
 apps/mac/.derivedData/
 node_modules
 *.tsbuildinfo
+design/review/
