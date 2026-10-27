@@ -144,8 +144,14 @@ final class AppModel {
     let since = Date().addingTimeInterval(-Self.recentRunWindow)
     do {
       let (reports, journal) = try await Task.detached {
-        let reports = try engine.store.folders().map { folder in
-          FolderReport(folder: folder, status: folder.id.flatMap { id in Self.status(engine, id) })
+        // Reading a folder can change its record (its old tag taken off, a renamed folder's
+        // path), so the records are fetched after the reads.
+        let readings = Dictionary(
+          uniqueKeysWithValues: try engine.store.folders().compactMap(\.id).map {
+            ($0, Self.read($0, engine))
+          })
+        let reports = try engine.store.folders().compactMap { folder in
+          folder.id.flatMap { readings[$0] }.map { FolderReport(folder: folder, reading: $0) }
         }
         return (reports, try engine.store.journal(since: since))
       }.value
@@ -165,7 +171,7 @@ final class AppModel {
   /// mount.
   private func publishForFinder(_ reports: [FolderReport]) {
     guard let shared = FinderFolders.defaults else { return }
-    let temporaryPaths = reports.filter { $0.status?.wearsTemporary == true }.map(\.folder.path)
+    let temporaryPaths = reports.filter { $0.folder.wearsTemporary }.map(\.folder.path)
     if shared.temporaryFolderPaths != temporaryPaths {
       shared.temporaryFolderPaths = temporaryPaths
     }
@@ -180,12 +186,14 @@ final class AppModel {
   }
 
   /// One unreadable folder (an unplugged drive) mustn't hide the others.
-  nonisolated private static func status(_ engine: Engine, _ id: Int64) -> Engine.FolderStatus? {
+  nonisolated private static func read(_ id: Int64, _ engine: Engine)
+    -> Result<Engine.FolderStatus, FolderProblem>
+  {
     do {
-      return try engine.status(folderID: id)
+      return .success(try engine.status(folderID: id))
     } catch {
       logger.error("Couldn't read folder \(id): \(error.localizedDescription, privacy: .public)")
-      return nil
+      return .failure(FolderProblem(error))
     }
   }
 
@@ -215,7 +223,7 @@ final class AppModel {
     }
     await refresh()
     // Ask when the benefit is clear: right after the first folder is made Temporary.
-    if isOn, reports.count(where: { $0.status?.wearsTemporary == true }) == 1 {
+    if isOn, reports.count(where: { $0.folder.wearsTemporary }) == 1 {
       requestNotificationPermission()
     }
   }
@@ -406,7 +414,7 @@ final class AppModel {
   /// are skipped, so it does its work once per end.
   private func makeFoldersPlain(_ licence: Licence) async {
     let engine = engine
-    let temporary = reports.filter { $0.status?.wearsTemporary == true }.map(\.folder)
+    let temporary = reports.filter { $0.folder.wearsTemporary }.map(\.folder)
     guard !temporary.isEmpty else { return }
     for folder in temporary {
       do {

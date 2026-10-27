@@ -22,7 +22,7 @@ private func mainState(_ reports: [FolderReport], journal: [JournalEntry] = []) 
   }
 
   @Test func unreadableReadsCantReadThisFolder() {
-    let state = mainState([report(1, readable: false)])
+    let state = mainState([report(1, problem: .unreachable)])
     #expect(state.folders.count == 1)
     let folder = state.folders[0]
     #expect(!folder.isReadable)
@@ -48,7 +48,7 @@ private func mainState(_ reports: [FolderReport], journal: [JournalEntry] = []) 
       report(1, name: "On1", wearsTemporary: true),
       report(2, name: "Off", wearsTemporary: false),
       report(3, name: "On2", wearsTemporary: true),
-      report(4, name: "Unreadable", readable: false),
+      report(4, name: "Unreadable", problem: .unreachable),
     ]
     let state = mainState(reports)
     #expect(state.folders.count == 4)

@@ -15,13 +15,11 @@ public struct Upcoming: Sendable, Equatable {
 /// Size and Automatic depend on what arrives and on the disk, and Empty on restart on the next
 /// restart, so the folder's settings and state speak for those.
 public func upcoming(_ folder: FolderSnapshot, settings: TemporarySettings) -> [Upcoming] {
-  guard folder.wearsTemporary, !folder.isProtectedRoot, let days = settings.maxAgeDays else {
-    return []
-  }
+  guard folder.wearsTemporary, !folder.isProtectedRoot, settings.rule == .age else { return [] }
   return folder.items
     .compactMap { item in
       item.freshness.map {
-        Upcoming(item: item, date: $0.addingTimeInterval(Double(days) * 86_400))
+        Upcoming(item: item, date: $0.addingTimeInterval(Double(settings.maxAgeDays) * 86_400))
       }
     }
     .sorted { ($0.date, $0.item.url.lastPathComponent) < ($1.date, $1.item.url.lastPathComponent) }

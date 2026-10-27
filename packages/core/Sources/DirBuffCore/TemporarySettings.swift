@@ -4,32 +4,35 @@ public enum Disposal: String, Sendable, Codable {
   case delete
 }
 
+/// What a Temporary folder clears and how: one rule, and where things go.
 public struct TemporarySettings: Sendable, Equatable {
-  /// The age a new folder starts with, and the one a re-ticked age rule comes back with.
+  /// The age a new folder starts with.
   public static let defaultMaxAgeDays = 90
+  /// The size the Size rule starts with when the folder has none yet.
+  public static let defaultSizeLimit: Int64 = 10_000_000_000
 
-  /// Age rule: an item goes once it hasn't arrived or changed for this many days. Nil turns it off.
-  public var maxAgeDays: Int?
-  /// Size rule: the oldest items go until the folder fits. Nil turns it off.
-  public var sizeLimit: Int64?
-  /// Automatic rule: the oldest items go while the volume is low on space. Only acts with
-  /// `.delete`: binning frees nothing, so it would bin the folder empty, run after run.
-  public var automatic: Bool
-  /// Empty on restart: the first run after a reboot clears what was there before it.
-  public var emptyOnRestart: Bool
-  public var disposal: Disposal
+  public var rule: Rule
+  /// The Age rule's days: an item goes once it hasn't arrived or changed for this long. Kept while
+  /// another rule is chosen, so choosing Age again brings it back.
+  public var maxAgeDays: Int
+  /// The Size rule's limit: the oldest items go until the folder fits. Kept like `maxAgeDays`.
+  public var sizeLimit: Int64
+  /// Where the Age, Size and Empty on restart rules send things.
+  public var chosenDisposal: Disposal
+
+  /// Where things go: as chosen, except that the Automatic rule always deletes. Binning frees
+  /// nothing, so it would bin the folder empty, run after run.
+  public var disposal: Disposal { rule == .automatic ? .delete : chosenDisposal }
 
   public init(
-    maxAgeDays: Int? = defaultMaxAgeDays,
-    sizeLimit: Int64? = nil,
-    automatic: Bool = false,
-    emptyOnRestart: Bool = false,
+    rule: Rule = .age,
+    maxAgeDays: Int = defaultMaxAgeDays,
+    sizeLimit: Int64 = defaultSizeLimit,
     disposal: Disposal = .bin
   ) {
+    self.rule = rule
     self.maxAgeDays = maxAgeDays
     self.sizeLimit = sizeLimit
-    self.automatic = automatic
-    self.emptyOnRestart = emptyOnRestart
-    self.disposal = disposal
+    self.chosenDisposal = disposal
   }
 }

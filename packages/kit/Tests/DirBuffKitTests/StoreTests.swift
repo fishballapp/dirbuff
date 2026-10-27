@@ -22,8 +22,7 @@ import Testing
 
   @Test func keepsAFoldersSettings() throws {
     let settings = TemporarySettings(
-      maxAgeDays: nil, sizeLimit: 5_000_000_000, automatic: true, emptyOnRestart: true,
-      disposal: .delete)
+      rule: .size, maxAgeDays: 14, sizeLimit: 5_000_000_000, disposal: .delete)
     let saved = try folder(settings: settings)
     #expect(try store.folder(id: try #require(saved.id)) == saved)
     #expect(try store.folders().map(\.settings) == [settings])
@@ -117,22 +116,73 @@ import Testing
   }
 
   @Test func aFolderFromBeforeOwesItsLegacyTagUntilItIsRead() throws {
-    let store = try legacyStore([(Data([1]), "/Users/me/Downloads")])
+    let store = try legacyStore([LegacyFolder(bookmark: Data([1]), path: "/Users/me/Downloads")])
     let folderID = try #require(store.folders().first?.id)
     #expect(try store.hasLegacyTag(folderID: folderID))
 
-    #expect(try store.finishLegacyTag(folderID: folderID, wearsTemporary: true))
+    #expect(try store.finishLegacyTag(folderID: folderID, hadTag: true))
     #expect(try !store.hasLegacyTag(folderID: folderID))
     #expect(try store.folder(id: folderID)?.wearsTemporary == true)
   }
 
   @Test func aLegacyTagIsFinishedOnce() throws {
-    let store = try legacyStore([(Data([1]), "/Users/me/Downloads")])
+    let store = try legacyStore([LegacyFolder(bookmark: Data([1]), path: "/Users/me/Downloads")])
     let folderID = try #require(store.folders().first?.id)
-    _ = try store.finishLegacyTag(folderID: folderID, wearsTemporary: true)
+    _ = try store.finishLegacyTag(folderID: folderID, hadTag: true)
 
-    #expect(try !store.finishLegacyTag(folderID: folderID, wearsTemporary: false))
+    #expect(try !store.finishLegacyTag(folderID: folderID, hadTag: false))
     #expect(try store.folder(id: folderID)?.wearsTemporary == true)
+  }
+
+  @Test func aFolderFromBeforeWithNoRuleStaysPlain() throws {
+    let store = try legacyStore([
+      LegacyFolder(bookmark: Data([1]), path: "/Users/me/Downloads", maxAgeDays: nil)
+    ])
+    let folderID = try #require(store.folders().first?.id)
+    #expect(try store.finishLegacyTag(folderID: folderID, hadTag: true))
+    #expect(try store.folder(id: folderID)?.wearsTemporary == false)
+  }
+
+  @Test func aFolderWithNoRuleGoesPlainForGood() throws {
+    let database = try DatabaseQueue()
+    try Store.migrator.migrate(database, upTo: "temporary in the database")
+    try database.write {
+      try $0.execute(
+        sql: """
+          INSERT INTO folder (bookmark, path, maxAgeDays, sizeLimit, automatic, emptyOnRestart,
+            disposal, createdAt, lastRunAt, wearsTemporary, takenOffAt, turnedOffByLicence)
+          VALUES (x'01', '/worn', NULL, NULL, 0, 0, 'bin', ?1, ?1, 1, NULL, 0),
+            (x'02', '/taken-off', NULL, NULL, 0, 0, 'delete', ?1, ?1, 0, ?1, 0),
+            (x'03', '/licence-paused', NULL, NULL, 0, 0, 'delete', ?1, ?1, 0, NULL, 1),
+            (x'04', '/sized', NULL, 5, 0, 0, 'bin', ?1, ?1, 1, NULL, 0)
+          """,
+        arguments: [createdAt])
+    }
+    let folders = try Store(database).folders()
+    #expect(folders.map(\.wearsTemporary) == [false, false, false, true])
+    #expect(folders.map(\.putBackUntil) == [nil, nil, nil, nil])
+    #expect(folders.map(\.turnedOffByLicence) == [false, false, false, false])
+    #expect(folders.last?.settings.rule == .size)
+  }
+
+  @Test(arguments: [
+    (LegacyFolder(bookmark: Data([1]), path: "/a", maxAgeDays: 30, sizeLimit: 5), Rule.age),
+    (LegacyFolder(bookmark: Data([1]), path: "/a", maxAgeDays: nil, sizeLimit: 5), .size),
+    (
+      LegacyFolder(bookmark: Data([1]), path: "/a", maxAgeDays: nil, emptyOnRestart: true),
+      .emptyOnRestart
+    ),
+    (
+      LegacyFolder(
+        bookmark: Data([1]), path: "/a", maxAgeDays: nil, automatic: true, disposal: "delete"),
+      .automatic
+    ),
+  ])
+  func aFolderFromBeforeKeepsItsFirstRule(legacy: LegacyFolder, rule: Rule) throws {
+    let settings = try #require(legacyStore([legacy]).folders().first?.settings)
+    #expect(settings.rule == rule)
+    #expect(settings.maxAgeDays == legacy.maxAgeDays ?? TemporarySettings.defaultMaxAgeDays)
+    #expect(settings.sizeLimit == legacy.sizeLimit ?? TemporarySettings.defaultSizeLimit)
   }
 
   @Test func aFolderAddedNowOwesNoLegacyTag() throws {

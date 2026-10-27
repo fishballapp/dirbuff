@@ -34,7 +34,9 @@ import Testing
   private func upgradedEngine(_ folders: [URL]) throws -> Engine {
     Engine(
       store: try legacyStore(
-        try folders.map { (try $0.bookmarkData(), try canonicalPath(of: $0)) }))
+        try folders.map {
+          LegacyFolder(bookmark: try $0.bookmarkData(), path: try canonicalPath(of: $0))
+        }))
   }
 
   @Test func addingAFolderListsItOnceAndLeavesItPlain() throws {
@@ -158,6 +160,29 @@ import Testing
 
     let stored = try #require(try engine.store.folder(id: folderID))
     #expect(stored.settings == changed)
+    #expect(!stored.wearsTemporary)
+    #expect(stored.turnedOffByLicence)
+  }
+
+  @Test func choosingEmptyOnRestartCountsFromNow() throws {
+    let folder = try addTemporary(scratch.url)
+    let folderID = try #require(folder.id)
+    let onRestart = TemporarySettings(rule: .emptyOnRestart)
+
+    try engine.saveSettings(onRestart, for: folder, now: takenOff)
+    #expect(try engine.store.folder(id: folderID)?.lastRunAt == takenOff)
+
+    try engine.saveSettings(onRestart, for: folder, now: later)
+    #expect(try engine.store.folder(id: folderID)?.lastRunAt == takenOff)
+  }
+
+  @Test func theLicenceTurnsOffAFolderItCantReach() throws {
+    let folder = try addTemporary(scratch.url)
+    let folderID = try #require(folder.id)
+    try FileManager.default.removeItem(at: scratch.url)
+
+    try engine.turnOffByLicence(folder)
+    let stored = try #require(try engine.store.folder(id: folderID))
     #expect(!stored.wearsTemporary)
     #expect(stored.turnedOffByLicence)
   }

@@ -15,10 +15,13 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
 
 @Suite struct Forecast {
   @Test func listsUndoableBeforePermanentThenByMoment() {
-    let deleting = TemporarySettings(maxAgeDays: 30, emptyOnRestart: true, disposal: .delete)
+    let deleting = TemporarySettings(rule: .emptyOnRestart, disposal: .delete)
     let menu = state([
       report(1, dueNow: [item("a")], upcoming: [(item("b"), oneDay)]),
-      report(2, deleting, items: [item("kept")], dueNow: [item("c")]),
+      report(
+        2, deleting,
+        items: [item("kept"), Item(url: URL(fileURLWithPath: "/u"), freshness: nil, size: 1)],
+        dueNow: [item("c")]),
     ])
     #expect(
       menu.forecast.map(\.header) == [
@@ -59,7 +62,7 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
   }
 
   @Test func skipsAFolderItCouldNotRead() {
-    #expect(state([report(1, readable: false)]).forecast.isEmpty)
+    #expect(state([report(1, problem: .unreachable)]).forecast.isEmpty)
   }
 }
 
@@ -125,7 +128,7 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
       distance(report(1, upcoming: [(item("a"), 2.5 * 3_600)]))
         == "Oldest goes in 3 hr")
     #expect(distance(report(1, upcoming: [(item("a"), 2 * oneDay)])) == "Oldest goes in 2 days")
-    let sized = TemporarySettings(maxAgeDays: nil, sizeLimit: 10_000)
+    let sized = TemporarySettings(rule: .size, sizeLimit: 10_000)
     #expect(
       distance(report(1, sized, items: [item("a", size: 4_000)]))
         == "\(bytes(4_000)) of \(bytes(10_000))")
@@ -133,7 +136,7 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
   }
 
   @Test func saysWhenTheFolderCantBeCleared() {
-    #expect(distance(report(1, readable: false)) == "Can't read this folder")
+    #expect(distance(report(1, problem: .unreachable)) == "Can't read this folder")
   }
 
   @Test func leavesOutFoldersThatAreOff() {
@@ -142,20 +145,6 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
     #expect(menu.folders.isEmpty)
     #expect(menu.hasNoFolders)
     #expect(menu.headline == "No Temporary folders yet")
-  }
-
-  @Test func summarisesTheRules() {
-    #expect(rules(TemporarySettings(), binName: "Trash") == "90 days · Trash")
-    #expect(
-      rules(
-        TemporarySettings(maxAgeDays: 7, sizeLimit: 10_000_000_000, disposal: .delete),
-        binName: "Bin") == "7 days, under \(bytes(10_000_000_000)) · Delete")
-    #expect(
-      rules(
-        TemporarySettings(
-          maxAgeDays: nil, automatic: true, emptyOnRestart: true, disposal: .delete),
-        binName: "Bin") == "When disk is low, on restart · Delete")
-    #expect(rules(TemporarySettings(maxAgeDays: nil), binName: "Bin") == "No rules on")
   }
 }
 
@@ -225,7 +214,7 @@ private func state(_ reports: [FolderReport], journal: [JournalEntry] = []) -> M
   }
 
   @Test func saysWhatHappensToEachGroup() {
-    let deleting = TemporarySettings(maxAgeDays: 30, emptyOnRestart: true, disposal: .delete)
+    let deleting = TemporarySettings(rule: .emptyOnRestart, disposal: .delete)
     let forecast = preview(deleting, items: [item("kept")], dueNow: [item("old")]).forecast
     #expect(
       forecast.map(\.header) == [

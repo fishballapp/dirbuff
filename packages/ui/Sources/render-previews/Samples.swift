@@ -20,12 +20,12 @@ enum Samples {
       size: size)
   }
 
-  private static func folder(_ id: Int64, _ name: String, _ settings: TemporarySettings)
-    -> Folder
-  {
+  private static func folder(
+    _ id: Int64, _ name: String, _ settings: TemporarySettings, wearsTemporary: Bool = true
+  ) -> Folder {
     Folder(
       id: id, bookmark: Data(), path: "/Users/sample/\(name)", settings: settings,
-      createdAt: now.addingTimeInterval(-90 * day), lastRunAt: now)
+      wearsTemporary: wearsTemporary, createdAt: now.addingTimeInterval(-90 * day), lastRunAt: now)
   }
 
   /// A status as the engine would report it for these items under `settings`.
@@ -57,7 +57,7 @@ enum Samples {
     item("Downloads", "boarding-pass.pdf", daysOld: 2, size: 90_000),
   ]
   static let scratchSettings = TemporarySettings(
-    maxAgeDays: nil, sizeLimit: 10_000_000_000, emptyOnRestart: true, disposal: .delete)
+    rule: .size, sizeLimit: 10_000_000_000, disposal: .delete)
   static let scratchItems = [
     item("Scratch", "build-artifacts", daysOld: 4, size: 6_200_000_000),
     item("Scratch", "render-cache.tmp", daysOld: 1, size: 1_900_000_000),
@@ -74,16 +74,16 @@ enum Samples {
   static let reports: [FolderReport] = [
     FolderReport(
       folder: folder(1, "Downloads", downloadsSettings),
-      status: status("Downloads", downloadsItems, downloadsSettings)),
+      reading: .success(status("Downloads", downloadsItems, downloadsSettings))),
     FolderReport(
       folder: folder(2, "Scratch", scratchSettings),
-      status: status("Scratch", scratchItems, scratchSettings)),
+      reading: .success(status("Scratch", scratchItems, scratchSettings))),
     FolderReport(
       folder: folder(3, "Recordings", recordingsSettings),
-      status: status("Recordings", recordingsItems, recordingsSettings)),
+      reading: .success(status("Recordings", recordingsItems, recordingsSettings))),
     FolderReport(
-      folder: folder(4, "Archive", archiveSettings),
-      status: status("Archive", archiveItems, archiveSettings, wearsTemporary: false)),
+      folder: folder(4, "Archive", archiveSettings, wearsTemporary: false),
+      reading: .success(status("Archive", archiveItems, archiveSettings, wearsTemporary: false))),
   ]
 
   static let journal: [JournalEntry] = [
@@ -123,10 +123,10 @@ enum Samples {
     reports: [
       FolderReport(
         folder: folder(1, "Downloads", downloadsSettings),
-        status: status("Downloads", [], downloadsSettings)),
+        reading: .success(status("Downloads", [], downloadsSettings))),
       FolderReport(
         folder: folder(2, "Scratch", scratchSettings),
-        status: status("Scratch", [], scratchSettings)),
+        reading: .success(status("Scratch", [], scratchSettings))),
     ],
     journal: [], freeSpace: 280_000_000_000, isFinderExtensionOff: false,
     licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
@@ -152,11 +152,9 @@ enum Samples {
       licence: licence, now: shownAt, calendar: calendar, binName: binName)
   }
 
-  /// The site's main window: one Temporary Downloads folder with every rule on, and three items
-  /// due in the coming week.
-  static let siteDownloadsSettings = TemporarySettings(
-    maxAgeDays: 90, sizeLimit: 10_000_000_000, automatic: false, emptyOnRestart: true,
-    disposal: .bin)
+  /// The site's main window: one Temporary Downloads folder clearing what's older than 90 days,
+  /// and three items due in the coming week.
+  static let siteDownloadsSettings = TemporarySettings(maxAgeDays: 90)
   static let siteDownloadsItems = [
     item("Downloads", "Xcode_Helper.dmg", daysOld: 89.2, size: 7_300_000),
     item("Downloads", "invoice-2026-07.pdf", daysOld: 87.4, size: 2_100_000),
@@ -170,7 +168,7 @@ enum Samples {
     reports: [
       FolderReport(
         folder: folder(1, "Downloads", siteDownloadsSettings),
-        status: status("Downloads", siteDownloadsItems, siteDownloadsSettings))
+        reading: .success(status("Downloads", siteDownloadsItems, siteDownloadsSettings)))
     ] + reports.dropFirst(),
     journal: [], freeSpace: 124_500_000_000, isFinderExtensionOff: false,
     licence: .licensed, now: shownAt, calendar: calendar, binName: binName)

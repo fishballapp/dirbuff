@@ -1,20 +1,25 @@
 import Foundation
 
-public enum Rule: String, Sendable, Codable {
+/// What decides which things a Temporary folder clears. A folder has one.
+public enum Rule: String, Sendable, Codable, CaseIterable {
+  /// Things older than `maxAgeDays`.
   case age
+  /// The oldest things, while the folder is over `sizeLimit`.
   case size
+  /// The oldest things, while the disk is nearly full.
   case automatic
+  /// Everything there before the Mac restarted, at the first clean-up after.
   case emptyOnRestart
 }
 
-/// An item the Temporary capability will dispose of, and every rule that chose it.
+/// An item Temporary will dispose of, and the rule that chose it.
 public struct Removal: Sendable, Equatable {
   public var item: Item
-  public var reasons: Set<Rule>
+  public var rule: Rule
 
-  public init(item: Item, reasons: Set<Rule>) {
+  public init(item: Item, rule: Rule) {
     self.item = item
-    self.reasons = reasons
+    self.rule = rule
   }
 }
 
@@ -58,7 +63,7 @@ public struct RunConditions: Sendable {
 /// clearing would bring it back.
 public let automaticFreeSpaceThreshold = 0.10
 
-/// Which items a Temporary folder's rules remove now, oldest first. An item with neither date is
+/// Which items a Temporary folder's rule removes now, oldest first. An item with neither date is
 /// never removed.
 public func plan(
   _ folder: FolderSnapshot,
@@ -73,25 +78,23 @@ public func plan(
       ($0.freshness, $0.item.url.lastPathComponent) < ($1.freshness, $1.item.url.lastPathComponent)
     }
 
-  // Every rule removes a run of the oldest items, so each decides how many, and the longest run
-  // goes.
-  let counts: [Rule: Int] = [
-    .age: settings.maxAgeDays.map { days in
-      let cutoff = conditions.now.addingTimeInterval(-Double(days) * 86_400)
-      return oldestFirst.prefix { $0.freshness < cutoff }.count
-    },
-    .emptyOnRestart: settings.emptyOnRestart && conditions.lastRunAt < conditions.bootTime
-      ? oldestFirst.prefix { $0.freshness < conditions.bootTime }.count : nil,
-    .size: settings.sizeLimit.map { limit in
-      oldestFirst.count(toFree: folder.items.reduce(0) { $0 + $1.size } - limit)
-    },
-    .automatic: settings.automatic && settings.disposal == .delete
-      ? oldestFirst.count(toFree: automaticShortfall(conditions)) : nil,
-  ].compactMapValues(\.self)
+  // Every rule removes a run of the oldest items; it decides how many.
+  let count =
+    switch settings.rule {
+    case .age:
+      oldestFirst.prefix {
+        $0.freshness < conditions.now.addingTimeInterval(-Double(settings.maxAgeDays) * 86_400)
+      }.count
+    case .size:
+      oldestFirst.count(toFree: folder.items.reduce(0) { $0 + $1.size } - settings.sizeLimit)
+    case .automatic:
+      oldestFirst.count(toFree: automaticShortfall(conditions))
+    case .emptyOnRestart:
+      conditions.lastRunAt < conditions.bootTime
+        ? oldestFirst.prefix { $0.freshness < conditions.bootTime }.count : 0
+    }
 
-  return oldestFirst.prefix(counts.values.max() ?? 0).enumerated().map { index, dated in
-    Removal(item: dated.item, reasons: Set(counts.filter { index < $0.value }.keys))
-  }
+  return oldestFirst.prefix(count).map { Removal(item: $0.item, rule: settings.rule) }
 }
 
 private struct DatedItem {

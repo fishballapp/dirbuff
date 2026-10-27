@@ -39,7 +39,7 @@ public struct FolderSummary: Sendable, Equatable, Identifiable {
   public var id: Int64
   public var path: String
   public var name: String
-  /// "30 days · Bin".
+  /// "Older than 30 days, to the Bin".
   public var rules: String
   /// "2 items go in 23 min", "Oldest goes in 2 days", "8.1 of 10 GB".
   public var distanceToGoing: String
@@ -73,7 +73,7 @@ extension MenuBarState {
     calendar: Calendar = .current,
     binName: String = SystemBin.name
   ) {
-    let temporaryReports = reports.filter { $0.status?.wearsTemporary != false }
+    let temporaryReports = reports.filter(\.folder.wearsTemporary)
     let next = nextCleanUp(after: now, calendar: calendar)
     let cleanUps = temporaryReports.compactMap(\.status).flatMap {
       $0.cleanUps(now: now, calendar: calendar).map(\.at)
@@ -112,7 +112,7 @@ extension MenuBarState {
             id: id,
             path: report.folder.path,
             name: report.name,
-            rules: rules(report.folder.settings, binName: binName),
+            rules: temporarySetting(report.folder.settings, binName: binName),
             distanceToGoing: distanceToGoing(
               report, licence: licence, now: now, calendar: calendar)
           )
@@ -182,10 +182,10 @@ func forecastGroups(
         return (key: GroupKey(moment: moment, disposal: disposal), item: item)
       }
     let listed = Set(timed.map(\.item.url))
-    // Empty on restart takes everything still there, so it lists what no other group did.
+    // Empty on restart takes everything dated still there, so it lists what no other group did.
     let atRestart =
-      settings.emptyOnRestart
-      ? status.items.filter { !listed.contains($0.url) }.map {
+      settings.rule == .emptyOnRestart
+      ? status.items.filter { $0.freshness != nil && !listed.contains($0.url) }.map {
         (key: GroupKey(moment: .restart, disposal: disposal), item: $0)
       } : []
     return timed + atRestart
@@ -213,19 +213,6 @@ func forecastGroups(
     }
 }
 
-/// "30 days, under 10 GB · Bin".
-func rules(_ settings: TemporarySettings, binName: String) -> String {
-  let rules = [
-    settings.maxAgeDays.map { "\($0) days" },
-    settings.sizeLimit.map { "under \(bytes($0))" },
-    settings.automatic ? "when disk is low" : nil,
-    settings.emptyOnRestart ? "on restart" : nil,
-  ].compactMap(\.self).joined(separator: ", ")
-  guard let first = rules.first else { return "No rules on" }
-  let disposal = settings.disposal == .delete ? "Delete" : binName
-  return "\(first.uppercased())\(rules.dropFirst()) · \(disposal)"
-}
-
 func distanceToGoing(
   _ report: FolderReport, licence: Licence, now: Date, calendar: Calendar
 ) -> String {
@@ -237,13 +224,15 @@ func distanceToGoing(
   let next = nextCleanUp(after: now, calendar: calendar)
   let atNext = cleanUps.count { $0.at == next }
   if atNext > 0 { return "\(itemsGo(atNext)) in \(timeLeft(until: next, now: now))" }
-  if let limit = settings.sizeLimit { return "\(bytes(status.size)) of \(bytes(limit))" }
-  if let first = cleanUps.first {
+  switch settings.rule {
+  case .age:
+    guard let first = cleanUps.first else { return "Nothing to clear" }
     return "Oldest goes \(cleanUpFromNow(first.at, now: now, calendar: calendar))"
+  case .size: return "\(bytes(status.size)) of \(bytes(settings.sizeLimit))"
+  case .automatic: return "Clears when disk is low"
+  case .emptyOnRestart:
+    return status.items.contains { $0.freshness != nil } ? "Clears on restart" : "Nothing to clear"
   }
-  if settings.emptyOnRestart, !status.items.isEmpty { return "Clears on restart" }
-  if settings.automatic { return "Clears when disk is low" }
-  return "Nothing to clear"
 }
 
 private func runs(

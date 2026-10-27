@@ -56,6 +56,7 @@ public struct JournalEntry: Sendable, Equatable, Codable {
   /// this is the path `trashItem` returned, never a guess.
   public var binnedPath: String?
   public var size: Int64
+  /// The rule that chose the item. 0.1.x could combine rules, so an older entry may name several.
   public var reasons: Set<Rule>
   public var performedAt: Date
   public var undoneAt: Date?
@@ -156,6 +157,42 @@ public struct Store: Sendable {
       }
       try db.execute(sql: "INSERT INTO legacyTagPending (folderID) SELECT id FROM folder")
     }
+    // One rule where 0.1.x could combine several: the first set of Age, Size, Empty on restart and
+    // Automatic (which acted only when deleting). A folder with no rule set stays plain, whether
+    // its tag is still pending (`hadRule`) or a dev build already took it off, and can't come
+    // back through Put Back or a licence's Turn All Back On with the rule it would gain.
+    migrator.registerMigration("one rule") { db in
+      let hasRule = """
+        (maxAgeDays IS NOT NULL OR sizeLimit IS NOT NULL OR emptyOnRestart
+          OR (automatic AND disposal = 'delete'))
+        """
+      try db.alter(table: "folder") { t in
+        t.add(column: "rule", .text).notNull().defaults(to: Rule.age.rawValue)
+      }
+      try db.alter(table: "legacyTagPending") { t in
+        t.add(column: "hadRule", .boolean).notNull().defaults(to: true)
+      }
+      try db.execute(
+        sql: """
+          UPDATE legacyTagPending SET hadRule = (
+            SELECT \(hasRule) FROM folder WHERE folder.id = legacyTagPending.folderID);
+          UPDATE folder SET wearsTemporary = 0, takenOffAt = NULL, turnedOffByLicence = 0
+            WHERE NOT \(hasRule);
+          UPDATE folder SET rule = CASE
+            WHEN maxAgeDays IS NOT NULL THEN 'age'
+            WHEN sizeLimit IS NOT NULL THEN 'size'
+            WHEN emptyOnRestart THEN 'emptyOnRestart'
+            WHEN automatic AND disposal = 'delete' THEN 'automatic'
+            ELSE 'age'
+          END;
+          UPDATE folder SET maxAgeDays = coalesce(maxAgeDays, ?), sizeLimit = coalesce(sizeLimit, ?);
+          """,
+        arguments: [TemporarySettings.defaultMaxAgeDays, TemporarySettings.defaultSizeLimit])
+      try db.alter(table: "folder") { t in
+        t.drop(column: "automatic")
+        t.drop(column: "emptyOnRestart")
+      }
+    }
     return migrator
   }
 
@@ -196,15 +233,19 @@ public struct Store: Sendable {
     }
   }
 
-  /// Sets the folder's Temporary from its legacy tag and marks the tag done, in one write. Returns
-  /// false when another read already did it.
-  func finishLegacyTag(folderID: Int64, wearsTemporary: Bool) throws -> Bool {
+  /// Sets the folder's Temporary from its legacy tag and marks the tag done, in one write: on if
+  /// the tag was there and the folder had a rule. Returns false when another read already did it.
+  func finishLegacyTag(folderID: Int64, hadTag: Bool) throws -> Bool {
     try database.write { db in
+      guard
+        let hadRule = try Bool.fetchOne(
+          db, sql: "SELECT hadRule FROM legacyTagPending WHERE folderID = ?",
+          arguments: [folderID])
+      else { return false }
       try db.execute(sql: "DELETE FROM legacyTagPending WHERE folderID = ?", arguments: [folderID])
-      guard db.changesCount == 1 else { return false }
       try db.execute(
         sql: "UPDATE folder SET wearsTemporary = ? WHERE id = ?",
-        arguments: [wearsTemporary, folderID])
+        arguments: [hadTag && hadRule, folderID])
       return true
     }
   }
@@ -218,17 +259,22 @@ public struct Store: Sendable {
   }
 
   /// Writes only the settings columns, so a copy of the folder taken before a Temporary switch or a
-  /// licence change can't write those back.
-  func saveSettings(_ settings: TemporarySettings, folderID: Int64) throws {
+  /// licence change can't write those back. Choosing Empty on restart also counts the folder's runs
+  /// from `now`, so a restart before the choice clears nothing (the CASE reads the old rule).
+  func saveSettings(_ settings: TemporarySettings, folderID: Int64, now: Date) throws {
     try database.write {
       try $0.execute(
         sql: """
-          UPDATE folder SET maxAgeDays = ?, sizeLimit = ?, automatic = ?, emptyOnRestart = ?,
-            disposal = ? WHERE id = ?
+          UPDATE folder SET
+            lastRunAt = CASE WHEN :rule = 'emptyOnRestart' AND rule != :rule THEN :now
+              ELSE lastRunAt END,
+            rule = :rule, maxAgeDays = :maxAgeDays, sizeLimit = :sizeLimit, disposal = :disposal
+          WHERE id = :id
           """,
         arguments: [
-          settings.maxAgeDays, settings.sizeLimit, settings.automatic, settings.emptyOnRestart,
-          settings.disposal.rawValue, folderID,
+          "rule": settings.rule.rawValue, "now": now, "maxAgeDays": settings.maxAgeDays,
+          "sizeLimit": settings.sizeLimit, "disposal": settings.chosenDisposal.rawValue,
+          "id": folderID,
         ])
     }
   }
@@ -293,11 +339,24 @@ public struct Store: Sendable {
   }
 }
 
+extension Folder {
+  /// Until when Temporary taken off by the user can be put back: the same time the next day. Nil
+  /// once it goes back on, or when a licence pause took it off.
+  public var putBackUntil: Date? {
+    guard !wearsTemporary, !turnedOffByLicence, let takenOffAt else { return nil }
+    return Calendar.current.date(byAdding: .day, value: 1, to: takenOffAt)
+  }
+}
+
 /// Settings are columns, not a JSON blob, so a new setting arrives as a migration with a default.
 extension Folder: FetchableRecord, MutablePersistableRecord {
   public static let databaseTableName = "folder"
 
   public init(row: Row) throws {
+    let rule: String = row["rule"]
+    guard let rule = Rule(rawValue: rule) else {
+      throw DatabaseError(message: "Unknown rule \(rule)")
+    }
     let disposal: String = row["disposal"]
     guard let disposal = Disposal(rawValue: disposal) else {
       throw DatabaseError(message: "Unknown disposal \(disposal)")
@@ -306,10 +365,9 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
     bookmark = row["bookmark"]
     path = row["path"]
     settings = TemporarySettings(
+      rule: rule,
       maxAgeDays: row["maxAgeDays"],
       sizeLimit: row["sizeLimit"],
-      automatic: row["automatic"],
-      emptyOnRestart: row["emptyOnRestart"],
       disposal: disposal
     )
     wearsTemporary = row["wearsTemporary"]
@@ -323,11 +381,10 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
     container["id"] = id
     container["bookmark"] = bookmark
     container["path"] = path
+    container["rule"] = settings.rule.rawValue
     container["maxAgeDays"] = settings.maxAgeDays
     container["sizeLimit"] = settings.sizeLimit
-    container["automatic"] = settings.automatic
-    container["emptyOnRestart"] = settings.emptyOnRestart
-    container["disposal"] = settings.disposal.rawValue
+    container["disposal"] = settings.chosenDisposal.rawValue
     container["wearsTemporary"] = wearsTemporary
     container["takenOffAt"] = takenOffAt
     container["turnedOffByLicence"] = turnedOffByLicence

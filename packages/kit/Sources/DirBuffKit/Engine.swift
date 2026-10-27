@@ -86,7 +86,7 @@ public struct Engine: Sendable {
 
   /// Makes the folder Temporary or plain. Turning it on resets `lastRunAt` so the folder's first run
   /// after that never counts as the first run after a reboot. Turning it off records when, so it
-  /// can be put back for a day (`canPutBack`). Either way the user has decided, so the folder no
+  /// can be put back for a day (`Folder.putBackUntil`). Either way the user has decided, so the folder no
   /// longer waits to be turned back on after a licence ended. A protected folder can't be turned on.
   public func setTemporary(_ folder: Folder, _ isOn: Bool, now: Date = Date()) throws {
     let (located, url) = try locate(folderID: try require(folder.id))
@@ -104,25 +104,22 @@ public struct Engine: Sendable {
   }
 
   /// Makes the folder plain when the trial or licence ends, remembering the folder so buying can
-  /// turn it back on in one click. Unlike a user's switch-off, this can't be put back.
+  /// turn it back on in one click. Unlike a user's switch-off, this can't be put back. It writes only
+  /// the database, so it works on a folder DirBuff can't reach, such as one on an unplugged drive.
   public func turnOffByLicence(_ folder: Folder) throws {
-    let (located, _) = try locate(folderID: try require(folder.id))
-    var updated = located
+    let folderID = try require(folder.id)
+    guard var updated = try store.folder(id: folderID) else {
+      throw Failure.folderNotFound(id: folderID)
+    }
     updated.wearsTemporary = false
     updated.takenOffAt = nil
     updated.turnedOffByLicence = true
     try store.save(updated)
   }
 
-  /// Whether Temporary taken off this folder by the user can still be put back at `now`: until the
-  /// same time the next day. A licence pause, or Temporary going on again, ends the chance.
+  /// Whether Temporary taken off this folder by the user can still be put back at `now`.
   public func canPutBack(_ folder: Folder, now: Date = Date()) -> Bool {
-    guard !folder.wearsTemporary, !folder.turnedOffByLicence, let takenOffAt = folder.takenOffAt
-    else { return false }
-    guard let deadline = Calendar.current.date(byAdding: .day, value: 1, to: takenOffAt) else {
-      return false
-    }
-    return now < deadline
+    folder.putBackUntil.map { now < $0 } ?? false
   }
 
   /// Turns Temporary back on with the folder's settings unchanged, if `canPutBack` allows it.
@@ -133,9 +130,12 @@ public struct Engine: Sendable {
   }
 
   /// Saves the folder's settings only. The folder may be a copy from before a Temporary switch or a
-  /// licence change, so nothing else is written.
-  public func saveSettings(_ settings: TemporarySettings, for folder: Folder) throws {
-    try store.saveSettings(settings, folderID: try require(folder.id))
+  /// licence change, so nothing else is written. Choosing Empty on restart counts from `now`, as
+  /// turning Temporary on does.
+  public func saveSettings(_ settings: TemporarySettings, for folder: Folder, now: Date = Date())
+    throws
+  {
+    try store.saveSettings(settings, folderID: try require(folder.id), now: now)
   }
 
   /// Forgets the folder and its journal. The folder's files are left alone.
@@ -250,7 +250,7 @@ public struct Engine: Sendable {
   /// the setting. A folder that can't be read throws and stays pending.
   private func takeOffLegacyTag(folderID: Int64, at url: URL) throws {
     let hadTag = try LegacyTemporaryTag.isSet(on: url)
-    guard try store.finishLegacyTag(folderID: folderID, wearsTemporary: hadTag) else { return }
+    guard try store.finishLegacyTag(folderID: folderID, hadTag: hadTag) else { return }
     do {
       try LegacyTemporaryTag.remove(from: url)
     } catch {
@@ -289,7 +289,7 @@ public struct Engine: Sendable {
         name: url.lastPathComponent,
         binnedPath: binned?.path,
         size: removal.item.size,
-        reasons: removal.reasons,
+        reasons: [removal.rule],
         performedAt: now
       ))
   }

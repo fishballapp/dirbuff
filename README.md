@@ -10,14 +10,14 @@ Licensed under [GPL-3.0](LICENSE).
 
 ## Temporary
 
-A Temporary folder has one or more rules. An item goes when **any** rule says so, at the next
-clean-up: on the hour, by the clock, and at no other time.
+A Temporary folder has one rule. An item goes when it says so, at the next clean-up: on the hour,
+by the clock, and at no other time.
 
 | Rule | Behaviour |
 | --- | --- |
 | Age | Not added or changed for N days (default 90) |
 | Size | Keep the folder under X GB, oldest out first |
-| Automatic | Like `/tmp`: keep everything while the disk has room; below 10% free, oldest out until it's back. Deletes permanently only |
+| Automatic | Like `/tmp`: keep everything while the disk has room; below 10% free, oldest out until it's back. Always deletes permanently |
 | Empty on restart | The first clean-up after a restart clears what was there before it |
 
 - Each top-level item is judged on its own. A subfolder counts as its newest content; a package
