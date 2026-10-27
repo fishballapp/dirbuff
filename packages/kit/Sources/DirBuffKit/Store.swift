@@ -17,6 +17,8 @@ public struct Folder: Sendable, Equatable {
   public internal(set) var takenOffAt: Date?
   /// DirBuff stopped the folder's Temporary when the trial or licence ended; buying offers it back.
   public internal(set) var turnedOffByLicence: Bool
+  /// Since when macOS has refused DirBuff access to the folder; nil while it can read it.
+  public internal(set) var accessLostAt: Date?
   public internal(set) var createdAt: Date
   /// Starts at `createdAt`, so marking a folder never counts as the first run after a reboot.
   public internal(set) var lastRunAt: Date
@@ -29,6 +31,7 @@ public struct Folder: Sendable, Equatable {
     wearsTemporary: Bool = false,
     takenOffAt: Date? = nil,
     turnedOffByLicence: Bool = false,
+    accessLostAt: Date? = nil,
     createdAt: Date,
     lastRunAt: Date
   ) {
@@ -39,6 +42,7 @@ public struct Folder: Sendable, Equatable {
     self.wearsTemporary = wearsTemporary
     self.takenOffAt = takenOffAt
     self.turnedOffByLicence = turnedOffByLicence
+    self.accessLostAt = accessLostAt
     self.createdAt = createdAt
     self.lastRunAt = lastRunAt
   }
@@ -193,6 +197,9 @@ public struct Store: Sendable {
         t.drop(column: "emptyOnRestart")
       }
     }
+    migrator.registerMigration("access lost") { db in
+      try db.alter(table: "folder") { t in t.add(column: "accessLostAt", .datetime) }
+    }
     return migrator
   }
 
@@ -255,6 +262,19 @@ public struct Store: Sendable {
     try database.write {
       try $0.execute(
         sql: "UPDATE folder SET lastRunAt = ? WHERE id = ?", arguments: [date, folderID])
+    }
+  }
+
+  /// Records whether DirBuff could read the folder: the first refusal's time while macOS refuses
+  /// it, cleared once it can read the folder again.
+  public func recordAccess(folderID: Int64, isLost: Bool, at date: Date) throws {
+    try database.write {
+      try $0.execute(
+        sql: """
+          UPDATE folder SET accessLostAt = CASE WHEN ? THEN coalesce(accessLostAt, ?) END
+          WHERE id = ?
+          """,
+        arguments: [isLost, date, folderID])
     }
   }
 
@@ -372,6 +392,7 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
     )
     wearsTemporary = row["wearsTemporary"]
     takenOffAt = row["takenOffAt"]
+    accessLostAt = row["accessLostAt"]
     turnedOffByLicence = row["turnedOffByLicence"]
     createdAt = row["createdAt"]
     lastRunAt = row["lastRunAt"]
@@ -387,6 +408,7 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
     container["disposal"] = settings.chosenDisposal.rawValue
     container["wearsTemporary"] = wearsTemporary
     container["takenOffAt"] = takenOffAt
+    container["accessLostAt"] = accessLostAt
     container["turnedOffByLicence"] = turnedOffByLicence
     container["createdAt"] = createdAt
     container["lastRunAt"] = lastRunAt

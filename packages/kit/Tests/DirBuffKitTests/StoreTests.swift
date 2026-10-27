@@ -107,6 +107,17 @@ import Testing
     #expect(try database.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM licence") } == 1)
   }
 
+  @Test func remembersWhenAccessWasFirstLostUntilItIsBack() throws {
+    let folderID = try #require(folder().id)
+    let later = createdAt.addingTimeInterval(3_600)
+    try store.recordAccess(folderID: folderID, isLost: true, at: createdAt)
+    try store.recordAccess(folderID: folderID, isLost: true, at: later)
+    #expect(try store.folder(id: folderID)?.accessLostAt == createdAt)
+
+    try store.recordAccess(folderID: folderID, isLost: false, at: later)
+    #expect(try store.folder(id: folderID)?.accessLostAt == nil)
+  }
+
   @Test func keepsWhetherItWearsTemporaryAndWhenItWasTakenOff() throws {
     var saved = try folder()
     saved.wearsTemporary = true

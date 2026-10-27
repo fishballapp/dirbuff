@@ -55,9 +55,18 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
   }
 
   @Test func needsTheUserWhenMacOSTookAwayAccess() {
-    let row = row(report(1, problem: .noAccess))
+    let row = row(report(1, problem: .noAccess, accessLostAt: now - 3 * oneDay - 60))
     #expect(row?.state == .needsYou(.giveAccess))
     #expect(row?.status == "macOS took away access")
+    #expect(row?.setting == "Nothing cleared for 3 days")
+  }
+
+  @Test(
+    arguments: [
+      (TimeInterval(30), "1 min"), (20 * 60, "20 min"), (5 * 3_600 + 59, "5 hr"), (oneDay, "1 day"),
+    ] as [(TimeInterval, String)])
+  func saysHowLongSince(seconds: TimeInterval, words: String) {
+    #expect(timeSince(now - seconds, now: now) == words)
   }
 
   @Test func isPausedWhenTheFolderCantBeReached() {

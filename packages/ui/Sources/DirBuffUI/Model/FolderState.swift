@@ -126,7 +126,10 @@ private func temporaryRow(
   guard licence.mayClean else { return row(.paused, "Nothing goes while paused") }
   switch report.reading {
   case .failure(.noAccess):
-    return row(.needsYou(.giveAccess), "macOS took away access")
+    return row(
+      .needsYou(.giveAccess), "macOS took away access",
+      setting: folder.accessLostAt.map { "Nothing cleared for \(timeSince($0, now: now))" }
+        ?? setting)
   case .failure(.unreachable):
     return row(.paused, unreachable(folder.path))
   case .success(let status):

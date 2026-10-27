@@ -135,6 +135,9 @@ func renderPNG<V: View>(
   try pngData.write(to: outputURL)
 }
 
+/// One state to render: its file name, the view, and a fixed size or nil to fit the view.
+typealias Preview = (name: String, view: AnyView, size: CGSize?)
+
 let appearances: [(suffix: String, name: NSAppearance.Name)] = [
   ("light", .aqua),
   ("dark", .darkAqua),
@@ -145,7 +148,7 @@ let appearances: [(suffix: String, name: NSAppearance.Name)] = [
 @MainActor
 @discardableResult
 func renderAll(
-  _ states: [(name: String, view: AnyView, size: CGSize?)],
+  _ states: [Preview],
   into directory: URL,
   isKey: Bool = false
 ) -> Bool {
@@ -188,7 +191,7 @@ func renderSite(into directory: URL) {
   // A regular app, launched, is one that can be made active.
   NSApplication.shared.setActivationPolicy(.regular)
   NSApplication.shared.finishLaunching()
-  let states: [(name: String, view: AnyView, size: CGSize?)] = [
+  let states: [Preview] = [
     (
       "site-main",
       AnyView(
@@ -216,173 +219,70 @@ func main() {
   let targetDir = URL(
     fileURLWithPath: arguments.first ?? "projects/dirbuff/tmp-previews")
 
-  let mainSize = CGSize(width: 760, height: 560)
+  let states: [Preview] =
+    [
+      ("foundation", AnyView(FoundationSheet()), nil)
+      // Each surface's states are in its own file.
+    ] + menuBarPreviews() + mainWindowPreviews() + [
+      // Settings, in each kind of licence
+      (
+        "settings-trial",
+        AnyView(SettingsView(state: Samples.settings(.trial(daysLeft: 9)))),
+        nil
+      ),
+      (
+        "settings-licensed",
+        AnyView(SettingsView(state: Samples.settings(.licensed))),
+        nil
+      ),
+      (
+        "settings-licensed-dev-builds",
+        AnyView(SettingsView(state: Samples.settings(.licensed, shouldGetDevBuilds: true))),
+        nil
+      ),
+      (
+        "settings-paused",
+        AnyView(SettingsView(state: Samples.settings(.paused))),
+        nil
+      ),
+      (
+        "settings-kept",
+        AnyView(SettingsView(state: Samples.settings(Samples.kept))),
+        nil
+      ),
+      (
+        "settings-ended",
+        AnyView(SettingsView(state: Samples.settings(Samples.ended))),
+        nil
+      ),
+      (
+        "settings-trial-ended",
+        AnyView(SettingsView(state: Samples.settings(.trialEnded))),
+        nil
+      ),
 
-  let states: [(name: String, view: AnyView, size: CGSize?)] = [
-    ("foundation", AnyView(FoundationSheet()), nil),
-    // Menu bar states
-    (
-      "menubar-busy",
-      AnyView(MenuBarView(state: Samples.busy)),
-      nil
-    ),
-    (
-      "menubar-last-minute",
-      AnyView(MenuBarView(state: Samples.lastMinute)),
-      nil
-    ),
-    (
-      "menubar-quiet",
-      AnyView(MenuBarView(state: Samples.quiet)),
-      nil
-    ),
-    (
-      "menubar-nofolders",
-      AnyView(MenuBarView(state: Samples.noFolders)),
-      nil
-    ),
-    (
-      "menubar-extensionoff",
-      AnyView(MenuBarView(state: Samples.extensionOff)),
-      nil
-    ),
-    (
-      "menubar-trial",
-      AnyView(MenuBarView(state: Samples.menuBar(.trial(daysLeft: 9)))),
-      nil
-    ),
-    (
-      "menubar-trial-ended",
-      AnyView(MenuBarView(state: Samples.menuBar(.trialEnded))),
-      nil
-    ),
-    (
-      "menubar-ended",
-      AnyView(MenuBarView(state: Samples.menuBar(Samples.ended))),
-      nil
-    ),
-    (
-      "menubar-kept",
-      AnyView(MenuBarView(state: Samples.menuBar(Samples.kept))),
-      nil
-    ),
-    (
-      "menubar-paused",
-      AnyView(MenuBarView(state: Samples.menuBar(.paused))),
-      nil
-    ),
+      // The key window
+      (
+        "key",
+        AnyView(KeyEntryView(key: .constant(""))),
+        nil
+      ),
+      (
+        "key-limit",
+        AnyView(
+          KeyEntryView(
+            key: .constant("DIRBUFF-9AD0419A-553D-4FB1-A8C2-F40AE9E63D8D"),
+            failure: .activationLimitReached)),
+        nil
+      ),
 
-    // Main window states
-    (
-      "main-overview",
-      AnyView(
-        MainView(state: Samples.main, selection: .constant(.overview), binName: Samples.binName)),
-      mainSize
-    ),
-    (
-      "main-folder-on",
-      AnyView(
-        MainView(state: Samples.main, selection: .constant(.folder(1)), binName: Samples.binName)),
-      mainSize
-    ),
-    (
-      "main-folder-off",
-      AnyView(
-        MainView(state: Samples.main, selection: .constant(.folder(4)), binName: Samples.binName)),
-      mainSize
-    ),
-    (
-      "main-overview-trial",
-      AnyView(
-        MainView(
-          state: Samples.main(.trial(daysLeft: 9)), selection: .constant(.overview),
-          binName: Samples.binName)),
-      mainSize
-    ),
-    (
-      "main-overview-licence-ended",
-      AnyView(
-        MainView(
-          state: Samples.main(Samples.ended), selection: .constant(.overview),
-          binName: Samples.binName)),
-      mainSize
-    ),
-    (
-      "main-overview-licence-kept",
-      AnyView(
-        MainView(
-          state: Samples.main(Samples.kept), selection: .constant(.overview),
-          binName: Samples.binName)),
-      mainSize
-    ),
-    (
-      "main-folder-licence-ended",
-      AnyView(
-        MainView(
-          state: Samples.main(Samples.ended), selection: .constant(.folder(4)),
-          binName: Samples.binName)),
-      mainSize
-    ),
-
-    // Settings, in each kind of licence
-    (
-      "settings-trial",
-      AnyView(SettingsView(state: Samples.settings(.trial(daysLeft: 9)))),
-      nil
-    ),
-    (
-      "settings-licensed",
-      AnyView(SettingsView(state: Samples.settings(.licensed))),
-      nil
-    ),
-    (
-      "settings-licensed-dev-builds",
-      AnyView(SettingsView(state: Samples.settings(.licensed, shouldGetDevBuilds: true))),
-      nil
-    ),
-    (
-      "settings-paused",
-      AnyView(SettingsView(state: Samples.settings(.paused))),
-      nil
-    ),
-    (
-      "settings-kept",
-      AnyView(SettingsView(state: Samples.settings(Samples.kept))),
-      nil
-    ),
-    (
-      "settings-ended",
-      AnyView(SettingsView(state: Samples.settings(Samples.ended))),
-      nil
-    ),
-    (
-      "settings-trial-ended",
-      AnyView(SettingsView(state: Samples.settings(.trialEnded))),
-      nil
-    ),
-
-    // The key window
-    (
-      "key",
-      AnyView(KeyEntryView(key: .constant(""))),
-      nil
-    ),
-    (
-      "key-limit",
-      AnyView(
-        KeyEntryView(
-          key: .constant("DIRBUFF-9AD0419A-553D-4FB1-A8C2-F40AE9E63D8D"),
-          failure: .activationLimitReached)),
-      nil
-    ),
-
-    // Setup
-    (
-      "setup",
-      AnyView(SetupView(state: Samples.setup)),
-      nil
-    ),
-  ]
+      // Setup
+      (
+        "setup",
+        AnyView(SetupView(state: Samples.setup)),
+        nil
+      ),
+    ]
 
   renderAll(states, into: targetDir)
 }

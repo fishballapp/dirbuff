@@ -31,14 +31,16 @@ func report(
   isProtectedRoot: Bool = false,
   problem: FolderProblem? = nil,
   takenOffAt: Date? = nil,
-  turnedOffByLicence: Bool = false
+  turnedOffByLicence: Bool = false,
+  accessLostAt: Date? = nil
 ) -> FolderReport {
   let path = path ?? "\(home)/\(name ?? "Folder\(id)")"
   return FolderReport(
     folder: Folder(
       id: id, bookmark: Data(), path: path, settings: settings,
       wearsTemporary: wearsTemporary, takenOffAt: takenOffAt,
-      turnedOffByLicence: turnedOffByLicence, createdAt: now, lastRunAt: now),
+      turnedOffByLicence: turnedOffByLicence, accessLostAt: accessLostAt, createdAt: now,
+      lastRunAt: now),
     reading: problem.map { .failure($0) }
       ?? .success(
         Engine.FolderStatus(

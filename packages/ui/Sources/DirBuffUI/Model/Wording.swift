@@ -69,6 +69,14 @@ func timeLeft(until date: Date, now: Date) -> String {
   return rest == 0 ? "\(hours) hr" : "\(hours) hr \(rest) min"
 }
 
+/// How long since `date`, in its largest whole unit: "20 min", "5 hr", "1 day", "3 days".
+func timeSince(_ date: Date, now: Date) -> String {
+  let minutes = max(1, Int(now.timeIntervalSince(date)) / 60)
+  if minutes < 60 { return "\(minutes) min" }
+  if minutes < 24 * 60 { return "\(minutes / 60) hr" }
+  return days(minutes / (24 * 60))
+}
+
 /// Whether the clean-up at `date` is one of today's, which the forecast counts down to.
 /// Midnight's counts, so late in the evening the next clean-up still shows its countdown.
 func isTodays(cleanUp date: Date, now: Date, calendar: Calendar) -> Bool {

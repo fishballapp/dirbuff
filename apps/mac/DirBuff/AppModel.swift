@@ -29,6 +29,8 @@ final class AppModel {
   private(set) var isNotificationAuthorized = false
   private(set) var licenceRecord: LicenceRecord
   private var isRunning = false
+  /// The folders a clean-up is running in now.
+  private(set) var working: Set<Int64> = []
 
   private let engine: Engine
   private let polar: PolarLicensing
@@ -83,6 +85,13 @@ final class AppModel {
       reports: reports, journal: journal, freeSpace: freeSpace,
       isFinderExtensionOff: isFinderExtensionOff,
       licence: Licence(licenceRecord, now: now, release: releaseDay),
+      now: now)
+  }
+
+  /// Every folder as the shelf, popover, switcher and Finder show it.
+  func folders(now: Date) -> [FolderState] {
+    FolderState.all(
+      reports, licence: Licence(licenceRecord, now: now, release: releaseDay), working: working,
       now: now)
   }
 
@@ -166,35 +175,32 @@ final class AppModel {
     }
   }
 
-  /// Hands the Finder extension what its badge and item need: the Temporary folders, every added
-  /// folder, and the protected ones it offers nothing on. The protected list changes as volumes
-  /// mount.
-  private func publishForFinder(_ reports: [FolderReport]) {
-    guard let shared = FinderFolders.defaults else { return }
-    let temporaryPaths = reports.filter { $0.folder.wearsTemporary }.map(\.folder.path)
-    if shared.temporaryFolderPaths != temporaryPaths {
-      shared.temporaryFolderPaths = temporaryPaths
-    }
-    let addedPaths = reports.map(\.folder.path)
-    if shared.addedFolderPaths != addedPaths {
-      shared.addedFolderPaths = addedPaths
-    }
-    let protectedPaths = System.protectedFolderPaths()
-    if shared.protectedFolderPaths != protectedPaths {
-      shared.protectedFolderPaths = protectedPaths
-    }
-  }
-
-  /// One unreadable folder (an unplugged drive) mustn't hide the others.
+  /// One unreadable folder (an unplugged drive) mustn't hide the others. Records whether macOS
+  /// let DirBuff in, so a folder that needs the user can say since when.
   nonisolated private static func read(_ id: Int64, _ engine: Engine)
     -> Result<Engine.FolderStatus, FolderProblem>
   {
+    let reading: Result<Engine.FolderStatus, FolderProblem>
     do {
-      return .success(try engine.status(folderID: id))
+      reading = .success(try engine.status(folderID: id))
     } catch {
       logger.error("Couldn't read folder \(id): \(error.localizedDescription, privacy: .public)")
-      return .failure(FolderProblem(error))
+      reading = .failure(FolderProblem(error))
     }
+    let isLost: Bool? =
+      switch reading {
+      case .success: false
+      case .failure(.noAccess): true
+      case .failure(.unreachable): nil
+      }
+    if let isLost {
+      do {
+        try engine.store.recordAccess(folderID: id, isLost: isLost, at: Date())
+      } catch {
+        logger.error("Couldn't record access: \(error.localizedDescription, privacy: .public)")
+      }
+    }
+    return reading
   }
 
   @discardableResult
@@ -524,65 +530,19 @@ final class AppModel {
     }
 
     let engine = engine
+    var runs: [Engine.RunResult] = []
     for id in reports.compactMap(\.folder.id) {
       // The licence can end or be deactivated while earlier folders run.
       guard self.licence.mayClean else { break }
+      working.insert(id)
+      defer { working.remove(id) }
       do {
-        _ = try await Task.detached { try engine.run(folderID: id, now: hour) }.value
+        runs.append(try await Task.detached { try engine.run(folderID: id, now: hour) }.value)
       } catch {
         logger.error("Run of folder \(id) failed: \(error.localizedDescription, privacy: .public)")
       }
     }
     await settleLicence(now: hour)
-    await notifyWhatGoesTomorrow(now: hour)
-  }
-
-  // MARK: - Notifications
-
-  /// Once a day per folder: "Downloads: 3 items go to the Bin tomorrow".
-  private func notifyWhatGoesTomorrow(now: Date) async {
-    let calendar = Calendar.current
-    for report in reports {
-      guard let id = report.folder.id, let status = report.status else { continue }
-      let count = status.upcoming.count {
-        calendar.dateComponents(
-          [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: $0.date)
-        ).day == 1
-      }
-      guard count > 0 else { continue }
-      let items = count == 1 ? "1 item" : "\(count) items"
-      await notifyOncePerDay(
-        id: "tomorrow.\(id)", now: now,
-        title: URL(fileURLWithPath: report.folder.path).lastPathComponent,
-        body: report.folder.settings.disposal == .delete
-          ? "\(items) will be deleted permanently tomorrow."
-          : "\(items) will go to the \(SystemBin.name) tomorrow.")
-    }
-  }
-
-  private func notifyOncePerDay(id: String, now: Date, title: String, body: String) async {
-    let today = now.formatted(.iso8601.year().month().day())
-    let lastNotifiedKey = "notified.\(id)"
-    guard UserDefaults.standard.string(forKey: lastNotifiedKey) != today else { return }
-    if await notify(id: id, title: title, body: body) {
-      UserDefaults.standard.set(today, forKey: lastNotifiedKey)
-    }
-  }
-
-  /// A new notification with the same `id` replaces the last instead of stacking.
-  @discardableResult
-  private func notify(id: String, title: String, body: String) async -> Bool {
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.interruptionLevel = .passive
-    do {
-      try await UNUserNotificationCenter.current().add(
-        UNNotificationRequest(identifier: id, content: content, trigger: nil))
-      return true
-    } catch {
-      logger.error("Notification failed: \(error.localizedDescription, privacy: .public)")
-      return false
-    }
+    await didCleanUp(runs, at: hour)
   }
 }
