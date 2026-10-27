@@ -223,7 +223,7 @@ func main() {
     [
       ("foundation", AnyView(FoundationSheet()), nil)
       // Each surface's states are in its own file.
-    ] + menuBarPreviews() + mainWindowPreviews() + [
+    ] + menuBarPreviews() + mainWindowPreviews() + finderPreviews() + [
       // Settings, in each kind of licence
       (
         "settings-trial",

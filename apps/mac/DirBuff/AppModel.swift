@@ -30,7 +30,9 @@ final class AppModel {
   private(set) var licenceRecord: LicenceRecord
   private var isRunning = false
   /// The folders a clean-up is running in now.
-  private(set) var working: Set<Int64> = []
+  private(set) var working: Set<Int64> = [] {
+    didSet { publishForFinder() }
+  }
 
   private let engine: Engine
   private let polar: PolarLicensing
@@ -166,7 +168,7 @@ final class AppModel {
       }.value
       self.reports = reports
       self.journal = journal
-      publishForFinder(reports)
+      publishForFinder()
       freeSpace = Int64(
         (try? URL.homeDirectory.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?
           .volumeAvailableCapacity ?? 0)

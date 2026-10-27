@@ -1,24 +1,19 @@
+import DirBuffCore
 import DirBuffKit
 import DirBuffUI
 import Foundation
 
 extension AppModel {
-  /// Hands the Finder extension what its badge and item need: the Temporary folders, every added
-  /// folder, and the protected ones it offers nothing on. The protected list changes as volumes
-  /// mount.
-  func publishForFinder(_ reports: [FolderReport]) {
+  /// Hands the Finder extension what its badge and right-click menu need: each folder's mark and
+  /// buffs, the protected folders Temporary never clears, and the Bin's name. Written only when the
+  /// encoded snapshot changes.
+  func publishForFinder() {
     guard let shared = FinderFolders.defaults else { return }
-    let temporaryPaths = reports.filter { $0.folder.wearsTemporary }.map(\.folder.path)
-    if shared.temporaryFolderPaths != temporaryPaths {
-      shared.temporaryFolderPaths = temporaryPaths
-    }
-    let addedPaths = reports.map(\.folder.path)
-    if shared.addedFolderPaths != addedPaths {
-      shared.addedFolderPaths = addedPaths
-    }
-    let protectedPaths = System.protectedFolderPaths()
-    if shared.protectedFolderPaths != protectedPaths {
-      shared.protectedFolderPaths = protectedPaths
-    }
+    shared.snapshot = FinderSnapshot(
+      folders: folders(now: Date()),
+      licence: licence,
+      protectedFolderPaths: System.protectedFolderPaths(),
+      binName: SystemBin.name
+    )
   }
 }

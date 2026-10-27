@@ -33,6 +33,9 @@ targets:
     sources:
       - path: DirBuffFinder
       - path: Shared
+    dependencies:
+      - package: DirBuffUI
+      - package: DirBuffCore
     settings:
       base:
         PRODUCT_NAME: DirBuffFinder

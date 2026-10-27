@@ -1,5 +1,6 @@
 import Cocoa
 import Darwin
+import DirBuffUI
 import FinderSync
 import os.log
 
@@ -9,7 +10,7 @@ private let extLogger = Logger(subsystem: "app.fishball.dirbuff", category: "fin
 final class FinderSyncExtension: FIFinderSync {
   /// Held for as long as its observations: an observation doesn't keep its object alive.
   private let shared = FinderFolders.defaults
-  private var listObservation: NSKeyValueObservation?
+  private var snapshotObservation: NSKeyValueObservation?
   private var volumeTopObservation: NSKeyValueObservation?
 
   override init() {
@@ -17,13 +18,15 @@ final class FinderSyncExtension: FIFinderSync {
     extLogger.info("DirBuff FinderSyncExtension initializing")
 
     Self.watch(volumeTopFolderPaths: shared?.volumeTopFolderPaths ?? [])
-    FIFinderSyncController.default().setBadgeImage(
-      NSImage(resource: .temporaryBadge), label: "DirBuff: Temporary",
-      forBadgeIdentifier: Self.temporaryBadge)
-    listObservation = shared?.observe(
-      \.temporaryFolderPaths, options: [.old, .new]
+    MainActor.assumeIsolated {
+      Self.registerBadges()
+    }
+    snapshotObservation = shared?.observe(
+      \.finderSnapshot, options: [.old, .new]
     ) { _, change in
-      Self.rebadge(from: Set(change.oldValue ?? []), to: Set(change.newValue ?? []))
+      let old = FinderSnapshot.decode(change.oldValue ?? nil)
+      let next = FinderSnapshot.decode(change.newValue ?? nil)
+      Self.rebadge(from: old, to: next)
     }
     volumeTopObservation = shared?.observe(\.volumeTopFolderPaths, options: [.new]) { _, change in
       Self.watch(volumeTopFolderPaths: change.newValue ?? [])
@@ -41,34 +44,34 @@ final class FinderSyncExtension: FIFinderSync {
 
   // MARK: - Badge
 
-  private static let temporaryBadge = "temporary"
+  @MainActor
+  private static func registerBadges() {
+    let controller = FIFinderSyncController.default()
+    for state in MarkState.allCases {
+      controller.setBadgeImage(
+        Mark.badgeImage(for: state),
+        label: state.badgeLabel,
+        forBadgeIdentifier: state.badgeIdentifier
+      )
+    }
+  }
 
   override func requestBadgeIdentifier(for url: URL) {
+    let mark = shared?.snapshot.badge(for: url)
     FIFinderSyncController.default().setBadgeIdentifier(
-      isTemporary(url) ? Self.temporaryBadge : "", for: url)
+      mark?.badgeIdentifier ?? "", for: url
+    )
   }
 
-  private func isTemporary(_ folder: URL) -> Bool {
-    (shared?.temporaryFolderPaths ?? []).contains(folder.resolvingSymlinksInPath().path)
-  }
-
-  private func isAdded(_ folder: URL) -> Bool {
-    (shared?.addedFolderPaths ?? []).contains(folder.resolvingSymlinksInPath().path)
-  }
-
-  private func isProtected(_ folder: URL) -> Bool {
-    (shared?.protectedFolderPaths ?? []).contains(folder.resolvingSymlinksInPath().path)
-  }
-
-  /// Finder asks for a badge only when an item comes into view, so a folder made Temporary or
-  /// plain while in view is rebadged here.
-  private static func rebadge(from old: Set<String>, to new: Set<String>) {
+  /// Finder asks for a badge only when an item comes into view, so a folder whose mark changes
+  /// while in view is rebadged here.
+  private static func rebadge(from old: FinderSnapshot, to next: FinderSnapshot) {
     let controller = FIFinderSyncController.default()
-    for path in old.subtracting(new) {
-      controller.setBadgeIdentifier("", for: URL(fileURLWithPath: path))
-    }
-    for path in new.subtracting(old) {
-      controller.setBadgeIdentifier(temporaryBadge, for: URL(fileURLWithPath: path))
+    for change in next.badgeChanges(from: old) {
+      controller.setBadgeIdentifier(
+        change.mark?.badgeIdentifier ?? "",
+        for: URL(fileURLWithPath: change.path)
+      )
     }
   }
 
@@ -76,21 +79,66 @@ final class FinderSyncExtension: FIFinderSync {
 
   override func menu(for menuKind: FIMenuKind) -> NSMenu? {
     guard menuKind == .contextualMenuForItems || menuKind == .contextualMenuForContainer,
-      let folder = Self.targetFolder(),
-      !isProtected(folder)
+      let folder = Self.targetFolder()
     else {
       return nil
     }
 
+    let spec = (shared?.snapshot ?? FinderSnapshot()).menu(for: folder)
+    return buildMenu(spec)
+  }
+
+  private func buildMenu(_ spec: FinderMenu) -> NSMenu {
+    let submenu = NSMenu(title: spec.title)
+    submenu.autoenablesItems = false
+    for entry in spec.items {
+      switch entry.kind {
+      case .separator:
+        submenu.addItem(.separator())
+      case .sectionHeader:
+        let header = NSMenuItem.sectionHeader(title: entry.title)
+        header.isEnabled = false
+        submenu.addItem(header)
+      case .item:
+        let item = NSMenuItem(
+          title: entry.title,
+          action: entry.action.map(Self.selector(for:)),
+          keyEquivalent: ""
+        )
+        if #available(macOS 14.4, *) {
+          item.subtitle = entry.subtitle
+        } else if let subtitle = entry.subtitle {
+          item.title = "\(entry.title) \u{2014} \(subtitle)"
+        }
+        item.isEnabled = entry.isEnabled
+        if entry.action != nil {
+          item.target = self
+        }
+        if let buff = entry.buff {
+          item.image = MainActor.assumeIsolated {
+            BuffSymbol.menuImage(for: buff)
+          }
+        }
+        submenu.addItem(item)
+      }
+    }
+
+    let root = NSMenuItem(title: spec.title, action: nil, keyEquivalent: "")
+    root.submenu = submenu
     let menu = NSMenu(title: "")
-    let item = NSMenuItem(
-      title: isAdded(folder) ? "Show in DirBuff" : "Add to DirBuff…",
-      action: #selector(openFolderAction(_:)),
-      keyEquivalent: ""
-    )
-    item.target = self
-    menu.addItem(item)
+    menu.autoenablesItems = false
+    menu.addItem(root)
     return menu
+  }
+
+  private static func selector(for action: FinderAction) -> Selector {
+    switch action {
+    case .addTemporary: #selector(addTemporaryAction(_:))
+    case .takeTemporaryOff: #selector(takeTemporaryOffAction(_:))
+    case .change: #selector(changeAction(_:))
+    case .whatGoesNext: #selector(whatGoesNextAction(_:))
+    case .openFolder: #selector(openFolderAction(_:))
+    }
   }
 
   /// The folder a right-click is about: the one folder selected, or with nothing selected, the
@@ -117,27 +165,38 @@ final class FinderSyncExtension: FIFinderSync {
     }
   }
 
+  @objc private func addTemporaryAction(_ sender: AnyObject?) {
+    perform(.addTemporary)
+  }
+
+  @objc private func takeTemporaryOffAction(_ sender: AnyObject?) {
+    perform(.takeTemporaryOff)
+  }
+
+  @objc private func changeAction(_ sender: AnyObject?) {
+    perform(.change)
+  }
+
+  @objc private func whatGoesNextAction(_ sender: AnyObject?) {
+    perform(.whatGoesNext)
+  }
+
   @objc private func openFolderAction(_ sender: AnyObject?) {
+    perform(.openFolder)
+  }
+
+  private func perform(_ action: FinderAction) {
     guard let folder = Self.targetFolder() else {
       extLogger.warning("DirBuff menu item invoked with no target directory")
       return
     }
-
-    var components = URLComponents()
-    components.scheme = "dirbuff"
-    components.host = "folder"
-    components.queryItems = [
-      URLQueryItem(name: "path", value: folder.path)
-    ]
-
-    guard let handoffURL = components.url else {
+    guard let handoffURL = action.url(for: folder) else {
       extLogger.error("Failed to construct handoff URL for \(folder.path, privacy: .private)")
       return
     }
-
     let opened = NSWorkspace.shared.open(handoffURL)
     extLogger.info(
-      "Handoff to DirBuff returned \(opened, privacy: .public) for \(folder.path, privacy: .private)"
+      "Handoff to DirBuff (\(action.rawValue, privacy: .public)) returned \(opened, privacy: .public) for \(folder.path, privacy: .private)"
     )
   }
 }

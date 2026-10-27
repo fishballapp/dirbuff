@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   func application(_ application: NSApplication, open urls: [URL]) {
-    urls.forEach(windows.open)
+    handleFinder(urls: urls)
   }
 
   /// macOS marks the open-application event of a login launch, `SMAppService`'s included.
