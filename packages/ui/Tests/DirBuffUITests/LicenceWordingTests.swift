@@ -19,9 +19,9 @@ private let paidThrough = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(Licence.paused.line?.action == .checkNow)
   }
 
-  @Test func asksToSupportDirBuffFirstAndToRenewAfterwards() {
-    #expect(Licence.trial(daysLeft: 3).buyTitle == "Support DirBuff…")
-    #expect(Licence.trialEnded.buyTitle == "Support DirBuff…")
+  @Test func asksToBuyFirstAndToRenewAfterwards() {
+    #expect(Licence.trial(daysLeft: 3).buyTitle == "Buy…")
+    #expect(Licence.trialEnded.buyTitle == "Buy…")
     #expect(Licence.ended(paidThrough: paidThrough).buyTitle == "Renew DirBuff…")
     #expect(Licence.kept(paidThrough: paidThrough).buyTitle == "Renew DirBuff…")
   }
@@ -29,14 +29,12 @@ private let paidThrough = Date(timeIntervalSince1970: 1_800_000_000)
   @Test func saysAKeptVersionKeepsWorking() {
     #expect(
       Licence.kept(paidThrough: paidThrough).status(key: nil).contains("you keep this version"))
-    #expect(Licence.kept(paidThrough: paidThrough).whyPaused == nil)
     #expect(Licence.kept(paidThrough: paidThrough).refusal == nil)
   }
 
   @Test func saysWhyALaterVersionWontRun() {
     let ended = Licence.ended(paidThrough: paidThrough)
     #expect(ended.status(key: nil).contains("renew to use this version"))
-    #expect(ended.whyPaused?.contains("before this version came out") == true)
     #expect(Licence.ended(paidThrough: nil).status(key: nil) == "Licence ended")
   }
 
@@ -52,7 +50,9 @@ private let paidThrough = Date(timeIntervalSince1970: 1_800_000_000)
   }
 
   @Test func refusesTemporaryOnlyWhileTheFoldersArePlain() {
-    #expect(Licence.trialEnded.refusal != nil)
+    #expect(
+      Licence.trialEnded.refusal
+        == "Your trial has ended. Buy DirBuff to make folders Temporary again.")
     #expect(Licence.ended(paidThrough: paidThrough).refusal != nil)
     #expect(Licence.paused.refusal == nil)
     #expect(Licence.trial(daysLeft: 3).refusal == nil)
@@ -60,28 +60,10 @@ private let paidThrough = Date(timeIntervalSince1970: 1_800_000_000)
 }
 
 @Suite struct StoppedCleaning {
-  @Test func promisesNothingWhileCleaningIsStopped() {
-    let menu = MenuBarState(
-      reports: [report(1, dueNow: [item("a")])], journal: [], freeSpace: 50_000_000_000,
-      isFinderExtensionOff: false, licence: .paused, now: now, calendar: calendar, binName: "Bin")
-    #expect(menu.headline == "Cleaning is paused")
-    #expect(menu.subheadline == Licence.paused.whyPaused)
-    #expect(menu.forecast.isEmpty)
-    #expect(menu.folders.map(\.distanceToGoing) == ["Paused"])
-  }
-
-  @Test func stopsInvitingAFirstFolderOnceTheTrialEnded() {
-    let menu = MenuBarState(
-      reports: [], journal: [], freeSpace: 50_000_000_000, isFinderExtensionOff: false,
-      licence: .trialEnded, now: now, calendar: calendar, binName: "Bin")
-    #expect(menu.headline == "No Temporary folders")
-    #expect(!menu.invitesFirstFolder)
-  }
-
   @Test func refusesTemporaryInTheMainWindowOnceTheLicenceEnded() {
     let main = MainState(
-      reports: [report(1, wearsTemporary: false)], journal: [], freeSpace: 50_000_000_000,
-      isFinderExtensionOff: false, licence: .ended(paidThrough: paidThrough), now: now,
+      reports: [report(1, wearsTemporary: false)],
+      licence: .ended(paidThrough: paidThrough), now: now,
       calendar: calendar, binName: "Bin")
     #expect(main.licenceRefusal == Licence.ended(paidThrough: paidThrough).refusal)
     #expect(main.buyTitle == "Renew DirBuff…")

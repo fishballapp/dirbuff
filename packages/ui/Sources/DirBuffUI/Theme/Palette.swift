@@ -22,7 +22,7 @@ public enum Palette {
   public static let paper = color(0xFAFAF7, dark: 0x1F1F1D)
   /// Tiles and buff cards.
   public static let card = color(0xFFFFFF, dark: 0x2A2A27)
-  /// A tile's folder band, group headers, the trial banner, the status bar.
+  /// A tile's folder band, group headers.
   public static let well = color(0xF3F2ED, dark: 0x252523)
   /// A buff piece, which stays lighter than the panel it sits on in dark mode.
   public static let piece = color(0xFFFFFF, dark: 0x34342F)

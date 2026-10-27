@@ -36,19 +36,6 @@ func day(_ date: Date, now: Date, calendar: Calendar) -> String {
   }
 }
 
-/// "14:05", "Yesterday, 14:05" or "Mon 13 Oct, 14:05": when something that already happened did.
-func past(_ date: Date, now: Date, calendar: Calendar) -> String {
-  let time = date.formatted(
-    Date.FormatStyle(
-      date: .omitted, time: .shortened, calendar: calendar, timeZone: calendar.timeZone)
-  )
-  switch daysAhead(date, now: now, calendar: calendar) {
-  case 0...: return time
-  case -1: return "Yesterday, \(time)"
-  default: return "\(weekdayAndDate(date, calendar: calendar)), \(time)"
-  }
-}
-
 /// "today", "tomorrow" or "in 5 days", to finish a sentence.
 func dayFromNow(_ date: Date, now: Date, calendar: Calendar) -> String {
   switch daysAhead(date, now: now, calendar: calendar) {

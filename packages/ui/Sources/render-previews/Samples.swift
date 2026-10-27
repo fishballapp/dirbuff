@@ -3,7 +3,7 @@ import DirBuffKit
 import DirBuffUI
 import Foundation
 
-/// Made-up folders, files and runs for the preview renders. Not anyone's real data.
+/// Made-up folders and files for the preview renders. Not anyone's real data.
 enum Samples {
   /// The Bin's name in the site's and the app's language (UK English), so the previews don't
   /// read the Mac they're drawn on.
@@ -86,58 +86,11 @@ enum Samples {
       reading: .success(status("Archive", archiveItems, archiveSettings, wearsTemporary: false))),
   ]
 
-  static let journal: [JournalEntry] = [
-    JournalEntry(
-      id: 1, folderID: 1, disposal: .bin, name: "invoice_2026_08.pdf", size: 180_000,
-      reasons: [.age], performedAt: now.addingTimeInterval(-28_800)),
-    JournalEntry(
-      id: 2, folderID: 1, disposal: .bin, name: "mockup-export.png", size: 4_200_000,
-      reasons: [.age], performedAt: now.addingTimeInterval(-28_800)),
-    JournalEntry(
-      id: 3, folderID: 1, disposal: .bin, name: "setup.dmg", size: 120_000_000,
-      reasons: [.age], performedAt: now.addingTimeInterval(-28_800)),
-    JournalEntry(
-      id: 4, folderID: 2, disposal: .delete, name: "target-build", size: 2_400_000_000,
-      reasons: [.size], performedAt: now.addingTimeInterval(-43_200)),
-    JournalEntry(
-      id: 5, folderID: 2, disposal: .delete, name: "test-run.log", size: 12_000_000,
-      reasons: [.size], performedAt: now.addingTimeInterval(-43_200)),
-  ]
-
   private static let calendar = {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
     return calendar
   }()
-
-  static let busy = MenuBarState(
-    reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
-
-  /// The minute before a clean-up, when the countdown is to the second.
-  static let lastMinute = MenuBarState(
-    reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: now.addingTimeInterval(3_558), calendar: calendar, binName: binName)
-
-  static let quiet = MenuBarState(
-    reports: [
-      FolderReport(
-        folder: folder(1, "Downloads", downloadsSettings),
-        reading: .success(status("Downloads", [], downloadsSettings))),
-      FolderReport(
-        folder: folder(2, "Scratch", scratchSettings),
-        reading: .success(status("Scratch", [], scratchSettings))),
-    ],
-    journal: [], freeSpace: 280_000_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
-
-  static let noFolders = MenuBarState(
-    reports: [], journal: [], freeSpace: 280_000_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
-
-  static let extensionOff = MenuBarState(
-    reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: true,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   /// The last day Polar confirmed the key, in the sample's clock.
   static let paidThrough = now.addingTimeInterval(-20 * 86_400)
@@ -145,12 +98,6 @@ enum Samples {
   static let kept = Licence.kept(paidThrough: paidThrough)
   /// The licence ended, and this version came out after.
   static let ended = Licence.ended(paidThrough: paidThrough)
-
-  static func menuBar(_ licence: Licence) -> MenuBarState {
-    MenuBarState(
-      reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-      licence: licence, now: shownAt, calendar: calendar, binName: binName)
-  }
 
   /// The site's main window: one Temporary Downloads folder clearing what's older than 90 days,
   /// and three items due in the coming week.
@@ -163,14 +110,13 @@ enum Samples {
     item("Downloads", "boarding-pass.pdf", daysOld: 2, size: 90_000),
   ]
 
-  /// The site's sidebar: Downloads with the site's rules, then the other sample folders.
+  /// The site's main window: Downloads with the site's rules, then the other sample folders.
   static let site = MainState(
     reports: [
       FolderReport(
         folder: folder(1, "Downloads", siteDownloadsSettings),
         reading: .success(status("Downloads", siteDownloadsItems, siteDownloadsSettings)))
     ] + reports.dropFirst(),
-    journal: [], freeSpace: 124_500_000_000, isFinderExtensionOff: false,
     licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
 
   static func settings(_ licence: Licence, shouldGetDevBuilds: Bool = false) -> SettingsState {
@@ -183,14 +129,4 @@ enum Samples {
   static let setup = SetupState(
     isExtensionEnabled: false, isOpenAtLogin: true, isOpenAtLoginRequiresApproval: false,
     isNotificationsEnabled: false)
-
-  static let main = MainState(
-    reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
-
-  static func main(_ licence: Licence) -> MainState {
-    MainState(
-      reports: reports, journal: journal, freeSpace: 124_500_000_000, isFinderExtensionOff: false,
-      licence: licence, now: shownAt, calendar: calendar, binName: binName)
-  }
 }

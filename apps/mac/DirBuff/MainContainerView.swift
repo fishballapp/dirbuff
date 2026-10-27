@@ -18,20 +18,22 @@ struct MainContainerView: View {
 
   private func mainView(now: Date) -> some View {
     MainView(
-      state: appModel.mainState(now: now),
+      state: appModel.shelfState(now: now),
       selection: $windowState.selection,
-      onAddFolder: addFolder,
-      onRemoveFolder: removeFolder,
+      onChooseFolderForBuff: chooseFolderForBuff,
+      onAddBuff: addBuff,
+      onPutBackBuff: { id, buff in Task { await appModel.putBackBuff(buff, on: id) } },
+      onFix: { _, fix in appModel.perform(fix) },
       onSetTemporary: setTemporary,
       onChangeSettings: changeSettings,
-      onPutBack: { run in Task { await appModel.putBack(run) } },
       onBuy: appModel.openCheckout,
       onEnterKey: coordinator.openKeyEntry,
       onCheckLicence: { Task { await appModel.checkLicenceNow() } }
     )
   }
 
-  private func addFolder() {
+  private func chooseFolderForBuff(_ buff: Buff) {
+    guard buff == .temporary else { return }
     let panel = NSOpenPanel()
     // The panel holds its delegate weakly.
     let delegate = ProtectedFolderRefusal()
@@ -40,25 +42,20 @@ struct MainContainerView: View {
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
     panel.treatsFilePackagesAsDirectories = false
+    panel.message = "Choose a folder to make Temporary"
     panel.prompt = "Add"
     guard withExtendedLifetime(delegate, { panel.runModal() }) == .OK, let url = panel.url else {
       return
     }
     Task {
-      if let id = await appModel.addFolder(url)?.id {
-        windowState.selection = .folder(id)
-      }
+      await appModel.addFolderWearingTemporary(url)
+      windowState.selection = .shelf
     }
   }
 
-  private func removeFolder(id: Int64) {
-    guard let report = appModel.reports.first(where: { $0.folder.id == id }) else { return }
-    if windowState.selection == .folder(id) {
-      windowState.selection = .overview
-    }
-    Task {
-      await appModel.remove(report.folder)
-    }
+  private func addBuff(id: Int64, buff: Buff) {
+    guard buff == .temporary else { return }
+    setTemporary(id: id, isOn: true)
   }
 
   private func setTemporary(id: Int64, isOn: Bool) {

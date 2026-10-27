@@ -3,7 +3,7 @@ import DirBuffKit
 import Foundation
 
 /// Where the licence stands until it's bought, with the one thing to do about it. It sits at the
-/// foot of both windows: under the main window's sidebar, and as the menu-bar window's first item.
+/// foot of both windows: under the main window's sidebar, and at the menu-bar popover's foot.
 public struct LicenceLine: Sendable, Equatable {
   public enum Action: Sendable, Equatable {
     case buy
@@ -12,7 +12,7 @@ public struct LicenceLine: Sendable, Equatable {
 
     public var title: String {
       switch self {
-      case .buy: "Support DirBuff…"
+      case .buy: "Buy…"
       case .renew: "Renew DirBuff…"
       case .checkNow: "Check Licence Now"
       }
@@ -47,21 +47,11 @@ extension Licence {
     }
   }
 
-  /// What the Buy button is called: a first purchase supports DirBuff, a later one renews.
+  /// What the Buy button is called: a first purchase buys DirBuff, a later one renews.
   public var buyTitle: String {
     switch self {
     case .ended, .kept: LicenceLine.Action.renew.title
     case .trial, .trialEnded, .licensed, .paused: LicenceLine.Action.buy.title
-    }
-  }
-
-  /// Why cleaning is paused, under the headline that says it is.
-  public var whyPaused: String? {
-    switch self {
-    case .trialEnded: "Your trial has ended. Folders are plain again."
-    case .ended: "Your licence ended before this version came out. Renew to use it."
-    case .paused: "DirBuff couldn't check your licence for 14 days."
-    case .trial, .licensed, .kept: nil
     }
   }
 
@@ -89,7 +79,7 @@ extension Licence {
   /// Why a folder can't be made Temporary while the folders are plain.
   public var refusal: String? {
     switch self {
-    case .trialEnded: "Your trial has ended. Support DirBuff to make folders Temporary again."
+    case .trialEnded: "Your trial has ended. Buy DirBuff to make folders Temporary again."
     case .ended:
       "Your licence ended before this version came out. Renew to make folders Temporary again."
     case .trial, .licensed, .paused, .kept: nil

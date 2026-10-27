@@ -17,12 +17,8 @@ final class AppModel {
   static let showInMenuBarKey = "showInMenuBar"
   static let protectedFolderExplanation =
     "DirBuff doesn't clear your home folder, Desktop, Documents, Library, system folders or the top of a disk. Choose a folder inside one, such as Downloads."
-  /// Recent runs in the menu-bar window look back this far.
-  private static let recentRunWindow: TimeInterval = 7 * 86_400
 
   private(set) var reports: [FolderReport] = []
-  private(set) var journal: [JournalEntry] = []
-  private(set) var freeSpace: Int64 = 0
   private(set) var isFinderExtensionOff = false
   private(set) var isLoginItemEnabled = false
   private(set) var loginItemNeedsApproval = false
@@ -71,30 +67,15 @@ final class AppModel {
   }
 
   /// Read afresh each time: the trial's days pass without the record changing.
-  var licence: Licence { Licence(licenceRecord, now: Date(), release: releaseDay) }
+  var licence: Licence { licence(now: Date()) }
 
-  /// The windows pass the moment they draw at, so their countdowns tick (`CountdownSchedule`).
-  func menuBarState(now: Date) -> MenuBarState {
-    MenuBarState(
-      reports: reports, journal: journal, freeSpace: freeSpace,
-      isFinderExtensionOff: isFinderExtensionOff,
-      licence: Licence(licenceRecord, now: now, release: releaseDay),
-      now: now)
-  }
-
-  func mainState(now: Date) -> MainState {
-    MainState(
-      reports: reports, journal: journal, freeSpace: freeSpace,
-      isFinderExtensionOff: isFinderExtensionOff,
-      licence: Licence(licenceRecord, now: now, release: releaseDay),
-      now: now)
+  func licence(now: Date) -> Licence {
+    Licence(licenceRecord, now: now, release: releaseDay)
   }
 
   /// Every folder as the shelf, popover, switcher and Finder show it.
   func folders(now: Date) -> [FolderState] {
-    FolderState.all(
-      reports, licence: Licence(licenceRecord, now: now, release: releaseDay), working: working,
-      now: now)
+    FolderState.all(reports, licence: licence(now: now), working: working, now: now)
   }
 
   /// The folder at `url`, matched by canonical path: the store keeps `/private/var/…`
@@ -152,26 +133,20 @@ final class AppModel {
 
   func refresh() async {
     let engine = engine
-    let since = Date().addingTimeInterval(-Self.recentRunWindow)
     do {
-      let (reports, journal) = try await Task.detached {
+      let reports = try await Task.detached {
         // Reading a folder can change its record (its old tag taken off, a renamed folder's
         // path), so the records are fetched after the reads.
         let readings = Dictionary(
           uniqueKeysWithValues: try engine.store.folders().compactMap(\.id).map {
             ($0, Self.read($0, engine))
           })
-        let reports = try engine.store.folders().compactMap { folder in
+        return try engine.store.folders().compactMap { folder in
           folder.id.flatMap { readings[$0] }.map { FolderReport(folder: folder, reading: $0) }
         }
-        return (reports, try engine.store.journal(since: since))
       }.value
       self.reports = reports
-      self.journal = journal
       publishForFinder()
-      freeSpace = Int64(
-        (try? URL.homeDirectory.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?
-          .volumeAvailableCapacity ?? 0)
     } catch {
       logger.error("Couldn't read the folders: \(error.localizedDescription, privacy: .public)")
     }
@@ -254,10 +229,6 @@ final class AppModel {
       show(error, doing: "save the folder's settings")
     }
     await refresh()
-  }
-
-  func putBack(_ run: RecentRun) async {
-    await putBack(entryIDs: run.journalEntryIDs)
   }
 
   func putBack(entryIDs: [Int64]) async {
@@ -511,7 +482,7 @@ final class AppModel {
       await checkLicence(now: now)
     }
     await refresh()
-    let licence = Licence(licenceRecord, now: now, release: releaseDay)
+    let licence = licence(now: now)
     if licence.plainsFolders {
       await makeFoldersPlain(licence)
     }
@@ -531,7 +502,7 @@ final class AppModel {
     isRunning = true
     defer { isRunning = false }
 
-    guard Licence(licenceRecord, now: hour, release: releaseDay).mayClean else {
+    guard licence(now: hour).mayClean else {
       await settleLicence(now: hour)
       return
     }

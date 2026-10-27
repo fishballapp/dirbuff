@@ -7,7 +7,7 @@ import SwiftUI
 @Observable
 @MainActor
 final class MainWindowState {
-  var selection: MainSelection? = .overview
+  var selection: MainSelection = .shelf
 }
 
 /// Opens DirBuff's windows. An accessory app has no SwiftUI scene to open windows from while the
@@ -46,7 +46,7 @@ final class WindowCoordinator {
             windowState: self.mainWindowState,
             coordinator: self
           ))
-        window.setContentSize(CGSize(width: 820, height: 560))
+        window.setContentSize(CGSize(width: 1240, height: 800))
         window.center()
         window.setFrameUsingName("DirBuffMain")
         window.setFrameAutosaveName("DirBuffMain")
@@ -74,20 +74,6 @@ final class WindowCoordinator {
 
   func closeKeyEntry() {
     windows["keyEntry"]?.close()
-  }
-
-  /// `dirbuff://folder?path=<folder>`, opened by the Finder extension.
-  func open(_ url: URL) {
-    guard url.scheme == "dirbuff", url.host == "folder",
-      let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-        .queryItems?.first(where: { $0.name == "path" })?.value
-    else { return }
-    let folderURL = URL(fileURLWithPath: path)
-    Task {
-      // Adding a listed folder returns it as it is.
-      guard await appModel.addFolder(folderURL) != nil else { return }
-      openMain(selecting: folderURL)
-    }
   }
 
   private func showWindow(
