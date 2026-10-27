@@ -1,59 +1,74 @@
+import DirBuffCore
 import DirBuffUI
 import SwiftUI
 
-/// The menu-bar window's states.
+/// The menu-bar popover in each state, and the glyph in each state on a light and a dark menu bar.
 @MainActor
 func menuBarPreviews() -> [Preview] {
   [
     (
-      "menubar-busy",
-      AnyView(MenuBarView(state: Samples.busy)),
+      "popover-rest",
+      AnyView(MenuBarView(state: Samples.popover(.licensed))),
       nil
     ),
     (
-      "menubar-last-minute",
-      AnyView(MenuBarView(state: Samples.lastMinute)),
+      "popover-working",
+      AnyView(MenuBarView(state: Samples.popover(.licensed, working: [1]))),
       nil
     ),
     (
-      "menubar-quiet",
-      AnyView(MenuBarView(state: Samples.quiet)),
+      "popover-needs-you",
+      AnyView(
+        MenuBarView(
+          state: Samples.popover(.licensed, reports: Samples.reports + [Samples.lostAccessReport]))),
       nil
     ),
     (
-      "menubar-nofolders",
-      AnyView(MenuBarView(state: Samples.noFolders)),
+      "popover-paused",
+      AnyView(
+        MenuBarView(
+          state: Samples.popover(.licensed, reports: Samples.reports + [Samples.unreachableReport]))
+      ),
       nil
     ),
     (
-      "menubar-extensionoff",
-      AnyView(MenuBarView(state: Samples.extensionOff)),
+      "popover-trial",
+      AnyView(MenuBarView(state: Samples.popover(.trial(daysLeft: 9)))),
       nil
     ),
     (
-      "menubar-trial",
-      AnyView(MenuBarView(state: Samples.menuBar(.trial(daysLeft: 9)))),
+      "popover-trial-ended",
+      AnyView(MenuBarView(state: Samples.popover(.trialEnded))),
       nil
     ),
     (
-      "menubar-trial-ended",
-      AnyView(MenuBarView(state: Samples.menuBar(.trialEnded))),
+      "popover-licence-ended",
+      AnyView(MenuBarView(state: Samples.popover(Samples.ended))),
       nil
     ),
     (
-      "menubar-ended",
-      AnyView(MenuBarView(state: Samples.menuBar(Samples.ended))),
-      nil
-    ),
-    (
-      "menubar-kept",
-      AnyView(MenuBarView(state: Samples.menuBar(Samples.kept))),
-      nil
-    ),
-    (
-      "menubar-paused",
-      AnyView(MenuBarView(state: Samples.menuBar(.paused))),
+      "menubar-glyphs",
+      AnyView(MenuBarGlyphSheet()),
       nil
     ),
   ]
+}
+
+/// The three glyphs as a menu bar draws them: a template image, so white on a dark bar and black on
+/// a light one.
+struct MenuBarGlyphSheet: View {
+  @Environment(\.colorScheme) private var colorScheme
+
+  var body: some View {
+    let isDark = colorScheme == .dark
+    HStack(spacing: 28) {
+      ForEach(MenuBarGlyphState.allCases, id: \.self) { state in
+        Image(nsImage: MenuBarGlyph.image(state))
+          .renderingMode(.template)
+          .foregroundStyle(isDark ? Color.white : Color.black)
+      }
+    }
+    .frame(width: 280, height: 24)
+    .background(isDark ? Color(white: 0.16) : Color(white: 0.93))
+  }
 }

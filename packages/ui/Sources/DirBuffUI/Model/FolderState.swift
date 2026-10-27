@@ -16,6 +16,8 @@ public struct FolderState: Sendable, Equatable, Identifiable {
   public var mark: MarkState?
   /// One row per buff it wears, in `Buff` order, and one for a buff just taken off.
   public var buffs: [BuffRow]
+  /// When macOS took away DirBuff's access to it, while it's still away.
+  public var accessLostAt: Date? = nil
 }
 
 /// A buff on a folder: its symbol and name, what it's doing in numbers, and its setting in words.
@@ -91,7 +93,8 @@ extension FolderState {
         path: report.folder.path,
         location: folderLocation(report.folder.path, holding: report.status?.size, home: home),
         mark: buffs.compactMap(\.state.mark).max(),
-        buffs: buffs)
+        buffs: buffs,
+        accessLostAt: report.folder.accessLostAt)
     }
   }
 }

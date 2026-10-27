@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Kept up to date for the Finder extension from launch, whether or not a window opens.
   private let volumeTopFolders = VolumeTopFolders()
   lazy var windows = WindowCoordinator(appModel: appModel, updates: updates)
+  private lazy var statusItem = StatusItem(appModel: appModel, windows: windows)
 
   override init() {
     let appModel = AppModel()
@@ -24,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Opened by the user, DirBuff shows its window; started by macOS at login, it stays in the menu
   /// bar.
   func applicationDidFinishLaunching(_ notification: Notification) {
+    statusItem.start()
     if !isLoginLaunch { windows.openMain() }
   }
 
