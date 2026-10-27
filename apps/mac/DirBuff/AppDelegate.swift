@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     super.init()
   }
 
+  func applicationWillFinishLaunching(_ notification: Notification) {
+    setUpNotifications()
+  }
+
   /// Opened by the user, DirBuff shows its window; started by macOS at login, it stays in the menu
   /// bar.
   func applicationDidFinishLaunching(_ notification: Notification) {

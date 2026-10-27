@@ -255,9 +255,14 @@ final class AppModel {
   }
 
   func putBack(_ run: RecentRun) async {
+    await putBack(entryIDs: run.journalEntryIDs)
+  }
+
+  func putBack(entryIDs: [Int64]) async {
+    guard !entryIDs.isEmpty else { return }
     let engine = engine
     var problems: [String] = []
-    for id in run.journalEntryIDs {
+    for id in entryIDs {
       do {
         try await Task.detached { try engine.undo(journalEntryID: id) }.value
       } catch {

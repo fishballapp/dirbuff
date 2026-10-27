@@ -9,6 +9,9 @@ private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "notifi
 extension AppModel {
   /// After each hourly clean-up, with what each folder's run removed.
   func didCleanUp(_ runs: [Engine.RunResult], at hour: Date) async {
+    if let notification = CleanUpNotification(runs: runs, reports: reports) {
+      await notify(notification)
+    }
     await notifyWhatGoesTomorrow(now: hour)
   }
 
@@ -42,6 +45,20 @@ extension AppModel {
     }
   }
 
+  /// One notification for everything the clean-up moved, under one identifier, so the next
+  /// clean-up's replaces it.
+  @discardableResult
+  func notify(_ notification: CleanUpNotification) async -> Bool {
+    let content = UNMutableNotificationContent()
+    content.title = notification.title
+    content.body = notification.body
+    content.categoryIdentifier = notification.category.rawValue
+    content.threadIdentifier = CleanUpNotification.id
+    content.userInfo = notification.userInfo
+    content.interruptionLevel = .passive
+    return await addNotification(id: CleanUpNotification.id, content: content)
+  }
+
   /// A new notification with the same `id` replaces the last instead of stacking.
   @discardableResult
   func notify(id: String, title: String, body: String) async -> Bool {
@@ -49,6 +66,10 @@ extension AppModel {
     content.title = title
     content.body = body
     content.interruptionLevel = .passive
+    return await addNotification(id: id, content: content)
+  }
+
+  private func addNotification(id: String, content: UNNotificationContent) async -> Bool {
     do {
       try await UNUserNotificationCenter.current().add(
         UNNotificationRequest(identifier: id, content: content, trigger: nil))
