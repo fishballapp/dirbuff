@@ -13,12 +13,12 @@ public struct Folder: Sendable, Equatable {
   public var settings: TemporarySettings
   /// Whether the folder is Temporary. DirBuff keeps this itself, so no Finder tag can change it.
   public internal(set) var wearsTemporary: Bool
-  /// When Temporary was last taken off by the user, so it can be put back for a day.
-  public internal(set) var takenOffAt: Date?
   /// DirBuff stopped the folder's Temporary when the trial or licence ended; buying offers it back.
   public internal(set) var turnedOffByLicence: Bool
   /// Since when macOS has refused DirBuff access to the folder; nil while it can read it.
   public internal(set) var accessLostAt: Date?
+  /// Since when the folder has been missing: deleted, moved to another disk, or moved to the Bin.
+  public internal(set) var missingSince: Date?
   public internal(set) var createdAt: Date
   /// Starts at `createdAt`, so marking a folder never counts as the first run after a reboot.
   public internal(set) var lastRunAt: Date
@@ -29,9 +29,9 @@ public struct Folder: Sendable, Equatable {
     path: String,
     settings: TemporarySettings,
     wearsTemporary: Bool = false,
-    takenOffAt: Date? = nil,
     turnedOffByLicence: Bool = false,
     accessLostAt: Date? = nil,
+    missingSince: Date? = nil,
     createdAt: Date,
     lastRunAt: Date
   ) {
@@ -40,9 +40,9 @@ public struct Folder: Sendable, Equatable {
     self.path = path
     self.settings = settings
     self.wearsTemporary = wearsTemporary
-    self.takenOffAt = takenOffAt
     self.turnedOffByLicence = turnedOffByLicence
     self.accessLostAt = accessLostAt
+    self.missingSince = missingSince
     self.createdAt = createdAt
     self.lastRunAt = lastRunAt
   }
@@ -51,6 +51,8 @@ public struct Folder: Sendable, Equatable {
 /// One item a run disposed of.
 public struct JournalEntry: Sendable, Equatable, Codable {
   public internal(set) var id: Int64?
+  /// The clean-up that removed it; nil for an entry from before runs were recorded.
+  public var runID: Int64?
   public var folderID: Int64
   public var disposal: Disposal
   /// The item's name in its folder. Items are top-level, so this and the folder's bookmark find
@@ -67,6 +69,7 @@ public struct JournalEntry: Sendable, Equatable, Codable {
 
   public init(
     id: Int64? = nil,
+    runID: Int64? = nil,
     folderID: Int64,
     disposal: Disposal,
     name: String,
@@ -77,6 +80,7 @@ public struct JournalEntry: Sendable, Equatable, Codable {
     undoneAt: Date? = nil
   ) {
     self.id = id
+    self.runID = runID
     self.folderID = folderID
     self.disposal = disposal
     self.name = name
@@ -200,6 +204,27 @@ public struct Store: Sendable {
     migrator.registerMigration("access lost") { db in
       try db.alter(table: "folder") { t in t.add(column: "accessLostAt", .datetime) }
     }
+    // A run is one clean-up across every folder, which History lists.
+    migrator.registerMigration("runs and missing folders") { db in
+      try db.create(table: "run") { t in
+        t.autoIncrementedPrimaryKey("id")
+        t.column("startedAt", .datetime).notNull().indexed()
+      }
+      try db.alter(table: "journalEntry") { t in
+        t.add(column: "runID", .integer).references("run", onDelete: .cascade)
+      }
+      try db.create(index: "journalEntry_on_runID", on: "journalEntry", columns: ["runID"])
+      try db.alter(table: "folder") { t in t.add(column: "missingSince", .datetime) }
+      // Taking a buff off is final: its settings are forgotten, and there's nothing to put back.
+      try db.execute(
+        sql: """
+          UPDATE folder SET rule = 'age', maxAgeDays = ?, sizeLimit = ?, disposal = 'bin'
+            WHERE NOT wearsTemporary AND NOT turnedOffByLicence AND takenOffAt IS NOT NULL
+          """,
+        arguments: [TemporarySettings.defaultMaxAgeDays, TemporarySettings.defaultSizeLimit])
+      try db.alter(table: "folder") { t in t.drop(column: "takenOffAt") }
+    }
+    registerHistoryMigrations(&migrator)
     return migrator
   }
 
@@ -227,9 +252,18 @@ public struct Store: Sendable {
     _ = try database.write { try Folder.deleteOne($0, key: id) }
   }
 
-  /// The user said no to turning the folders back on after buying.
+  /// The user said no to turning the folders back on after buying: their settings are forgotten,
+  /// as taking a buff off forgets them.
   public func forgetFoldersTurnedOffByLicence() throws {
-    try database.write { try $0.execute(sql: "UPDATE folder SET turnedOffByLicence = 0") }
+    try database.write {
+      try $0.execute(
+        sql: """
+          UPDATE folder SET rule = 'age', maxAgeDays = ?, sizeLimit = ?, disposal = 'bin',
+            turnedOffByLicence = 0
+          WHERE turnedOffByLicence
+          """,
+        arguments: [TemporarySettings.defaultMaxAgeDays, TemporarySettings.defaultSizeLimit])
+    }
   }
 
   func hasLegacyTag(folderID: Int64) throws -> Bool {
@@ -275,6 +309,41 @@ public struct Store: Sendable {
           WHERE id = ?
           """,
         arguments: [isLost, date, folderID])
+    }
+  }
+
+  /// Records whether the folder is missing: since when while it is, cleared once it's found.
+  public func recordMissing(folderID: Int64, isMissing: Bool, at date: Date) throws {
+    try database.write {
+      try $0.execute(
+        sql: """
+          UPDATE folder SET missingSince = CASE WHEN ? THEN coalesce(missingSince, ?) END
+          WHERE id = ?
+          """,
+        arguments: [isMissing, date, folderID])
+    }
+  }
+
+  /// Opens a run: one clean-up across every folder. Returns its id for `Engine.run`. Runs left
+  /// empty (a clean-up cut short by a quit, or a removed folder's only run) are dropped first.
+  public func beginRun(at date: Date) throws -> Int64 {
+    try database.write { db in
+      try db.execute(
+        sql: "DELETE FROM run WHERE NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)")
+      try db.execute(sql: "INSERT INTO run (startedAt) VALUES (?)", arguments: [date])
+      return db.lastInsertedRowID
+    }
+  }
+
+  /// Drops a run that removed nothing, so History lists only runs that did something.
+  public func dropRunIfEmpty(id: Int64) throws {
+    try database.write {
+      try $0.execute(
+        sql: """
+          DELETE FROM run WHERE id = ?
+            AND NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)
+          """,
+        arguments: [id])
     }
   }
 
@@ -359,15 +428,6 @@ public struct Store: Sendable {
   }
 }
 
-extension Folder {
-  /// Until when Temporary taken off by the user can be put back: the same time the next day. Nil
-  /// once it goes back on, or when a licence pause took it off.
-  public var putBackUntil: Date? {
-    guard !wearsTemporary, !turnedOffByLicence, let takenOffAt else { return nil }
-    return Calendar.current.date(byAdding: .day, value: 1, to: takenOffAt)
-  }
-}
-
 /// Settings are columns, not a JSON blob, so a new setting arrives as a migration with a default.
 extension Folder: FetchableRecord, MutablePersistableRecord {
   public static let databaseTableName = "folder"
@@ -391,8 +451,8 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
       disposal: disposal
     )
     wearsTemporary = row["wearsTemporary"]
-    takenOffAt = row["takenOffAt"]
     accessLostAt = row["accessLostAt"]
+    missingSince = row["missingSince"]
     turnedOffByLicence = row["turnedOffByLicence"]
     createdAt = row["createdAt"]
     lastRunAt = row["lastRunAt"]
@@ -407,8 +467,8 @@ extension Folder: FetchableRecord, MutablePersistableRecord {
     container["sizeLimit"] = settings.sizeLimit
     container["disposal"] = settings.chosenDisposal.rawValue
     container["wearsTemporary"] = wearsTemporary
-    container["takenOffAt"] = takenOffAt
     container["accessLostAt"] = accessLostAt
+    container["missingSince"] = missingSince
     container["turnedOffByLicence"] = turnedOffByLicence
     container["createdAt"] = createdAt
     container["lastRunAt"] = lastRunAt

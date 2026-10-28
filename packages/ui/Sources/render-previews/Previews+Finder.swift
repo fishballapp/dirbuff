@@ -12,7 +12,7 @@ extension Samples {
   )
 
   static let finderProtectedMenu = FinderMenu.addBuff(
-    folderName: "Desktop",
+    folderName: "Library",
     isProtected: true,
     binName: binName
   )
@@ -42,12 +42,11 @@ extension Samples {
   )
 }
 
-/// Renders the Finder badge in its four states, from `Mark.badgeImage(for:)`.
+/// Renders the Finder badge in its three states, from `Mark.badgeImage(for:)`.
 struct FinderBadgesSheet: View {
   private let rows: [(MarkState, String, String)] = [
     (.needsYou, "Needs you", "The normal mark with an amber \"!\" at its lower right"),
     (.working, "Working", "A blue arc on the white rim and a smaller arm"),
-    (.paused, "Paused", "An empty grey ring around a grey arm"),
     (.atRest, "At rest", "White disc, ink arm"),
   ]
 

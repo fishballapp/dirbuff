@@ -4,7 +4,8 @@ import DirBuffKit
 import DirBuffUI
 import SwiftUI
 
-/// DirBuff's main window content: binds the app model's state and actions to `MainView`.
+/// DirBuff's main window content: binds the app model's state and actions to `MainView`. Each
+/// pushed page is built in its own `MainContainerView+<Page>` file.
 struct MainContainerView: View {
   var appModel: AppModel
   @Bindable var windowState: MainWindowState
@@ -17,19 +18,47 @@ struct MainContainerView: View {
   }
 
   private func mainView(now: Date) -> some View {
-    MainView(
-      state: appModel.shelfState(now: now),
-      selection: $windowState.selection,
-      onChooseFolderForBuff: chooseFolderForBuff,
-      onAddBuff: addBuff,
-      onPutBackBuff: { id, buff in Task { await appModel.putBackBuff(buff, on: id) } },
-      onFix: { _, fix in appModel.perform(fix) },
-      onSetTemporary: setTemporary,
-      onChangeSettings: changeSettings,
-      onBuy: appModel.openCheckout,
-      onEnterKey: coordinator.openKeyEntry,
-      onCheckLicence: { Task { await appModel.checkLicenceNow() } }
+    let state = appModel.shelfState(now: now)
+    return MainView(
+      state: state,
+      navigation: $windowState.navigation,
+      actions: actions,
+      destination: { route in destination(route, state: state, now: now) }
     )
+  }
+
+  private func destination(_ route: MainRoute, state: MainState, now: Date) -> AnyView {
+    switch route {
+    case .folder(let id): AnyView(folderPage(id, state: state, now: now))
+    case .files(let id): AnyView(filesPage(id, state: state, now: now))
+    case .history(let folderID): AnyView(historyPage(folderID: folderID, now: now))
+    case .run(let id): AnyView(runPage(id, now: now))
+    }
+  }
+
+  /// Every shelf action, wired to the app; pages built in other files use it too.
+  var actions: ShelfActions {
+    let appModel = appModel
+    var actions = ShelfActions()
+    actions.chooseFolderForBuff = chooseFolderForBuff
+    actions.addBuff = { id, buff in
+      guard buff == .temporary, let folder = appModel.folder(id: id) else { return }
+      Task { await appModel.setTemporary(folder, true) }
+    }
+    actions.undoAddBuff = { id, buff in Task { await appModel.undoAddBuff(buff, on: id) } }
+    actions.takeOff = { id, buff in Task { await appModel.confirmTakeOff(buff, on: id) } }
+    actions.fix = { id, fix in appModel.perform(fix, on: id) }
+    actions.locate = { id in Task { await appModel.locate(folderID: id) } }
+    actions.removeFolder = { id in Task { await appModel.removeFolderAsking(folderID: id) } }
+    actions.showInFinder = { id in
+      guard let folder = appModel.folder(id: id) else { return }
+      NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder.path)])
+    }
+    actions.openLicenceSettings = coordinator.openSettings
+    actions.buy = appModel.openCheckout
+    actions.enterKey = coordinator.openKeyEntry
+    actions.checkLicence = { Task { await appModel.checkLicenceNow() } }
+    return actions
   }
 
   private func chooseFolderForBuff(_ buff: Buff) {
@@ -49,26 +78,7 @@ struct MainContainerView: View {
     }
     Task {
       await appModel.addFolderWearingTemporary(url)
-      windowState.selection = .shelf
-    }
-  }
-
-  private func addBuff(id: Int64, buff: Buff) {
-    guard buff == .temporary else { return }
-    setTemporary(id: id, isOn: true)
-  }
-
-  private func setTemporary(id: Int64, isOn: Bool) {
-    guard let report = appModel.reports.first(where: { $0.folder.id == id }) else { return }
-    Task {
-      await appModel.setTemporary(report.folder, isOn)
-    }
-  }
-
-  private func changeSettings(id: Int64, settings: TemporarySettings) {
-    guard let report = appModel.reports.first(where: { $0.folder.id == id }) else { return }
-    Task {
-      await appModel.save(settings, for: report.folder)
+      windowState.navigation = MainNavigation()
     }
   }
 }

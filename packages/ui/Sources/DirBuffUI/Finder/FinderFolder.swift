@@ -70,8 +70,7 @@ public struct FinderSnapshot: Sendable, Equatable, Codable {
   }
 
   /// Builds the snapshot for `folders` under `licence`. Whenever the licence doesn't allow cleaning
-  /// (trial ended, licence ended, or licence unconfirmed), no folder shows a mark in Finder, and a
-  /// buff just taken off (`.takenOff`) is already off in Finder.
+  /// (trial ended, licence ended, or licence unconfirmed), no folder shows a mark in Finder.
   public init(
     folders: [FolderState],
     licence: Licence,

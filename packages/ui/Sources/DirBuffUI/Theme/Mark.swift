@@ -4,7 +4,6 @@ import SwiftUI
 /// across every folder, by the menu-bar glyph. Ordered by urgency: the most urgent wins.
 public enum MarkState: Int, Comparable, CaseIterable, Sendable {
   case atRest
-  case paused
   case working
   case needsYou
 
@@ -13,7 +12,8 @@ public enum MarkState: Int, Comparable, CaseIterable, Sendable {
 
 /// The 💪 mark on a 40 × 40 grid, scaled to `size`. A coloured image, the same in light and dark,
 /// told apart by shape: a white disc at rest, a blue arc on its rim and a smaller arm while
-/// working, an amber "!" at its lower right when it needs the user, a grey ring when paused.
+/// working, an amber "!" at its lower right when it needs the user. Paused has no mark of its own:
+/// a licence pause needs the user, and a folder on an unplugged drive needs nothing.
 public struct Mark: View {
   let state: MarkState
   let size: CGFloat
@@ -33,12 +33,7 @@ public struct Mark: View {
         Path(ellipseIn: rect(20 - radius, 20 - radius, radius * 2))
       }
 
-      switch state {
-      case .paused:
-        context.fill(disc(radius: 17.6), with: .color(.white.opacity(0.55)))
-        context.stroke(disc(radius: 17.6), with: .color(Self.grey), lineWidth: 2 * unit)
-        context.fill(Arm().path(in: rect(7, 6.5, 26)), with: .color(Self.grey))
-      case .atRest, .working, .needsYou:
+      do {
         context.fill(disc(radius: 18.5), with: .color(.white))
         context.stroke(disc(radius: 18.5), with: .color(.black.opacity(0.2)), lineWidth: unit)
         if state == .working {
@@ -68,7 +63,6 @@ public struct Mark: View {
   private static let ink = Color(red: 0x1A / 255, green: 0x1A / 255, blue: 0x1A / 255)
   private static let blue = Color(red: 0x2B / 255, green: 0x4B / 255, blue: 0xD8 / 255)
   private static let amber = Color(red: 0xC9 / 255, green: 0x8B / 255, blue: 0)
-  private static let grey = Color(red: 0x9A / 255, green: 0x9A / 255, blue: 0x95 / 255)
 }
 
 /// The needs-you badge: a filled Amber disc with a white "!", no border. 16 pt wherever DirBuff

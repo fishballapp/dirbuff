@@ -81,20 +81,19 @@ private func mainState(
     let state = mainState([
       report(1, name: "Downloads"),
       report(2, name: "Projects", problem: .noAccess),
-      report(3, name: "Screenshots", wearsTemporary: false, takenOffAt: now),
+      report(3, name: "Screenshots", wearsTemporary: false),
       report(4, name: "Exports", path: "/Volumes/T7 Shuttle/Exports"),
       report(5, name: "Backups", path: "/Volumes/Archive Disk/Backups"),
       report(6, name: "Plain", wearsTemporary: false),
     ])
-    // Plain folder with no Put Back window is not on the shelf.
-    #expect(state.shelfFolders.count == 5)
+    // Plain folders, Screenshots taken off among them, aren't on the shelf.
+    #expect(state.shelfFolders.count == 4)
     #expect(state.needsYouCount == 1)
-    // Taken-off Screenshots stays on the shelf for Put Back, but no longer wears Temporary.
     #expect(state.buffCount(.temporary) == 4)
     #expect(state.sidebarBuffs == [.temporary])
     #expect(
       state.locations == [
-        ShelfLocation(volumePath: "/", name: "Macintosh HD", isExternal: false, count: 3),
+        ShelfLocation(volumePath: "/", name: "Macintosh HD", isExternal: false, count: 2),
         ShelfLocation(
           volumePath: "/Volumes/Archive Disk", name: "Archive Disk", isExternal: true, count: 1),
         ShelfLocation(
@@ -106,7 +105,7 @@ private func mainState(
     let state = mainState([
       report(1, name: "Downloads"),
       report(2, name: "Projects", problem: .noAccess),
-      report(3, name: "Screenshots", wearsTemporary: false, takenOffAt: now),
+      report(3, name: "Screenshots", wearsTemporary: false),
       report(4, name: "Exports", path: "/Volumes/T7 Shuttle/Exports"),
     ])
     #expect(state.shelfFolders(matching: .needsYou).map(\.name) == ["Projects"])
@@ -115,13 +114,11 @@ private func mainState(
         "Projects", "Downloads", "Exports",
       ])
     #expect(
-      state.shelfFolders(matching: .location("/")).map(\.name) == [
-        "Projects", "Downloads", "Screenshots",
-      ])
+      state.shelfFolders(matching: .location("/")).map(\.name) == ["Projects", "Downloads"])
     #expect(
       state.shelfFolders(matching: .location("/Volumes/T7 Shuttle")).map(\.name) == ["Exports"])
     // Unknown or unmounted location falls back to All Folders.
-    #expect(state.shelfFolders(matching: .location("/Volumes/Gone")).count == 4)
+    #expect(state.shelfFolders(matching: .location("/Volumes/Gone")).count == 3)
   }
 
   @Test func filtersByFolderNamePreservingOrder() {
@@ -176,10 +173,10 @@ private func mainState(
     #expect(twoNeedYou.toolbarSubtitle(for: .allFolders) == "2 folders · 2 need you")
   }
 
-  @Test func buildsAddBuffMenuForWornTakenOffAndProtectedFolders() {
+  @Test func buildsAddBuffMenuForWornPlainAndProtectedFolders() {
     let state = mainState([
       report(1, name: "Downloads"),
-      report(2, name: "Screenshots", wearsTemporary: false, takenOffAt: now),
+      report(2, name: "Screenshots", wearsTemporary: false),
     ])
     let downloads = state.shelfFolders.first { $0.name == "Downloads" }!
     // Downloads already wears Temporary, so only Soon buffs remain.
@@ -190,23 +187,24 @@ private func mainState(
         AddBuffItem(buff: .search, isEnabled: false, subtitle: "Soon"),
       ])
 
-    let screenshots = state.shelfFolders.first { $0.name == "Screenshots" }!
-    #expect(
-      state.addBuffItems(for: screenshots).first == AddBuffItem(buff: .temporary, isEnabled: true))
-
-    let desktop = FolderState(
+    let library = FolderState(
       id: 99,
-      name: "Desktop",
-      path: "\(home)/Desktop",
-      location: "~/Desktop",
+      name: "Library",
+      path: "\(home)/Library",
+      location: "~/Library",
       mark: .atRest,
       buffs: []
     )
     #expect(
-      state.addBuffItems(for: desktop).first
+      state.addBuffItems(for: library).first
         == AddBuffItem(
           buff: .temporary,
           isEnabled: false,
-          subtitle: "Desktop is protected. DirBuff never clears it."))
+          subtitle: "Library is protected. DirBuff never clears it."))
+    let desktop = FolderState(
+      id: 98, name: "Desktop", path: "\(home)/Desktop", location: "~/Desktop", mark: .atRest,
+      buffs: [])
+    #expect(
+      state.addBuffItems(for: desktop).first == AddBuffItem(buff: .temporary, isEnabled: true))
   }
 }

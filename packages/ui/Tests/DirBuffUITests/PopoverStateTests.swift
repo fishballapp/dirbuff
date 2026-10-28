@@ -68,10 +68,10 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
   @Test func saysAFolderIsPausedWhenItCantBeReached() {
     let unreachable = FolderState(
       id: 1, name: "Exports", path: "/Volumes/T7/Exports", location: "T7 Shuttle",
-      mark: .paused,
+      mark: .atRest,
       buffs: [
         BuffRow(
-          buff: .temporary, state: .paused, status: "T7 isn't connected",
+          buff: .temporary, state: .paused(.driveUnplugged("T7")), status: "T7 isn't connected",
           setting: "Older than 14 days, to the Bin")
       ])
     #expect(popover([unreachable]).headline == "1 folder is paused")
@@ -89,7 +89,7 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
     (Licence.paused, "DirBuff couldn't check your licence"),
   ])
   func saysWhyEveryBuffIsPaused(licence: Licence, reason: String) {
-    let state = popover([folder(1, "Downloads", .paused)], licence: licence)
+    let state = popover([folder(1, "Downloads", .paused(.licence(.buy)))], licence: licence)
     #expect(state.headline == "Every buff is paused")
     #expect(state.subheadline == reason)
     #expect(!state.isCleaning)
@@ -140,18 +140,6 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
     #expect(state.folders.map(\.name) == ["Exports", "Downloads"])
   }
 
-  @Test func leavesOutABuffTakenOffAndAFolderWithNoOtherBuff() {
-    let takenOff = FolderState(
-      id: 1, name: "Scratch", path: "\(home)/Scratch", location: "~/Scratch", mark: nil,
-      buffs: [
-        BuffRow(
-          buff: .temporary, state: .takenOff(putBackUntil: now), status: "Off · nothing was moved",
-          setting: "")
-      ])
-    let kept = folder(2, "Downloads", .atRest)
-    let state = popover([takenOff, kept])
-    #expect(state.folders.map(\.name) == ["Downloads"])
-  }
 }
 
 @Suite struct PopoverGlyph {
@@ -164,8 +152,12 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
   }
 
   @Test func leavesAPausedFolderAtRest() {
-    #expect(popover([folder(1, "Exports", .paused), folder(2, "A", .atRest)]).glyph == .atRest)
-    #expect(popover([folder(1, "Exports", .paused), folder(2, "A", .working)]).glyph == .working)
+    #expect(
+      popover([folder(1, "Exports", .paused(.driveUnplugged("T7"))), folder(2, "A", .atRest)]).glyph
+        == .atRest)
+    #expect(
+      popover([folder(1, "Exports", .paused(.driveUnplugged("T7"))), folder(2, "A", .working)])
+        .glyph == .working)
   }
 
   @Test func isAtRestWithNoFolders() {
@@ -174,7 +166,9 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
 
   @Test func isTheNeedsYouGlyphOnceCleaningHasStopped() {
     #expect(popover([], licence: .trialEnded).glyph == .needsYou)
-    #expect(popover([folder(1, "Downloads", .paused)], licence: .paused).glyph == .needsYou)
+    #expect(
+      popover([folder(1, "Downloads", .paused(.licence(.buy)))], licence: .paused).glyph
+        == .needsYou)
   }
 }
 

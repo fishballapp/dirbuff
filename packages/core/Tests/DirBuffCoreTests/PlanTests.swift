@@ -170,8 +170,8 @@ private func removals(
     ).map(\.path)
     #expect(
       Set(roots) == [
-        "/", "/Applications", "/Library", "/System", "/Users", "/Users/me", "/Users/me/Desktop",
-        "/Users/me/Documents", "/Users/me/Library", "/Volumes/Stick",
+        "/", "/Applications", "/Library", "/System", "/Users", "/Users/me", "/Users/me/Library",
+        "/Volumes/Stick",
       ])
   }
 }

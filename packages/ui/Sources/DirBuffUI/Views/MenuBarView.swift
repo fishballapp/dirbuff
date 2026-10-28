@@ -6,7 +6,7 @@ import SwiftUI
 /// app hosts it in one item of a status menu, so an auto-hidden menu bar stays shown while it's open.
 public struct MenuBarView: View {
   public var state: PopoverState
-  public var onFix: (Fix) -> Void
+  public var onFix: (_ folderID: Int64, Fix) -> Void
   public var onSelectFolder: (FolderState) -> Void
   public var onOpen: () -> Void
   public var onSettings: () -> Void
@@ -15,7 +15,7 @@ public struct MenuBarView: View {
 
   public init(
     state: PopoverState,
-    onFix: @escaping (Fix) -> Void = { _ in },
+    onFix: @escaping (_ folderID: Int64, Fix) -> Void = { _, _ in },
     onSelectFolder: @escaping (FolderState) -> Void = { _ in },
     onOpen: @escaping () -> Void = {},
     onSettings: @escaping () -> Void = {},
@@ -89,7 +89,7 @@ public struct MenuBarView: View {
         Text(item.reason)
           .font(.subheadline)
           .foregroundStyle(Palette.inkSecondary)
-        Button(item.fix.title) { onFix(item.fix) }
+        Button(item.fix.title) { onFix(item.id, item.fix) }
           .buttonStyle(.borderedProminent)
           .tint(Palette.accentBlue)
           .controlSize(.small)
@@ -153,7 +153,7 @@ public struct MenuBarView: View {
 
   private func symbolColor(_ buffState: BuffState) -> Color {
     guard state.isCleaning else { return Palette.inkTertiary }
-    return buffState == .paused ? Palette.quiet : Palette.ink
+    return buffState.isPaused ? Palette.quiet : Palette.ink
   }
 
   private func lineColor(_ buffState: BuffState) -> Color {
@@ -161,7 +161,7 @@ public struct MenuBarView: View {
     switch buffState {
     case .needsYou: return Palette.amberText
     case .paused: return Palette.inkTertiary
-    case .atRest, .working, .takenOff: return Palette.inkSecondary
+    case .atRest, .working: return Palette.inkSecondary
     }
   }
 

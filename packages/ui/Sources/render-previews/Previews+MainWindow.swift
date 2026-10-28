@@ -16,8 +16,7 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelf(),
-          selection: .constant(.shelf),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation())
         )),
       fullSize
     ),
@@ -26,28 +25,16 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelf(working: [1]),
-          selection: .constant(.shelf),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation())
         )),
       fullSize
-    ),
-    (
-      "main-shelf-taken-off",
-      AnyView(
-        MainView(
-          state: Samples.shelfTakenOff,
-          selection: .constant(.shelf),
-          binName: Samples.binName
-        )),
-      CGSize(width: 1088, height: 420)
     ),
     (
       "main-overview-trial-ended",
       AnyView(
         MainView(
           state: Samples.shelfPaused(licence: .trialEnded),
-          selection: .constant(.shelf),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation())
         )),
       fullSize
     ),
@@ -57,8 +44,7 @@ func mainWindowPreviews() -> [Preview] {
         MainView(
           state: Samples.shelfPaused(
             licence: .ended(paidThrough: Samples.shelfMoment.addingTimeInterval(-30 * 86_400))),
-          selection: .constant(.shelf),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation())
         )),
       fullSize
     ),
@@ -67,8 +53,16 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelfUnplugged,
-          selection: .constant(.shelf),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation())
+        )),
+      fullSize
+    ),
+    (
+      "main-shelf-missing",
+      AnyView(
+        MainView(
+          state: Samples.shelfMissing,
+          navigation: .constant(MainNavigation())
         )),
       fullSize
     ),
@@ -77,8 +71,7 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelf(),
-          selection: .constant(.shelf),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation())
         )),
       narrowSize
     ),
@@ -87,8 +80,7 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelf(),
-          selection: .constant(.shelf),
-          binName: Samples.binName,
+          navigation: .constant(MainNavigation()),
           initialSearchQuery: "Screen"
         )),
       fullSize
@@ -98,8 +90,7 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelf(),
-          selection: .constant(.shelf),
-          binName: Samples.binName,
+          navigation: .constant(MainNavigation()),
           initialSearchQuery: "Invoices"
         )),
       fullSize
@@ -109,8 +100,7 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelfEmpty,
-          selection: .constant(.shelf),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation())
         )),
       fullSize
     ),
@@ -119,8 +109,8 @@ func mainWindowPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: Samples.shelf(),
-          selection: .constant(.folder(1)),
-          binName: Samples.binName
+          navigation: .constant(MainNavigation(opening: .folder(1))),
+          destination: Samples.folderPageDestination(Samples.shelf())
         )),
       fullSize
     ),
@@ -128,6 +118,15 @@ func mainWindowPreviews() -> [Preview] {
 }
 
 extension Samples {
+  /// Draws a pushed folder page from `state`, as the app's `MainContainerView` does.
+  static func folderPageDestination(_ state: MainState) -> (MainRoute) -> AnyView {
+    { route in
+      guard case .folder(let id) = route, let folder = state.folders.first(where: { $0.id == id })
+      else { return AnyView(EmptyView()) }
+      return AnyView(FolderPage(folder: folder, binName: binName))
+    }
+  }
+
   /// Real home directory so existing standard folders (`~/Downloads`) draw their real Finder icons
   /// while `MainState` still formats locations as `~/…`.
   fileprivate static let shelfHome = NSHomeDirectory()
@@ -160,10 +159,10 @@ extension Samples {
     settings: TemporarySettings,
     items: [Item] = [],
     wearsTemporary: Bool = true,
-    takenOffAt: Date? = nil,
     turnedOffByLicence: Bool = false,
     problem: FolderProblem? = nil,
-    accessLostAt: Date? = nil
+    accessLostAt: Date? = nil,
+    missingSince: Date? = nil
   ) -> FolderReport {
     let folder = Folder(
       id: id,
@@ -171,9 +170,9 @@ extension Samples {
       path: path,
       settings: settings,
       wearsTemporary: wearsTemporary,
-      takenOffAt: takenOffAt,
       turnedOffByLicence: turnedOffByLicence,
       accessLostAt: accessLostAt,
+      missingSince: missingSince,
       createdAt: shelfMoment.addingTimeInterval(-60 * 86_400),
       lastRunAt: shelfMoment.addingTimeInterval(-37 * 60)
     )
@@ -302,28 +301,12 @@ extension Samples {
       reports: shelfReports(),
       licence: licence,
       working: working,
-      now: shelfMoment,
-      calendar: shelfCalendar,
-      binName: binName,
-      home: shelfHome,
-      startupVolumeName: "Macintosh HD"
-    )
-  }
-
-  fileprivate static var shelfTakenOff: MainState {
-    MainState(
-      reports: [
-        shelfReports()[0],
-        shelfReport(
-          id: 6,
-          path: "\(shelfHome)/Screenshots",
-          settings: TemporarySettings(rule: .emptyOnRestart),
-          items: shelfScreenshotsItems,
-          wearsTemporary: false,
-          takenOffAt: shelfMoment
-        ),
-      ],
-      licence: .licensed,
+      // A quarter of the way through.
+      progress: working.first.map {
+        Engine.RunProgress(
+          folderID: $0, itemsDone: 3, itemsTotal: 12, bytesDone: 0, bytesTotal: 0,
+          current: "zoom_bundle.zip")
+      },
       now: shelfMoment,
       calendar: shelfCalendar,
       binName: binName,
@@ -351,6 +334,26 @@ extension Samples {
       path: "/Volumes/T7 Shuttle/Exports",
       settings: TemporarySettings(rule: .size, sizeLimit: 50_000_000_000),
       problem: .unreachable
+    )
+    return MainState(
+      reports: reports,
+      licence: .trial(daysLeft: 9),
+      now: shelfMoment,
+      calendar: shelfCalendar,
+      binName: binName,
+      home: shelfHome,
+      startupVolumeName: "Macintosh HD"
+    )
+  }
+
+  fileprivate static var shelfMissing: MainState {
+    var reports = shelfReports()
+    reports[2] = shelfReport(
+      id: 3,
+      path: "\(shelfHome)/Thesis",
+      settings: TemporarySettings(maxAgeDays: 14),
+      problem: .missing,
+      missingSince: shelfMoment.addingTimeInterval(-2 * 86_400 - 3 * 3_600)
     )
     return MainState(
       reports: reports,

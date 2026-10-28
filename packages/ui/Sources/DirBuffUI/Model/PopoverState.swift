@@ -69,10 +69,10 @@ extension PopoverState {
     now: Date,
     calendar: Calendar = .current
   ) {
-    let listed = folders.compactMap(listedFolder)
+    let listed = folders
     let needsYou = listed.compactMap { callout($0, now: now) }
     let clearing = listed.filter { $0.buffs.contains { $0.state == .working } }
-    let paused = listed.filter { $0.buffs.contains { $0.state == .paused } }
+    let paused = listed.filter { $0.buffs.contains { $0.state.isPaused } }
     let next = nextCleanUp(after: now, calendar: calendar)
     let countdown = "Next clean-up in \(timeLeft(until: next, now: now))"
     let (headline, subheadline): (String, String?) = {
@@ -102,18 +102,6 @@ extension PopoverState {
   }
 }
 
-/// The folder with only the buffs it still wears, or nil when it wears none.
-private func listedFolder(_ folder: FolderState) -> FolderState? {
-  var listed = folder
-  listed.buffs = folder.buffs.filter { !isTakenOff($0) }
-  return listed.buffs.isEmpty ? nil : listed
-}
-
-private func isTakenOff(_ row: BuffRow) -> Bool {
-  guard case .takenOff = row.state else { return false }
-  return true
-}
-
 /// The callout for a folder that needs the user: its first buff that does.
 private func callout(_ folder: FolderState, now: Date) -> NeedsYou? {
   folder.buffs.lazy.compactMap { row -> NeedsYou? in
@@ -129,15 +117,14 @@ private func reason(_ row: BuffRow, lostAt: Date?, now: Date) -> String {
   return "\(row.status) \(timeSince(lostAt, now: now)) ago"
 }
 
-/// While the licence stops cleaning, the glyph is the needs-you one. A folder that's paused (its
-/// drive isn't connected, say) doesn't count: it stays at rest.
+/// While the licence stops cleaning, the glyph is the needs-you one. A folder whose drive isn't
+/// connected is at rest, so it doesn't count.
 private func glyphState(_ folders: [FolderState], licence: Licence) -> MenuBarGlyphState {
   guard licence.mayClean else { return .needsYou }
-  let marks = folders.compactMap(\.mark).filter { $0 != .paused }
-  switch marks.max() {
+  switch folders.compactMap(\.mark).max() {
   case .needsYou: return .needsYou
   case .working: return .working
-  case .atRest, .paused, nil: return .atRest
+  case .atRest, nil: return .atRest
   }
 }
 

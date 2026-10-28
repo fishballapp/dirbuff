@@ -2,12 +2,6 @@ import DirBuffCore
 import DirBuffKit
 import Foundation
 
-/// The destination shown in DirBuff's main window: the shelf at the root, or a pushed folder page.
-public enum MainSelection: Hashable, Sendable {
-  case shelf
-  case folder(Int64)
-}
-
 /// Which folders the sidebar shows on the shelf.
 public enum ShelfFilter: Hashable, Sendable {
   case allFolders
@@ -47,21 +41,19 @@ public struct AddBuffItem: Sendable, Equatable, Identifiable {
   }
 }
 
-extension BuffState {
-  /// Whether the folder wears the buff; false once the user took it off.
-  public var isWorn: Bool {
-    if case .takenOff = self { return false }
-    return true
-  }
-}
-
 extension FolderState {
-  /// Whether any buff on the folder needs the user.
-  public var isNeedingYou: Bool { mark == .needsYou }
+  /// Whether any buff on the folder needs the user to fix something. A licence pause marks the
+  /// folder needs you too, but its fix is the licence's, so the tile stays as it is.
+  public var isNeedingYou: Bool {
+    buffs.contains {
+      if case .needsYou = $0.state { return true }
+      return false
+    }
+  }
 
   /// Whether the folder wears `buff` (paused buffs still count; one just taken off doesn't).
   public func wears(_ buff: Buff) -> Bool {
-    buffs.contains { $0.buff == buff && $0.state.isWorn }
+    buffs.contains { $0.buff == buff }
   }
 }
 
@@ -244,6 +236,7 @@ extension MainState {
     reports: [FolderReport],
     licence: Licence,
     working: Set<Int64> = [],
+    progress: Engine.RunProgress? = nil,
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name,
@@ -264,6 +257,7 @@ extension MainState {
         reports,
         licence: licence,
         working: working,
+        progress: progress,
         now: now,
         calendar: calendar,
         binName: binName,

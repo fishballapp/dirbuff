@@ -7,10 +7,8 @@ struct FolderTileView: View {
   var folder: FolderState
   var addBuffItems: [AddBuffItem]
   var canAddBuff: Bool
+  var actions: ShelfActions
   var onOpen: () -> Void
-  var onAddBuff: (Buff) -> Void
-  var onPutBackBuff: (Buff) -> Void
-  var onFix: (Fix) -> Void
 
   @Environment(\.colorScheme) private var colorScheme
   @State private var isHovered = false
@@ -47,13 +45,13 @@ struct FolderTileView: View {
         FolderAddBuffMenuContent(
           folderName: folder.name,
           items: addBuffItems,
-          onAddBuff: onAddBuff
+          onAddBuff: { actions.addBuff(folder.id, $0) }
         )
       }
       .disabled(!canAddBuff)
 
       Button("Show in Finder") {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder.path)])
+        actions.showInFinder(folder.id)
       }
     }
   }
@@ -102,7 +100,7 @@ struct FolderTileView: View {
           FolderAddBuffMenuContent(
             folderName: folder.name,
             items: addBuffItems,
-            onAddBuff: onAddBuff
+            onAddBuff: { actions.addBuff(folder.id, $0) }
           )
         } label: {
           Label("Buff", systemImage: "plus")
@@ -130,11 +128,10 @@ struct FolderTileView: View {
                 .foregroundStyle(row.isNeedsYou ? Palette.amberText : Palette.inkTertiary)
                 .padding(.bottom, 6)
 
-              Text(row.status)
-                .font(.body.weight(row.statusWeight))
-                .foregroundStyle(row.statusColor)
-                .monospacedDigit()
-                .lineLimit(1)
+              // A paused row says only its setting and Paused; the capsule says why.
+              if !row.state.isPaused {
+                status(row)
+              }
 
               if row.state == .working {
                 workingBar
@@ -147,12 +144,8 @@ struct FolderTileView: View {
                 .foregroundStyle(row.isNeedsYou ? Palette.inkSecondary : Palette.inkTertiary)
                 .monospacedDigit()
                 .lineLimit(1)
-                .padding(.top, row.state == .working ? 0 : 2)
+                .padding(.top, row.state == .working || row.state.isPaused ? 0 : 2)
 
-              if row.state == .paused {
-                pausedCapsule
-                  .padding(.top, 8)
-              }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
           }
@@ -160,32 +153,39 @@ struct FolderTileView: View {
         }
         .buttonStyle(.plain)
 
+        // Outside the row's button, so a click opens Settings rather than the folder.
+        if case .paused(let reason) = row.state {
+          PausedPill(reason: reason, onOpenLicence: actions.openLicenceSettings)
+            .padding(.leading, 42)
+            .padding(.top, 8)
+        }
+
         if case .needsYou(let fix) = row.state {
-          Button(fix.title) {
-            onFix(fix)
+          HStack(spacing: 8) {
+            Button(fix.title) {
+              actions.fix(folder.id, fix)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Palette.accentBlue)
+            if fix == .locate {
+              Button("Remove from DirBuff…") {
+                actions.removeFolder(folder.id)
+              }
+            }
           }
-          .buttonStyle(.borderedProminent)
-          .tint(Palette.accentBlue)
           .controlSize(.small)
           .padding(.leading, 42)
           .padding(.top, 12)
         }
       }
 
-      if case .takenOff = row.state {
-        Button("Put Back") {
-          onPutBackBuff(row.buff)
-        }
-        .controlSize(.small)
-      } else {
-        Button(action: onOpen) {
-          Image(systemName: "chevron.right")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(row.isNeedsYou ? Palette.amberText.opacity(0.75) : Palette.quiet)
-        }
-        .buttonStyle(.plain)
-        .accessibilityHidden(true)
+      Button(action: onOpen) {
+        Image(systemName: "chevron.right")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(row.isNeedsYou ? Palette.amberText.opacity(0.75) : Palette.quiet)
       }
+      .buttonStyle(.plain)
+      .accessibilityHidden(true)
     }
     .padding(.leading, 16)
     .padding(.trailing, 14)
@@ -193,6 +193,19 @@ struct FolderTileView: View {
     .background(row.isNeedsYou ? Palette.amberTint : .clear)
     .contentShape(.rect)
     .onTapGesture(perform: onOpen)
+  }
+
+  private func status(_ row: BuffRow) -> some View {
+    HStack(spacing: 5) {
+      Text(row.status)
+      if let name = row.statusFolder {
+        FolderPill(name, path: folder.path)
+      }
+    }
+    .font(.body.weight(row.statusWeight))
+    .foregroundStyle(row.statusColor)
+    .monospacedDigit()
+    .lineLimit(1)
   }
 
   private func rowSymbol(_ row: BuffRow) -> some View {
@@ -213,23 +226,12 @@ struct FolderTileView: View {
           .fill(Palette.ruleStrong)
         Capsule()
           .fill(Palette.accentBlue)
-          .frame(width: max(24, proxy.size.width * 0.45))
+          .frame(width: max(4, proxy.size.width * (folder.progress ?? 0)))
       }
     }
     .frame(height: 4)
   }
 
-  private var pausedCapsule: some View {
-    Text("Paused")
-      .font(.subheadline.weight(.medium))
-      .foregroundStyle(Palette.inkSecondary)
-      .padding(.horizontal, 9)
-      .padding(.vertical, 2)
-      .background {
-        Capsule()
-          .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06))
-      }
-  }
 }
 
 extension BuffRow {
@@ -240,7 +242,7 @@ extension BuffRow {
 
   fileprivate var usesQuietSymbol: Bool {
     switch state {
-    case .paused, .takenOff: true
+    case .paused: true
     case .atRest, .working, .needsYou: false
     }
   }
@@ -249,7 +251,7 @@ extension BuffRow {
     switch state {
     case .needsYou: .semibold
     case .paused: .regular
-    case .atRest, .working, .takenOff: .medium
+    case .atRest, .working: .medium
     }
   }
 
@@ -257,7 +259,7 @@ extension BuffRow {
     switch state {
     case .needsYou: Palette.amberText
     case .paused: Palette.inkTertiary
-    case .atRest, .working, .takenOff: Palette.ink
+    case .atRest, .working: Palette.ink
     }
   }
 }

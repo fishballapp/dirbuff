@@ -96,6 +96,7 @@ private func makeSnapshot(
       problem: .unreachable
     )
 
+    // A folder on an unplugged drive needs nothing, so it keeps the mark at rest.
     let snapshot = makeSnapshot(
       [needsYouReport, workingReport, pausedReport],
       working: [2]
@@ -103,7 +104,7 @@ private func makeSnapshot(
 
     #expect(snapshot.badge(for: folders.projects) == .needsYou)
     #expect(snapshot.badge(for: folders.downloads) == .working)
-    #expect(snapshot.badge(for: folders.archive) == .paused)
+    #expect(snapshot.badge(for: folders.archive) == .atRest)
   }
 
   @Test func marksAreHiddenWheneverLicenceDoesNotAllowCleaning() throws {
@@ -134,20 +135,6 @@ private func makeSnapshot(
       let snapshot = makeSnapshot([downloadsReport], licence: activeLicence)
       #expect(snapshot.badge(for: folders.downloads) == .atRest)
     }
-  }
-
-  @Test func takenOffFolderShowsNoBadge() throws {
-    let folders = try TestFolders()
-    defer { folders.cleanUp() }
-
-    let takenOffReport = report(
-      1,
-      path: folders.downloads.path,
-      wearsTemporary: false,
-      takenOffAt: now.addingTimeInterval(-600)
-    )
-    let snapshot = makeSnapshot([takenOffReport])
-    #expect(snapshot.badge(for: folders.downloads) == nil)
   }
 
   @Test func badgeIdentifiersAreDistinctForEachMark() {
@@ -250,14 +237,15 @@ private func makeSnapshot(
     let folders = try TestFolders()
     defer { folders.cleanUp() }
 
-    let snapshot = makeSnapshot([], protected: [folders.desktop])
-    let menu = snapshot.menu(for: folders.desktop)
+    let library = folders.plain.deletingLastPathComponent().appendingPathComponent("Library")
+    let snapshot = makeSnapshot([], protected: [library])
+    let menu = snapshot.menu(for: library)
     #expect(menu.title == "DirBuff: Add Buff")
     #expect(
       menu.items.first
         == FinderMenuItem(
           title: "Temporary",
-          subtitle: "Desktop is protected. DirBuff never clears it.",
+          subtitle: "Library is protected. DirBuff never clears it.",
           buff: .temporary,
           action: nil,
           isEnabled: false
@@ -345,17 +333,16 @@ private func makeSnapshot(
         ))
   }
 
-  @Test func takenOffFolderOffersAddBuffInFinder() throws {
+  @Test func plainFolderOffersAddBuffInFinder() throws {
     let folders = try TestFolders()
     defer { folders.cleanUp() }
 
-    let takenOffReport = report(
+    let plainReport = report(
       1,
       path: folders.downloads.path,
-      wearsTemporary: false,
-      takenOffAt: now.addingTimeInterval(-600)
+      wearsTemporary: false
     )
-    let snapshot = makeSnapshot([takenOffReport])
+    let snapshot = makeSnapshot([plainReport])
     #expect(snapshot.menu(for: folders.downloads).title == "DirBuff: Add Buff")
   }
 

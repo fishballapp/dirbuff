@@ -16,7 +16,7 @@ private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "app")
 final class AppModel {
   static let showInMenuBarKey = "showInMenuBar"
   static let protectedFolderExplanation =
-    "DirBuff doesn't clear your home folder, Desktop, Documents, Library, system folders or the top of a disk. Choose a folder inside one, such as Downloads."
+    "DirBuff doesn't clear your home folder, Library, system folders or the top of a disk. Choose a folder inside one, such as Downloads."
 
   private(set) var reports: [FolderReport] = []
   private(set) var isFinderExtensionOff = false
@@ -29,8 +29,10 @@ final class AppModel {
   private(set) var working: Set<Int64> = [] {
     didSet { publishForFinder() }
   }
+  /// How far the folder a clean-up is running in now has got; nil between runs.
+  private(set) var runProgress: Engine.RunProgress?
 
-  private let engine: Engine
+  let engine: Engine
   private let polar: PolarLicensing
   private let polarSettings: PolarSettings
   private let machine: String
@@ -75,7 +77,8 @@ final class AppModel {
 
   /// Every folder as the shelf, popover, switcher and Finder show it.
   func folders(now: Date) -> [FolderState] {
-    FolderState.all(reports, licence: licence(now: now), working: working, now: now)
+    FolderState.all(
+      reports, licence: licence(now: now), working: working, progress: runProgress, now: now)
   }
 
   /// The folder at `url`, matched by canonical path: the store keeps `/private/var/…`
@@ -168,14 +171,21 @@ final class AppModel {
       switch reading {
       case .success: false
       case .failure(.noAccess): true
+      case .failure(.unreachable), .failure(.missing): nil
+      }
+    let isMissing: Bool? =
+      switch reading {
+      case .success, .failure(.noAccess): false
+      case .failure(.missing): true
       case .failure(.unreachable): nil
       }
-    if let isLost {
-      do {
-        try engine.store.recordAccess(folderID: id, isLost: isLost, at: Date())
-      } catch {
-        logger.error("Couldn't record access: \(error.localizedDescription, privacy: .public)")
+    do {
+      if let isLost { try engine.store.recordAccess(folderID: id, isLost: isLost, at: Date()) }
+      if let isMissing {
+        try engine.store.recordMissing(folderID: id, isMissing: isMissing, at: Date())
       }
+    } catch {
+      logger.error("Couldn't record access: \(error.localizedDescription, privacy: .public)")
     }
     return reading
   }
@@ -265,12 +275,16 @@ final class AppModel {
       return "\(URL(fileURLWithPath: path).lastPathComponent) changed, so it was left alone."
     case .folderNotFound, .journalEntryNotFound:
       return "DirBuff no longer knows about that folder."
-    case .cannotPutBack:
-      return "Temporary can't be put back on that folder any more."
+    case .folderAlreadyAdded:
+      return "That folder is already in DirBuff."
+    case .folderInBin:
+      return "That folder is in the \(SystemBin.name). Take it out to turn its buffs back on."
+    case .folderMissing:
+      return "DirBuff can't find that folder. It may have been deleted or moved."
     }
   }
 
-  private func show(_ error: any Error, doing action: String) {
+  func show(_ error: any Error, doing action: String) {
     logger.error(
       "Couldn't \(action, privacy: .public): \(error.localizedDescription, privacy: .public)")
     alert("Couldn't \(action)", Self.explain(error))
@@ -508,16 +522,41 @@ final class AppModel {
     }
 
     let engine = engine
+    let runID: Int64?
+    do {
+      runID = try engine.store.beginRun(at: hour)
+    } catch {
+      logger.error("Couldn't open a run: \(error.localizedDescription, privacy: .public)")
+      runID = nil
+    }
     var runs: [Engine.RunResult] = []
     for id in reports.compactMap(\.folder.id) {
       // The licence can end or be deactivated while earlier folders run.
       guard self.licence.mayClean else { break }
       working.insert(id)
-      defer { working.remove(id) }
+      defer {
+        working.remove(id)
+        runProgress = nil
+      }
       do {
-        runs.append(try await Task.detached { try engine.run(folderID: id, now: hour) }.value)
+        runs.append(
+          try await Task.detached {
+            try engine.run(folderID: id, now: hour, runID: runID) { progress in
+              // A report that lands after its folder finished is dropped.
+              Task { @MainActor in
+                if self.working.contains(progress.folderID) { self.runProgress = progress }
+              }
+            }
+          }.value)
       } catch {
         logger.error("Run of folder \(id) failed: \(error.localizedDescription, privacy: .public)")
+      }
+    }
+    if let runID {
+      do {
+        try engine.store.dropRunIfEmpty(id: runID)
+      } catch {
+        logger.error("Couldn't close the run: \(error.localizedDescription, privacy: .public)")
       }
     }
     await settleLicence(now: hour)

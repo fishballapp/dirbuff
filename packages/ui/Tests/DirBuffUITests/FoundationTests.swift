@@ -6,9 +6,9 @@ import Testing
 
 @Suite struct FoundationTests {
   @Test func theMostUrgentMarkStateWins() {
-    #expect([MarkState.atRest, .needsYou, .paused].max() == .needsYou)
-    #expect([MarkState.atRest, .paused, .working].max() == .working)
-    #expect([MarkState.atRest, .paused].max() == .paused)
+    #expect([MarkState.atRest, .needsYou, .working].max() == .needsYou)
+    #expect([MarkState.atRest, .working].max() == .working)
+    #expect(MarkState.allCases == [.atRest, .working, .needsYou])
   }
 
   @Test func onlyTemporaryCanBePutOnInThisBuild() {

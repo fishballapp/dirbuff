@@ -3,53 +3,30 @@ import DirBuffCore
 import DirBuffKit
 import SwiftUI
 
-/// DirBuff's main window: a 228 pt sidebar of folder filters and volumes, and a `NavigationStack`
-/// with the shelf of folder tiles at its root and a folder's page pushed over it.
+/// DirBuff's main window: a 228 pt sidebar of folder filters, History and volumes, and a
+/// `NavigationStack` with the shelf of folder tiles (or History's runs) at its root and pages
+/// pushed over it. Each page is built by the app through `destination`, in its own file.
 public struct MainView: View {
   public var state: MainState
-  @Binding public var selection: MainSelection
-  public var binName: String
-  public var onChooseFolderForBuff: (Buff) -> Void
-  public var onAddBuff: (Int64, Buff) -> Void
-  public var onPutBackBuff: (Int64, Buff) -> Void
-  public var onFix: (Int64, Fix) -> Void
-  public var onSetTemporary: (Int64, Bool) -> Void
-  public var onChangeSettings: (Int64, TemporarySettings) -> Void
-  public var onBuy: () -> Void
-  public var onEnterKey: () -> Void
-  public var onCheckLicence: () -> Void
+  @Binding public var navigation: MainNavigation
+  public var actions: ShelfActions
+  public var destination: (MainRoute) -> AnyView
 
   @State private var filter: ShelfFilter
   @State private var searchQuery: String
 
   public init(
     state: MainState,
-    selection: Binding<MainSelection>,
-    binName: String = SystemBin.name,
+    navigation: Binding<MainNavigation>,
+    actions: ShelfActions = ShelfActions(),
     initialFilter: ShelfFilter = .allFolders,
     initialSearchQuery: String = "",
-    onChooseFolderForBuff: @escaping (Buff) -> Void = { _ in },
-    onAddBuff: @escaping (Int64, Buff) -> Void = { _, _ in },
-    onPutBackBuff: @escaping (Int64, Buff) -> Void = { _, _ in },
-    onFix: @escaping (Int64, Fix) -> Void = { _, _ in },
-    onSetTemporary: @escaping (Int64, Bool) -> Void = { _, _ in },
-    onChangeSettings: @escaping (Int64, TemporarySettings) -> Void = { _, _ in },
-    onBuy: @escaping () -> Void = {},
-    onEnterKey: @escaping () -> Void = {},
-    onCheckLicence: @escaping () -> Void = {}
+    destination: @escaping (MainRoute) -> AnyView = { _ in AnyView(EmptyView()) }
   ) {
     self.state = state
-    self._selection = selection
-    self.binName = binName
-    self.onChooseFolderForBuff = onChooseFolderForBuff
-    self.onAddBuff = onAddBuff
-    self.onPutBackBuff = onPutBackBuff
-    self.onFix = onFix
-    self.onSetTemporary = onSetTemporary
-    self.onChangeSettings = onChangeSettings
-    self.onBuy = onBuy
-    self.onEnterKey = onEnterKey
-    self.onCheckLicence = onCheckLicence
+    self._navigation = navigation
+    self.actions = actions
+    self.destination = destination
     self._filter = State(initialValue: initialFilter)
     self._searchQuery = State(initialValue: initialSearchQuery)
   }
@@ -58,32 +35,18 @@ public struct MainView: View {
     state.resolvedFilter(filter)
   }
 
-  private var sidebarSelection: Binding<ShelfFilter?> {
+  /// The sidebar's row: a shelf filter, or History. Choosing one pops every page.
+  private var sidebarSelection: Binding<SidebarItem?> {
     Binding(
-      get: { activeFilter },
+      get: { navigation.root == .history ? .history : .filter(activeFilter) },
       set: { next in
-        if let next {
+        switch next {
+        case .history: navigation = MainNavigation(root: .history)
+        case .filter(let next):
           filter = next
+          navigation = MainNavigation(root: .shelf)
+        case nil: break
         }
-        if case .folder = selection {
-          selection = .shelf
-        }
-      }
-    )
-  }
-
-  private var pushedFolderPath: Binding<[Int64]> {
-    Binding(
-      get: {
-        if case .folder(let id) = selection,
-          state.folders.contains(where: { $0.id == id })
-        {
-          return [id]
-        }
-        return []
-      },
-      set: { path in
-        selection = path.last.map(MainSelection.folder) ?? .shelf
       }
     )
   }
@@ -93,25 +56,24 @@ public struct MainView: View {
       sidebar
         .navigationSplitViewColumnWidth(min: 228, ideal: 228)
     } detail: {
-      NavigationStack(path: pushedFolderPath) {
-        shelfPane
-          .navigationDestination(for: Int64.self) { folderID in
-            if let folder = state.folders.first(where: { $0.id == folderID }) {
-              FolderDetailView(
-                folder: folder,
-                binName: binName,
-                licenceRefusal: state.licenceRefusal,
-                buyTitle: state.buyTitle,
-                onSetTemporary: { onSetTemporary(folder.id, $0) },
-                onChangeSettings: { onChangeSettings(folder.id, $0) },
-                onBuy: onBuy
-              )
-              .navigationTitle(folder.name)
-            }
-          }
+      NavigationStack(path: $navigation.path) {
+        root
+          .navigationDestination(for: MainRoute.self, destination: destination)
       }
     }
     .navigationSplitViewStyle(.balanced)
+    .onChange(of: state.folders.map(\.id)) { _, ids in
+      let kept = navigation.keeping(folders: Set(ids))
+      if kept != navigation { navigation = kept }
+    }
+  }
+
+  @ViewBuilder
+  private var root: some View {
+    switch navigation.root {
+    case .shelf: shelfPane
+    case .history: destination(.history(folderID: nil))
+    }
   }
 
   // MARK: - Sidebar
@@ -149,6 +111,17 @@ public struct MainView: View {
               .foregroundStyle(Palette.accentBlue)
           }
         }
+
+        HStack(spacing: 8) {
+          Image(systemName: "clock.arrow.circlepath")
+            .foregroundStyle(Palette.accentBlue)
+            .frame(width: 18, height: 16, alignment: .center)
+            .accessibilityHidden(true)
+          Text("History")
+        }
+        .contentShape(.rect)
+        .simultaneousGesture(TapGesture().onEnded { navigation.path = [] })
+        .tag(SidebarItem.history)
       }
 
       if !state.locations.isEmpty {
@@ -193,13 +166,10 @@ public struct MainView: View {
     }
     .contentShape(.rect)
     .simultaneousGesture(
-      TapGesture().onEnded {
-        if case .folder = selection {
-          selection = .shelf
-        }
-      }
+      // Choosing the row already shown still goes back to it from a pushed page.
+      TapGesture().onEnded { navigation.path = [] }
     )
-    .tag(tag)
+    .tag(SidebarItem.filter(tag))
   }
 
   /// The licence line and its action side by side while they fit, with Enter Licence Key… beneath.
@@ -230,7 +200,7 @@ public struct MainView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         if line.action.isPurchase {
-          Button("Enter Licence Key…", action: onEnterKey)
+          Button("Enter Licence Key…", action: actions.enterKey)
             .buttonStyle(.link)
             .foregroundStyle(Palette.accentBlue)
         }
@@ -251,7 +221,7 @@ public struct MainView: View {
   private func licenceButton(_ line: LicenceLine) -> some View {
     let button = Button(
       line.action.shortTitle,
-      action: line.action.isPurchase ? onBuy : onCheckLicence
+      action: line.action.isPurchase ? actions.buy : actions.checkLicence
     )
     if state.mayClean {
       button
@@ -285,7 +255,7 @@ public struct MainView: View {
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         Menu {
-          ToolbarAddBuffMenuContent(onChooseFolder: onChooseFolderForBuff)
+          ToolbarAddBuffMenuContent(onChooseFolder: actions.chooseFolderForBuff)
         } label: {
           Label("Buff", systemImage: "plus")
             .labelStyle(.titleAndIcon)
@@ -316,10 +286,8 @@ public struct MainView: View {
             folder: folder,
             addBuffItems: state.addBuffItems(for: folder),
             canAddBuff: state.mayClean,
-            onOpen: { selection = .folder(folder.id) },
-            onAddBuff: { onAddBuff(folder.id, $0) },
-            onPutBackBuff: { onPutBackBuff(folder.id, $0) },
-            onFix: { onFix(folder.id, $0) }
+            actions: actions,
+            onOpen: { navigation.path = [.folder(folder.id)] }
           )
         }
       }
@@ -338,7 +306,7 @@ public struct MainView: View {
 
       if state.mayClean {
         Button("Choose Folder…") {
-          onChooseFolderForBuff(.temporary)
+          actions.chooseFolderForBuff(.temporary)
         }
       }
     }
@@ -368,6 +336,12 @@ public struct MainView: View {
     }
     .padding(32)
   }
+}
+
+/// A row in the sidebar.
+private enum SidebarItem: Hashable {
+  case filter(ShelfFilter)
+  case history
 }
 
 extension LicenceLine.Action {

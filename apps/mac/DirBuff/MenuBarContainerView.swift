@@ -12,9 +12,9 @@ struct MenuBarContainerView: View {
     TimelineView(CountdownSchedule()) { timeline in
       MenuBarView(
         state: appModel.popoverState(now: timeline.date),
-        onFix: { fix in
+        onFix: { folderID, fix in
           closeMenu()
-          appModel.perform(fix)
+          appModel.perform(fix, on: folderID)
         },
         onSelectFolder: { folder in
           closeMenu()

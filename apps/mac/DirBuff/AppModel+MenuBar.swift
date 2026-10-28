@@ -9,9 +9,10 @@ extension AppModel {
   }
 
   /// Opens the place where the fix is made.
-  func perform(_ fix: Fix) {
+  func perform(_ fix: Fix, on folderID: Int64) {
     switch fix {
     case .giveAccess: openFilesAndFoldersSettings()
+    case .locate: Task { await locate(folderID: folderID) }
     }
   }
 

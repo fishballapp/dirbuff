@@ -6,7 +6,6 @@ extension MarkState {
   public var badgeIdentifier: String {
     switch self {
     case .atRest: "at-rest"
-    case .paused: "paused"
     case .working: "working"
     case .needsYou: "needs-you"
     }
@@ -16,7 +15,6 @@ extension MarkState {
   public var badgeLabel: String {
     switch self {
     case .atRest: "DirBuff"
-    case .paused: "DirBuff: Paused"
     case .working: "DirBuff: Working"
     case .needsYou: "DirBuff: Needs you"
     }

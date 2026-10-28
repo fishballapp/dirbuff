@@ -25,6 +25,12 @@ struct FoundationSheet: View {
           }
         }
       }
+      HStack(spacing: 12) {
+        FolderPill("Downloads", path: NSHomeDirectory() + "/Downloads")
+        GhostIconButton("Put Back", systemImage: GhostIconButton.putBackSymbol) {}
+        GhostIconButton("Show in Finder", systemImage: GhostIconButton.finderSymbol) {}
+        GhostIconButton("History", systemImage: GhostIconButton.historySymbol) {}
+      }
       ForEach(Buff.allCases, id: \.self) { buff in
         HStack(alignment: .center, spacing: 16) {
           ForEach(

@@ -7,11 +7,11 @@ import Testing
 
 private func folders(
   _ reports: [FolderReport], licence: Licence = .licensed, working: Set<Int64> = [],
-  at time: Date = now
+  progress: Engine.RunProgress? = nil, at time: Date = now
 ) -> [FolderState] {
   FolderState.all(
-    reports, licence: licence, working: working, now: time, calendar: calendar, binName: "Bin",
-    home: home)
+    reports, licence: licence, working: working, progress: progress, now: time,
+    calendar: calendar, binName: "Bin", home: home)
 }
 
 private func row(_ report: FolderReport, licence: Licence = .licensed, working: Bool = false)
@@ -69,42 +69,49 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
     #expect(timeSince(now - seconds, now: now) == words)
   }
 
-  @Test func isPausedWhenTheFolderCantBeReached() {
-    #expect(row(report(1, problem: .unreachable))?.state == .paused)
-    #expect(row(report(1, problem: .unreachable))?.status == "Can't find the folder")
+  @Test func isPausedWhileItsDriveIsntConnected() {
+    let report = report(1, path: "/Volumes/T7 Shuttle/Exports", problem: .unreachable)
+    #expect(row(report)?.state == .paused(.driveUnplugged("T7 Shuttle")))
+    #expect(row(report)?.status == "T7 Shuttle isn't connected")
+  }
+
+  @Test func needsTheUserToLocateAMissingFolder() {
+    let since = Date(timeIntervalSince1970: 1_792_664_400)  // Thu 22 Oct 2026, 10:20 UTC
+    let row = row(report(1, name: "Projects", problem: .missing, missingSince: since))
+    #expect(row?.state == .needsYou(.locate))
+    #expect(row?.status == "Can't find" && row?.statusFolder == "Projects")
+    #expect(row?.setting.hasPrefix("Missing since Thu") == true)
+    #expect(
+      folders([report(1, name: "Projects", problem: .missing)]).first?.location
+        == "Was at ~/Projects")
   }
 
   @Test func isPausedOnceTheLicenceEnds() {
-    let row = row(report(1, dueNow: [item("a")]), licence: .ended(paidThrough: now))
-    #expect(row?.state == .paused)
-    #expect(row?.status == "Nothing goes while paused")
+    let ended = row(report(1, dueNow: [item("a")]), licence: .ended(paidThrough: now))
+    #expect(ended?.state == .paused(.licence(.renew)))
+    #expect(ended?.status == "Nothing goes while paused")
+    #expect(row(report(1), licence: .trialEnded)?.state == .paused(.licence(.buy)))
   }
 
   @Test func staysPausedOnceTheLicenceEndTookItOff() {
     let report = report(1, wearsTemporary: false, turnedOffByLicence: true)
-    #expect(row(report, licence: .ended(paidThrough: now))?.state == .paused)
+    #expect(row(report, licence: .ended(paidThrough: now))?.state == .paused(.licence(.renew)))
+  }
+
+  @Test func fillsItsBarAsTheRunGoes() {
+    let progress = Engine.RunProgress(
+      folderID: 1, itemsDone: 3, itemsTotal: 12, bytesDone: 0, bytesTotal: 0, current: "a")
+    #expect(folders([report(1)], working: [1], progress: progress).first?.progress == 0.25)
+    #expect(folders([report(1)], working: [1]).first?.progress == 0)
+    #expect(folders([report(1)], progress: progress).first?.progress == nil)
   }
 
   @Test func isWorkingWhileACleanUpRuns() {
     #expect(row(report(1, dueNow: [item("a")]), working: true)?.state == .working)
   }
 
-  @Test func offersPutBackUntilTheSameTimeTomorrow() {
-    let takenOff = now.addingTimeInterval(-3_600)
-    let report = report(1, wearsTemporary: false, takenOffAt: takenOff)
-    let until = takenOff.addingTimeInterval(oneDay)
-    #expect(row(report)?.state == .takenOff(putBackUntil: until))
-    #expect(row(report)?.status == "Off · nothing was moved")
-    let time = until.formatted(
-      Date.FormatStyle(
-        date: .omitted, time: .shortened, calendar: calendar, timeZone: calendar.timeZone))
-    #expect(row(report)?.setting == "A plain folder until tomorrow, \(time)")
-    #expect(folders([report], at: until).isEmpty)
-  }
-
-  @Test func offersNoPutBackOnceTheLicenceEnds() {
-    let report = report(1, wearsTemporary: false, takenOffAt: now)
-    #expect(row(report, licence: .ended(paidThrough: now)) == nil)
+  @Test func isGoneOnceTakenOff() {
+    #expect(row(report(1, wearsTemporary: false)) == nil)
   }
 }
 
@@ -112,12 +119,20 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
   @Test func isTheMostUrgentBuffsState() {
     #expect(folders([report(1)]).first?.mark == .atRest)
     #expect(folders([report(1, problem: .noAccess)]).first?.mark == .needsYou)
-    #expect(folders([report(1, problem: .unreachable)]).first?.mark == .paused)
+    #expect(folders([report(1, problem: .missing)]).first?.mark == .needsYou)
+  }
+
+  @Test func needsTheUserWhileTheLicenceStopsCleaning() {
+    #expect(folders([report(1)], licence: .trialEnded).first?.mark == .needsYou)
+  }
+
+  @Test func staysAtRestWhileItsDriveIsntConnected() {
+    let unplugged = report(1, path: "/Volumes/T7/Exports", problem: .unreachable)
+    #expect(folders([unplugged]).first?.mark == .atRest)
   }
 
   @Test func isGoneWithTheLastBuff() {
-    let taken = report(1, wearsTemporary: false, takenOffAt: now)
-    #expect(folders([taken]).first?.mark == nil)
+    #expect(folders([report(1, wearsTemporary: false)]).isEmpty)
   }
 
   @Test func leavesOutFoldersThatWearNothing() {

@@ -118,10 +118,9 @@ import Testing
     #expect(try store.folder(id: folderID)?.accessLostAt == nil)
   }
 
-  @Test func keepsWhetherItWearsTemporaryAndWhenItWasTakenOff() throws {
+  @Test func keepsWhetherItWearsTemporary() throws {
     var saved = try folder()
     saved.wearsTemporary = true
-    saved.takenOffAt = createdAt
     try store.save(saved)
     #expect(try store.folder(id: try #require(saved.id)) == saved)
   }
@@ -154,6 +153,27 @@ import Testing
     #expect(try store.folder(id: folderID)?.wearsTemporary == false)
   }
 
+  @Test func aFolderTakenOffBeforeForgetsItsSettings() throws {
+    let database = try DatabaseQueue()
+    try Store.migrator.migrate(database, upTo: "access lost")
+    try database.write {
+      try $0.execute(
+        sql: """
+          INSERT INTO folder (bookmark, path, maxAgeDays, sizeLimit, rule, disposal, createdAt,
+            lastRunAt, wearsTemporary, takenOffAt, turnedOffByLicence)
+          VALUES (x'01', '/taken-off', 3, 5, 'size', 'delete', ?1, ?1, 0, ?1, 0),
+            (x'02', '/paused', 3, 5, 'size', 'delete', ?1, ?1, 0, NULL, 1)
+          """,
+        arguments: [createdAt])
+    }
+    let folders = try Store(database).folders()
+    #expect(
+      folders.map(\.settings) == [
+        TemporarySettings(),
+        TemporarySettings(rule: .size, maxAgeDays: 3, sizeLimit: 5, disposal: .delete),
+      ])
+  }
+
   @Test func aFolderWithNoRuleGoesPlainForGood() throws {
     let database = try DatabaseQueue()
     try Store.migrator.migrate(database, upTo: "temporary in the database")
@@ -171,7 +191,6 @@ import Testing
     }
     let folders = try Store(database).folders()
     #expect(folders.map(\.wearsTemporary) == [false, false, false, true])
-    #expect(folders.map(\.putBackUntil) == [nil, nil, nil, nil])
     #expect(folders.map(\.turnedOffByLicence) == [false, false, false, false])
     #expect(folders.last?.settings.rule == .size)
   }

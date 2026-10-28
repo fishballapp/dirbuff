@@ -11,9 +11,15 @@ extension AppModel {
       reports: reports,
       licence: licence(now: now),
       working: working,
+      progress: runProgress,
       now: now,
       protectedPaths: Set(System.protectedFolderPaths())
     )
+  }
+
+  /// The folder DirBuff knows by `id`, as last read.
+  func folder(id: Int64) -> Folder? {
+    reports.first(where: { $0.folder.id == id })?.folder
   }
 
   /// Adds `url` to DirBuff and puts Temporary on it in one step (toolbar + Buff › Temporary).
@@ -24,20 +30,40 @@ extension AppModel {
     return reports.first(where: { $0.folder.id == folder.id })?.folder ?? folder
   }
 
-  /// Puts a buff back on a folder during its one-day Put Back window after Take Off.
-  func putBackBuff(_ buff: Buff, on folderID: Int64) async {
-    guard buff == .temporary,
-      let report = reports.first(where: { $0.folder.id == folderID })
-    else { return }
-    guard report.folder.putBackUntil.map({ Date() < $0 }) == true else {
-      let folderName = URL(fileURLWithPath: report.folder.path).lastPathComponent
-      let alert = NSAlert()
-      alert.messageText = "Couldn't make \(folderName) Temporary"
-      alert.informativeText = "Temporary can't be put back on that folder any more."
-      alert.runModal()
-      await refresh()
-      return
+  /// Asks where a missing folder went, and points DirBuff at the folder the user chooses.
+  func locate(folderID: Int64) async {
+    guard let report = reports.first(where: { $0.folder.id == folderID }) else { return }
+    let name = URL(fileURLWithPath: report.folder.path).lastPathComponent
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.treatsFilePackagesAsDirectories = false
+    panel.message = "Where is \(name) now?"
+    panel.prompt = "Locate"
+    // From the menu bar no window is open, so DirBuff comes to the front for the panel.
+    NSApp.activate(ignoringOtherApps: true)
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    let engine = engine
+    do {
+      try await Task.detached { try engine.relocate(folderID: folderID, to: url) }.value
+    } catch {
+      show(error, doing: "locate \(name)")
     }
-    await setTemporary(report.folder, true)
+    await refresh()
+  }
+
+  /// Forgets a folder after asking. Its files are left alone.
+  func removeFolderAsking(folderID: Int64) async {
+    guard let folder = reports.first(where: { $0.folder.id == folderID })?.folder else { return }
+    let name = URL(fileURLWithPath: folder.path).lastPathComponent
+    let alert = NSAlert()
+    alert.messageText = "Remove \(name) from DirBuff?"
+    alert.informativeText = "DirBuff forgets it and its settings. Nothing in the folder is touched."
+    alert.addButton(withTitle: "Remove")
+    alert.addButton(withTitle: "Cancel")
+    NSApp.activate(ignoringOtherApps: true)
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    await remove(folder)
   }
 }

@@ -25,8 +25,45 @@ public struct Engine: Sendable {
     case originalPathTaken(String)
     /// A folder DirBuff never clears (`protectedRoots`), so it can't be added.
     case protectedFolder
-    /// Temporary wasn't taken off this folder, or the day it could be put back has passed.
-    case cannotPutBack
+    /// The folder was deleted, moved to another disk, or moved to the Bin. Nothing acts on it until
+    /// the user locates it.
+    case folderMissing
+    /// Locating a missing folder at one DirBuff already has would make two rules for one folder.
+    case folderAlreadyAdded
+    /// The folder chosen to locate a missing one is in the Bin.
+    case folderInBin
+  }
+
+  /// How far a folder's run has got, reported before each item goes and once at the end.
+  public struct RunProgress: Sendable, Equatable {
+    public var folderID: Int64
+    public var itemsDone: Int
+    public var itemsTotal: Int
+    public var bytesDone: Int64
+    public var bytesTotal: Int64
+    /// The name of the item going now; nil once the run is done.
+    public var current: String?
+
+    public init(
+      folderID: Int64,
+      itemsDone: Int,
+      itemsTotal: Int,
+      bytesDone: Int64,
+      bytesTotal: Int64,
+      current: String?
+    ) {
+      self.folderID = folderID
+      self.itemsDone = itemsDone
+      self.itemsTotal = itemsTotal
+      self.bytesDone = bytesDone
+      self.bytesTotal = bytesTotal
+      self.current = current
+    }
+
+    /// How much of the run is done, from 0 to 1.
+    public var fraction: Double {
+      itemsTotal == 0 ? 1 : Double(itemsDone) / Double(itemsTotal)
+    }
   }
 
   /// A folder as its rules see it now: what a run would remove, and when the rest follows.
@@ -85,18 +122,25 @@ public struct Engine: Sendable {
   }
 
   /// Makes the folder Temporary or plain. Turning it on resets `lastRunAt` so the folder's first run
-  /// after that never counts as the first run after a reboot. Turning it off records when, so it
-  /// can be put back for a day (`Folder.putBackUntil`). Either way the user has decided, so the folder no
-  /// longer waits to be turned back on after a licence ended. A protected folder can't be turned on.
+  /// after that never counts as the first run after a reboot. Turning it off forgets its settings,
+  /// so adding Temporary again starts from the defaults. Either way the user has decided, so the
+  /// folder no longer waits to be turned back on after a licence ended. A protected folder can't be
+  /// turned on.
   public func setTemporary(_ folder: Folder, _ isOn: Bool, now: Date = Date()) throws {
-    let (located, url) = try locate(folderID: try require(folder.id))
-    var updated = located
+    let folderID = try require(folder.id)
+    var updated: Folder
     if isOn {
+      let (located, url) = try locate(folderID: folderID)
       guard !System.isProtected(url) else { throw Failure.protectedFolder }
+      updated = located
       updated.lastRunAt = now
-      updated.takenOffAt = nil
-    } else if updated.wearsTemporary {
-      updated.takenOffAt = now
+    } else {
+      // Turning off only writes the database, so it works on a folder DirBuff can't find.
+      guard let stored = try store.folder(id: folderID) else {
+        throw Failure.folderNotFound(id: folderID)
+      }
+      updated = stored
+      updated.settings = TemporarySettings()
     }
     updated.wearsTemporary = isOn
     updated.turnedOffByLicence = false
@@ -104,7 +148,7 @@ public struct Engine: Sendable {
   }
 
   /// Makes the folder plain when the trial or licence ends, remembering the folder so buying can
-  /// turn it back on in one click. Unlike a user's switch-off, this can't be put back. It writes only
+  /// turn it back on in one click, with its settings as they were. It writes only
   /// the database, so it works on a folder DirBuff can't reach, such as one on an unplugged drive.
   public func turnOffByLicence(_ folder: Folder) throws {
     let folderID = try require(folder.id)
@@ -112,21 +156,8 @@ public struct Engine: Sendable {
       throw Failure.folderNotFound(id: folderID)
     }
     updated.wearsTemporary = false
-    updated.takenOffAt = nil
     updated.turnedOffByLicence = true
     try store.save(updated)
-  }
-
-  /// Whether Temporary taken off this folder by the user can still be put back at `now`.
-  public func canPutBack(_ folder: Folder, now: Date = Date()) -> Bool {
-    folder.putBackUntil.map { now < $0 } ?? false
-  }
-
-  /// Turns Temporary back on with the folder's settings unchanged, if `canPutBack` allows it.
-  public func putBack(_ folder: Folder, now: Date = Date()) throws {
-    let (located, _) = try locate(folderID: try require(folder.id))
-    guard canPutBack(located, now: now) else { throw Failure.cannotPutBack }
-    try setTemporary(located, true, now: now)
   }
 
   /// Saves the folder's settings only. The folder may be a copy from before a Temporary switch or a
@@ -143,6 +174,24 @@ public struct Engine: Sendable {
     try store.deleteFolder(id: try require(folder.id))
   }
 
+  /// Points a missing folder at where the user found it. Refuses a protected folder, and one in
+  /// the Bin, which would still be missing.
+  public func relocate(folderID: Int64, to url: URL) throws {
+    guard var folder = try store.folder(id: folderID) else {
+      throw Failure.folderNotFound(id: folderID)
+    }
+    guard !System.isProtected(url) else { throw Failure.protectedFolder }
+    let path = try canonicalPath(of: url)
+    guard !Self.isInBin(path) else { throw Failure.folderInBin }
+    guard try store.folder(path: path).map({ $0.id == folderID }) ?? true else {
+      throw Failure.folderAlreadyAdded
+    }
+    folder.path = path
+    folder.bookmark = try url.bookmarkData()
+    folder.missingSince = nil
+    try store.save(folder)
+  }
+
   /// A folder's status. Removes no items.
   public func status(folderID: Int64, now: Date = Date()) throws -> FolderStatus {
     let (folder, url) = try locate(folderID: folderID)
@@ -151,20 +200,35 @@ public struct Engine: Sendable {
       lastRunAt: folder.lastRunAt, now: now)
   }
 
-  /// Runs the folder's rules and journals what they removed. Run the folders on one volume one
-  /// after another: each run reads free space after the last one freed some.
-  public func run(folderID: Int64, now: Date = Date()) throws -> RunResult {
+  /// Runs the folder's rules and journals what they removed, under `runID` when the run is one
+  /// clean-up's. Run the folders on one volume one after another: each run reads free space after
+  /// the last one freed some. `progress` hears before each item goes and once at the end.
+  public func run(
+    folderID: Int64,
+    now: Date = Date(),
+    runID: Int64? = nil,
+    progress: (RunProgress) -> Void = { _ in }
+  ) throws -> RunResult {
     let (folder, url) = try locate(folderID: folderID)
     let removals = try status(
       of: url, wearsTemporary: folder.wearsTemporary, settings: folder.settings,
       lastRunAt: folder.lastRunAt, now: now
     ).dueNow
+    var report = RunProgress(
+      folderID: folderID, itemsDone: 0, itemsTotal: removals.count, bytesDone: 0,
+      bytesTotal: removals.reduce(0) { $0 + $1.item.size }, current: nil)
     var result = RunResult(journal: [], failures: [])
     for removal in removals {
       // Removing earlier items can take a while; the user may take Temporary off meanwhile.
       guard try store.folder(id: folderID)?.wearsTemporary == true else { break }
+      report.current = removal.item.url.lastPathComponent
+      progress(report)
+      defer {
+        report.itemsDone += 1
+        report.bytesDone += removal.item.size
+      }
       do {
-        result.journal.append(try dispose(removal, of: folder, now: now))
+        result.journal.append(try dispose(removal, of: folder, runID: runID, now: now))
       } catch {
         result.failures.append((removal.item, error))
         Self.logger.error(
@@ -172,6 +236,8 @@ public struct Engine: Sendable {
         )
       }
     }
+    report.current = nil
+    progress(report)
     try store.recordRun(folderID: folderID, at: now)
     Self.logger.info("Removed \(result.journal.count) items, \(result.failures.count) failed")
     return result
@@ -234,7 +300,24 @@ public struct Engine: Sendable {
       throw Failure.folderNotFound(id: folderID)
     }
     var isStale = false
-    let url = try URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &isStale)
+    let url: URL
+    do {
+      url = try URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &isStale)
+    } catch {
+      // An unplugged drive can't be resolved either; it isn't missing, just away.
+      guard Self.isOnConnectedVolume(folder.path) else { throw error }
+      throw Failure.folderMissing
+    }
+    // macOS tracks a folder moved to the Bin; following it there would clean inside the Bin.
+    guard !Self.isInBin(url.path) else { throw Failure.folderMissing }
+    // Once a folder has gone missing, a stale bookmark that resolves to its old path means macOS
+    // fell back to the path: a new folder made there, not this one. It stays missing until the
+    // user locates it. A folder put back from the Bin resolves by its identity, so it isn't stale.
+    // ponytail: a folder renamed and replaced at its old path before DirBuff noticed it missing is
+    // still followed to the new one. Rare; un-park if a user reports a rule on the wrong folder.
+    guard !(isStale && url.path == folder.path && folder.missingSince != nil) else {
+      throw Failure.folderMissing
+    }
     if isStale || url.path != folder.path {
       folder.path = url.path
       folder.bookmark = try url.bookmarkData()
@@ -262,7 +345,7 @@ public struct Engine: Sendable {
     }
   }
 
-  private func dispose(_ removal: Removal, of folder: Folder, now: Date) throws
+  private func dispose(_ removal: Removal, of folder: Folder, runID: Int64?, now: Date) throws
     -> JournalEntry
   {
     let url = removal.item.url
@@ -284,6 +367,7 @@ public struct Engine: Sendable {
     // Finder's Put Back still restores it. Un-park if a database error is ever seen.
     return try store.insert(
       JournalEntry(
+        runID: runID,
         folderID: try require(folder.id),
         disposal: folder.settings.disposal,
         name: url.lastPathComponent,
@@ -292,6 +376,20 @@ public struct Engine: Sendable {
         reasons: [removal.rule],
         performedAt: now
       ))
+  }
+}
+
+extension Engine {
+  /// Whether a path is in a Bin: the user's (`~/.Trash`) or a drive's (`/Volumes/X/.Trashes`).
+  static func isInBin(_ path: String) -> Bool {
+    path.split(separator: "/").contains { $0 == ".Trash" || $0 == ".Trashes" }
+  }
+
+  /// Whether a path's drive is connected: always for a path on the startup disk.
+  static func isOnConnectedVolume(_ path: String) -> Bool {
+    let parts = path.split(separator: "/")
+    guard parts.count >= 2, parts[0] == "Volumes" else { return true }
+    return FileManager.default.fileExists(atPath: "/Volumes/\(parts[1])")
   }
 }
 

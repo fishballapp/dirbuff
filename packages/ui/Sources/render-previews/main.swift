@@ -195,12 +195,14 @@ func renderSite(into directory: URL) {
     (
       "site-main",
       AnyView(
-        MainView(state: Samples.site, selection: .constant(.folder(1)), binName: Samples.binName)),
+        MainView(
+          state: Samples.site, navigation: .constant(MainNavigation(opening: .folder(1))),
+          destination: Samples.folderPageDestination(Samples.site))),
       CGSize(width: 760, height: 760)
     ),
     (
       "site-folder-phone",
-      AnyView(FolderDetailView(folder: Samples.site.folders[0], binName: Samples.binName)),
+      AnyView(FolderPage(folder: Samples.site.folders[0], binName: Samples.binName)),
       CGSize(width: 390, height: 780)
     ),
   ]
@@ -223,66 +225,9 @@ func main() {
     [
       ("foundation", AnyView(FoundationSheet()), nil)
       // Each surface's states are in its own file.
-    ] + menuBarPreviews() + mainWindowPreviews() + finderPreviews() + [
-      // Settings, in each kind of licence
-      (
-        "settings-trial",
-        AnyView(SettingsView(state: Samples.settings(.trial(daysLeft: 9)))),
-        nil
-      ),
-      (
-        "settings-licensed",
-        AnyView(SettingsView(state: Samples.settings(.licensed))),
-        nil
-      ),
-      (
-        "settings-licensed-dev-builds",
-        AnyView(SettingsView(state: Samples.settings(.licensed, shouldGetDevBuilds: true))),
-        nil
-      ),
-      (
-        "settings-paused",
-        AnyView(SettingsView(state: Samples.settings(.paused))),
-        nil
-      ),
-      (
-        "settings-kept",
-        AnyView(SettingsView(state: Samples.settings(Samples.kept))),
-        nil
-      ),
-      (
-        "settings-ended",
-        AnyView(SettingsView(state: Samples.settings(Samples.ended))),
-        nil
-      ),
-      (
-        "settings-trial-ended",
-        AnyView(SettingsView(state: Samples.settings(.trialEnded))),
-        nil
-      ),
-
-      // The key window
-      (
-        "key",
-        AnyView(KeyEntryView(key: .constant(""))),
-        nil
-      ),
-      (
-        "key-limit",
-        AnyView(
-          KeyEntryView(
-            key: .constant("DIRBUFF-9AD0419A-553D-4FB1-A8C2-F40AE9E63D8D"),
-            failure: .activationLimitReached)),
-        nil
-      ),
-
-      // Setup
-      (
-        "setup",
-        AnyView(SetupView(state: Samples.setup)),
-        nil
-      ),
-    ]
+    ] + menuBarPreviews() + mainWindowPreviews() + finderPreviews() + folderPagePreviews()
+    + filesPreviews() + historyPreviews() + addBuffPreviews() + welcomePreviews()
+    + settingsPreviews()
 
   renderAll(states, into: targetDir)
 }

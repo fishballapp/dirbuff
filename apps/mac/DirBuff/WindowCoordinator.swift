@@ -3,11 +3,11 @@ import DirBuffKit
 import DirBuffUI
 import SwiftUI
 
-/// Selection in the main window, owned by the coordinator so `openMain(selecting:)` can drive it.
+/// Where the main window is, owned by the coordinator so `openMain` can drive it.
 @Observable
 @MainActor
 final class MainWindowState {
-  var selection: MainSelection = .shelf
+  var navigation = MainNavigation()
 }
 
 /// Opens DirBuff's windows. An accessory app has no SwiftUI scene to open windows from while the
@@ -25,9 +25,19 @@ final class WindowCoordinator {
     self.updates = updates
   }
 
+  /// Opens the main window, at the folder's page when `url` is a folder DirBuff knows.
   func openMain(selecting url: URL? = nil) {
     if let url, let report = appModel.report(for: url), let id = report.folder.id {
-      mainWindowState.selection = .folder(id)
+      openMain(route: .folder(id))
+    } else {
+      openMain(route: nil)
+    }
+  }
+
+  /// Opens the main window at `route`, or where it was left.
+  func openMain(route: MainRoute?) {
+    if let route {
+      mainWindowState.navigation = MainNavigation(opening: route)
     }
     showWindow(
       key: "main",
