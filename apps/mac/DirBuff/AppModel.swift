@@ -381,7 +381,8 @@ final class AppModel {
     await settleLicence(now: Date())
   }
 
-  /// No answer from Polar changes nothing: the offline grace covers it.
+  /// No answer from Polar changes nothing: a build the last answer doesn't cover stays paused until
+  /// an answer comes.
   private func checkLicence(now: Date) async {
     guard let key = licenceRecord.key, let activationID = licenceRecord.activationID else { return }
     do {
@@ -424,11 +425,12 @@ final class AppModel {
       }
     }
     await refresh()
-    if licence == .trialEnded {
+    switch licence {
+    case .trialEnded:
       await notify(
         id: "licence.ended", title: "DirBuff's trial has ended",
         body: "Your folders are plain folders again. Support DirBuff to turn them back on.")
-    } else {
+    default:
       await notify(
         id: "licence.ended", title: "Your DirBuff licence ended before this version",
         body: "Your folders are plain folders again. Renew DirBuff to use this version.")
@@ -489,10 +491,10 @@ final class AppModel {
     cleanUpTimer = timer
   }
 
-  /// Checks the licence with Polar once a day, makes the folders plain once it has ended, and
-  /// says the day before the trial ends.
+  /// Checks the licence with Polar when a check is due, makes the folders plain once the licence
+  /// has ended, and says the day before the trial ends.
   private func settleLicence(now: Date) async {
-    if licenceRecord.isCheckDue(now: now) {
+    if licenceRecord.isCheckDue(now: now, release: releaseDay) {
       await checkLicence(now: now)
     }
     await refresh()
@@ -509,8 +511,9 @@ final class AppModel {
 
   /// Runs every folder, one after another: each run reads free space after the last one freed
   /// some. Each run counts from `hour`, not from when the timer fired, so it removes what the
-  /// forecast said would go at that hour. Polar is asked afterwards, not before (the offline grace
-  /// covers the gap), so the run starts on the hour, before the user can change what was shown.
+  /// forecast said would go at that hour. Polar is asked afterwards, not before: a build the last
+  /// answer covers needs no answer to run, and one it doesn't is paused and never runs. So the run
+  /// starts on the hour, before the user can change what was shown.
   private func cleanUp(at hour: Date) async {
     guard !isRunning else { return }
     isRunning = true

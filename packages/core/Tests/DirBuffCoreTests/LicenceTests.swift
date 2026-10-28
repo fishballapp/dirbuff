@@ -43,24 +43,23 @@ private let licensed = LicenceRecord(
     #expect(licence(record, after: 14 * day) == .trialEnded)
   }
 
-  @Test func aKeyLicensesDirBuffWithinTheOfflineGrace() {
-    #expect(licence(licensed, after: 14 * day - 1) == .licensed)
-  }
-
-  @Test func noAnswerFromPolarForTheOfflineGracePausesAVersionItDidNotCover() {
-    #expect(licence(licensed, after: 14 * day, release: day("2027-01-16")) == .paused)
-  }
-
-  @Test func aVersionTheLastAnswerCoveredCleansEvenWithoutAnAnswerForWeeks() {
+  @Test func aKeyLicensesEveryVersionTheLastAnswerCovered() {
     #expect(licence(licensed, after: 60 * day, release: day("2027-01-10")) == .licensed)
     #expect(licence(licensed, after: 60 * day, release: day("2027-01-15")) == .licensed)
-    #expect(licence(licensed, after: 60 * day, release: day("2027-01-16")) == .paused)
   }
 
-  @Test func aNewAnswerFromPolarResumesCleaning() {
+  @Test func aVersionReleasedAfterTheLastAnswerIsPausedAsAnEndedLicenceWould() {
+    #expect(licence(licensed, after: 0, release: day("2027-01-16")) == .paused)
+    #expect(licence(licensed, after: 14 * day, release: day("2027-01-16")) == .paused)
+    #expect(!Licence.paused.mayClean)
+    #expect(!Licence.paused.plainsFolders)
+  }
+
+  @Test func aCoveredCheckResumesAPausedVersionByItself() {
     var record = licensed
     record.lastCheckedAt = start + 20 * day
-    #expect(licence(record, after: 20 * day) == .licensed)
+    #expect(licence(record, after: 20 * day, release: day("2027-01-16")) == .licensed)
+    #expect(licence(licensed, after: 20 * day, release: day("2027-01-16")) == .paused)
   }
 
   @Test func anEndedLicenceKeepsTheVersionsItWasPaidUpFor() {
@@ -97,11 +96,11 @@ private let licensed = LicenceRecord(
     #expect(!Licence.ended(paidThrough: start).mayClean)
   }
 
-  @Test func onlyAConfirmedEndMakesFoldersPlain() {
+  @Test func anEndedLicenceMakesFoldersPlainButAPauseDoesNot() {
     #expect(Licence.trialEnded.plainsFolders)
     #expect(Licence.ended(paidThrough: start).plainsFolders)
-    #expect(!Licence.kept(paidThrough: start).plainsFolders)
     #expect(!Licence.paused.plainsFolders)
+    #expect(!Licence.kept(paidThrough: start).plainsFolders)
     #expect(!Licence.trial(daysLeft: 0).plainsFolders)
     #expect(!Licence.licensed.plainsFolders)
   }
@@ -118,14 +117,45 @@ private let licensed = LicenceRecord(
     #expect(ended.covered([("undated", "")]) { ReleaseDay($0.1) }.isEmpty)
   }
 
-  @Test func polarIsAskedOnceADayWhileThereIsAKey() {
-    #expect(!licensed.isCheckDue(now: start + day - 1))
-    #expect(licensed.isCheckDue(now: start + day))
-    #expect(!trial.isCheckDue(now: start))
+  @Test func polarIsAskedOnceADayWhileTheVersionIsCovered() {
+    let covered = day("2027-01-10")
+    #expect(!licensed.isCheckDue(now: start + day - 1, release: covered))
+    #expect(licensed.isCheckDue(now: start + day, release: covered))
+    #expect(!trial.isCheckDue(now: start, release: covered))
 
     var ended = licensed
     ended.hasEnded = true
-    #expect(!ended.isCheckDue(now: start + 2 * day))
+    #expect(!ended.isCheckDue(now: start + 2 * day, release: covered))
+  }
+
+  @Test func polarIsAskedOnEveryRunWhileTheVersionIsPaused() {
+    let uncovered = day("2027-01-16")
+    #expect(licensed.isCheckDue(now: start + 1, release: uncovered))
+    #expect(!trial.isCheckDue(now: start, release: uncovered))
+  }
+
+  @Test func anInstallWaitsForAConfirmationThatCoversIt() {
+    let newer = day("2027-01-16")
+    #expect(trial.gate(installing: newer) == .install)
+    #expect(licensed.gate(installing: day("2027-01-15")) == .install)
+    #expect(licensed.gate(installing: newer) == .wait)
+    #expect(licensed.gate(installing: nil) == .wait)
+  }
+
+  @Test func aWaitingUpdateProceedsOnceACheckCoversIt() {
+    var record = licensed
+    let newer = day("2027-01-16")
+    #expect(record.gate(installing: newer) == .wait)
+    record.lastCheckedAt = start + day
+    #expect(record.gate(installing: newer) == .install)
+  }
+
+  @Test func anEndedLicenceRefusesAVersionAfterItsLastAnswerAndInstallsOneBefore() {
+    var ended = licensed
+    ended.hasEnded = true
+    #expect(ended.gate(installing: day("2027-01-15")) == .install)
+    #expect(ended.gate(installing: day("2027-01-16")) == .refuse)
+    #expect(ended.gate(installing: nil) == .refuse)
   }
 }
 

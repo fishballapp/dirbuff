@@ -7,8 +7,8 @@ public struct LicenceRecord: Sendable, Equatable {
   public var key: String?
   /// Kept with the key, so a reinstall reuses this Mac's activation instead of taking another.
   public var activationID: String?
-  /// When Polar last said the licence holds. The offline grace counts from here, and its day is
-  /// the last one the licence was paid up: the newest version it covers came out on or before it.
+  /// When Polar last said the licence holds. Its day is the last one the licence was paid up: the
+  /// newest version it covers came out on or before it.
   public var lastCheckedAt: Date?
   /// Polar said the licence no longer holds: cancelled, refunded, or this Mac's activation removed.
   public var hasEnded: Bool
@@ -47,11 +47,31 @@ public struct LicenceRecord: Sendable, Equatable {
   }
 
   /// A good answer from Polar holds for a day: its public endpoints allow only a few calls a
-  /// minute. Until one comes, every run asks again.
-  public func isCheckDue(now: Date) -> Bool {
-    key != nil && !hasEnded
-      && now.timeIntervalSince(lastCheckedAt ?? .distantPast) >= Licence.checkInterval
+  /// minute. A build the last answer doesn't cover is asked about on every run, since it is paused
+  /// until an answer comes. Until one comes, every run asks again.
+  public func isCheckDue(now: Date, release: ReleaseDay) -> Bool {
+    guard key != nil, !hasEnded else { return false }
+    return !covers(release: release)
+      || now.timeIntervalSince(lastCheckedAt ?? .distantPast) >= Licence.checkInterval
   }
+
+  /// Whether Sparkle may download and install a build released on `release`, given this record as
+  /// it stands. A trial installs (there is no key to confirm); a key needs a confirmation that covers
+  /// the build. Polar having ended the key refuses it; a key not yet confirmed for it waits for one.
+  public func gate(installing release: ReleaseDay?) -> UpdateGate {
+    guard key != nil else { return .install }
+    if let release, covers(release: release) { return .install }
+    return hasEnded ? .refuse : .wait
+  }
+}
+
+/// What Sparkle does with an update that is ready to install.
+public enum UpdateGate: Sendable, Equatable {
+  case install
+  /// No confirmation covers the build yet: don't download it, ask Polar, and check again.
+  case wait
+  /// The licence ended before this build came out: don't download it.
+  case refuse
 }
 
 /// Whether DirBuff may clean, and what it tells the user.
@@ -60,8 +80,9 @@ public enum Licence: Sendable, Equatable {
   case trial(daysLeft: Int)
   case trialEnded
   case licensed
-  /// Licensed, but Polar hasn't been reached for the offline grace and this version came out after
-  /// the last answer. The next good check resumes.
+  /// Licensed, but this version came out after Polar last confirmed the key, so it isn't covered
+  /// until a check does. Cleaning stops and the folders stay as they are; the next good check
+  /// resumes it by itself.
   case paused
   /// The licence ended, but this version came out while it was paid up (`paidThrough` is the last
   /// day Polar confirmed it): it keeps working, with no end.
@@ -70,11 +91,11 @@ public enum Licence: Sendable, Equatable {
   case ended(paidThrough: Date?)
 
   public static let trialLength: TimeInterval = 14 * 86_400
-  public static let offlineGrace: TimeInterval = 14 * 86_400
   public static let checkInterval: TimeInterval = 86_400
 
   /// `release` is the day this version came out. A version the paid years covered works for good:
   /// once the licence has ended, and offline too, since a payment already made can't be taken back.
+  /// A version the last answer doesn't cover waits for the next answer, without cleaning until then.
   public init(
     _ record: LicenceRecord, now: Date, release: ReleaseDay, calendar: Calendar = .current
   ) {
@@ -85,9 +106,7 @@ public enum Licence: Sendable, Equatable {
         self = .ended(paidThrough: record.lastCheckedAt)
       }
     } else if record.key != nil {
-      let lastChecked = record.lastCheckedAt ?? .distantPast
-      let isRecent = now.timeIntervalSince(lastChecked) < Self.offlineGrace
-      self = isRecent || record.covers(release: release) ? .licensed : .paused
+      self = record.covers(release: release) ? .licensed : .paused
     } else {
       let end = record.trialStartedAt.addingTimeInterval(Self.trialLength)
       let daysLeft = calendar.dateComponents(
@@ -104,8 +123,8 @@ public enum Licence: Sendable, Equatable {
     }
   }
 
-  /// Only an end Polar or the trial confirmed takes the folders' tags away. Being offline only
-  /// pauses: a paying customer away from the internet mustn't have to set their folders up again.
+  /// Only an end the trial or Polar confirmed takes Temporary off the folders. A pause doesn't: the
+  /// folders wait as they are until a check resumes them.
   public var plainsFolders: Bool {
     switch self {
     case .trialEnded, .ended: true

@@ -14,7 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   override init() {
     let appModel = AppModel()
     self.appModel = appModel
-    updates = Updates(licence: { appModel.licenceRecord })
+    updates = Updates(
+      licence: { appModel.licenceRecord }, checkLicence: { await appModel.checkLicenceNow() })
     super.init()
   }
 

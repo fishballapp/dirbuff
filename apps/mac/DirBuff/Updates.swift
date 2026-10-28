@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import DirBuffCore
 import Foundation
@@ -14,17 +15,28 @@ import Sparkle
 /// A licence that has ended is offered only the versions it was paid up for: the
 /// newest appcast item dated on or before the last day Polar confirmed the key. Anyone else, a
 /// paying customer or someone on the trial, gets the newest.
+///
+/// A bought licence is confirmed with Polar before an update is downloaded. `shouldProceedWithUpdate`
+/// refuses any update the licence doesn't cover yet, so nothing unconfirmed is ever downloaded and
+/// so nothing unconfirmed can install, on relaunch or on quit. While Polar is asked, the refusal is
+/// silent; once an answer covers the build, a background check finds the update again and proceeds.
 @MainActor
 final class Updates: NSObject, ObservableObject, SPUUpdaterDelegate {
   /// The UserDefaults key of the Settings switch for dev builds.
   static let getsDevBuildsKey = "getsDevBuilds"
-
   @Published private(set) var canCheck = false
   private let licence: @MainActor () -> LicenceRecord
+  private let checkLicence: @MainActor () async -> Void
   private var controller: SPUStandardUpdaterController?
+  /// Whether a licence check is under way for an update that waits on one.
+  private var isConfirming = false
 
-  init(licence: @escaping @MainActor () -> LicenceRecord) {
+  init(
+    licence: @escaping @MainActor () -> LicenceRecord,
+    checkLicence: @escaping @MainActor () async -> Void
+  ) {
     self.licence = licence
+    self.checkLicence = checkLicence
     super.init()
     let controller = SPUStandardUpdaterController(
       startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
@@ -72,20 +84,52 @@ final class Updates: NSObject, ObservableObject, SPUUpdaterDelegate {
     return newest(covered) ?? newest(later) ?? SUAppcastItem.empty()
   }
 
+  /// Decides, before the download, whether an update may be downloaded at all. An ended licence
+  /// that doesn't cover the build is refused with the sentence. A key not yet confirmed for it is
+  /// refused silently, and Polar is asked; a trial, or a confirmed build, proceeds.
   func updater(
     _ updater: SPUUpdater, shouldProceedWithUpdate updateItem: SUAppcastItem,
     updateCheck: SPUUpdateCheck
   ) throws {
-    let record = licence()
-    guard record.limitsUpdates else { return }
-    let day = updateItem.date.map(ReleaseDay.init(containing:))
-    guard let day, record.covers(release: day) else {
+    let release = release(of: updateItem)
+    switch licence().gate(installing: release) {
+    case .install:
+      return
+    case .refuse:
+      throw refusal(for: updateItem)
+    case .wait:
+      confirmThenCheckAgain(installing: release)
+      // Sparkle ends the cycle on this code without an alert or a log, which is what a wait needs.
       throw NSError(
-        domain: "app.fishball.dirbuff.updates", code: 1,
-        userInfo: [
-          NSLocalizedDescriptionKey:
-            "DirBuff \(updateItem.displayVersionString) came out after your licence ended. Renew DirBuff to get it and every update after; this version keeps working."
-        ])
+        domain: SUSparkleErrorDomain,
+        code: Int(SUError.installationCanceledError.rawValue))
     }
+  }
+
+  /// Asks Polar, then asks Sparkle to check again if the answer covers the build. A check that
+  /// doesn't cover it, or Polar can't be reached, is left to Sparkle's own schedule.
+  private func confirmThenCheckAgain(installing release: ReleaseDay?) {
+    guard !isConfirming else { return }
+    isConfirming = true
+    Task {
+      await checkLicence()
+      isConfirming = false
+      if licence().gate(installing: release) == .install {
+        controller?.updater.checkForUpdatesInBackground()
+      }
+    }
+  }
+
+  private func release(of item: SUAppcastItem) -> ReleaseDay? {
+    item.date.map(ReleaseDay.init(containing:))
+  }
+
+  private func refusal(for item: SUAppcastItem) -> NSError {
+    NSError(
+      domain: "app.fishball.dirbuff.updates", code: 1,
+      userInfo: [
+        NSLocalizedDescriptionKey:
+          "DirBuff \(item.displayVersionString) came out after your licence ended, so it wasn't installed; renewing gets it and every update after."
+      ])
   }
 }
