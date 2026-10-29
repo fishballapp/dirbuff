@@ -39,10 +39,14 @@ public struct MainView: View {
     state.resolvedFilter(filter)
   }
 
-  /// The sidebar's row: a shelf filter, or History. Choosing one pops every page.
+  /// The sidebar's row: a shelf filter, or History. Choosing one pops every page. No row is
+  /// selected while a page is pushed, so choosing the one the page came from goes back to it too.
   private var sidebarSelection: Binding<SidebarItem?> {
     Binding(
-      get: { navigation.root == .history ? .history : .filter(activeFilter) },
+      get: {
+        guard navigation.path.isEmpty else { return nil }
+        return navigation.root == .history ? .history : .filter(activeFilter)
+      },
       set: { next in
         switch next {
         case .history: navigation = MainNavigation(root: .history)
@@ -129,8 +133,6 @@ public struct MainView: View {
             .accessibilityHidden(true)
           Text("History")
         }
-        .contentShape(.rect)
-        .simultaneousGesture(TapGesture().onEnded { navigation.path = [] })
         .tag(SidebarItem.history)
       }
 
@@ -174,11 +176,6 @@ public struct MainView: View {
         .foregroundStyle(.secondary)
         .monospacedDigit()
     }
-    .contentShape(.rect)
-    .simultaneousGesture(
-      // Choosing the row already shown still goes back to it from a pushed page.
-      TapGesture().onEnded { navigation.path = [] }
-    )
     .tag(SidebarItem.filter(tag))
   }
 
