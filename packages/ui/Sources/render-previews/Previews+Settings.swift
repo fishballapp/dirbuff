@@ -3,6 +3,7 @@ import DirBuffUI
 import SwiftUI
 
 /// Settings in each kind of licence, and the key window.
+@MainActor
 func settingsPreviews() -> [Preview] {
   [
     (

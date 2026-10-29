@@ -28,11 +28,18 @@ struct SettingsContainerView: View {
       },
       onCheckForUpdates: updates.check,
       onOpenLoginItemsSettings: appModel.openLoginItemsSettings,
-      onOpenSetup: coordinator.openSetup,
-      onBuy: appModel.openCheckout,
-      onEnterKey: coordinator.openKeyEntry,
-      onManageSubscription: appModel.openCustomerPortal,
-      onDeactivate: { Task { await appModel.deactivate() } }
+      onOpenSetup: coordinator.openWelcome,
+      onLicenceAction: perform
     )
+  }
+
+  private func perform(_ action: LicenceSettings.Action) {
+    switch action {
+    case .buy, .renew: appModel.openCheckout()
+    case .checkNow: Task { await appModel.checkLicenceNow() }
+    case .enterKey: coordinator.openKeyEntry()
+    case .deactivate: Task { await appModel.deactivate() }
+    case .manageSubscription: appModel.openCustomerPortal()
+    }
   }
 }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// DirBuff Settings: one grouped form, changes apply at once.
+/// DirBuff Settings: one window of grouped sections on Paper, changes applying at once.
 public struct SettingsView: View {
   public var state: SettingsState
   public var onToggleOpenAtLogin: (Bool) -> Void
@@ -9,10 +9,7 @@ public struct SettingsView: View {
   public var onCheckForUpdates: () -> Void
   public var onOpenLoginItemsSettings: () -> Void
   public var onOpenSetup: () -> Void
-  public var onBuy: () -> Void
-  public var onEnterKey: () -> Void
-  public var onManageSubscription: () -> Void
-  public var onDeactivate: () -> Void
+  public var onLicenceAction: (LicenceSettings.Action) -> Void
 
   public init(
     state: SettingsState,
@@ -22,10 +19,7 @@ public struct SettingsView: View {
     onCheckForUpdates: @escaping () -> Void = {},
     onOpenLoginItemsSettings: @escaping () -> Void = {},
     onOpenSetup: @escaping () -> Void = {},
-    onBuy: @escaping () -> Void = {},
-    onEnterKey: @escaping () -> Void = {},
-    onManageSubscription: @escaping () -> Void = {},
-    onDeactivate: @escaping () -> Void = {}
+    onLicenceAction: @escaping (LicenceSettings.Action) -> Void = { _ in }
   ) {
     self.state = state
     self.onToggleOpenAtLogin = onToggleOpenAtLogin
@@ -34,33 +28,12 @@ public struct SettingsView: View {
     self.onCheckForUpdates = onCheckForUpdates
     self.onOpenLoginItemsSettings = onOpenLoginItemsSettings
     self.onOpenSetup = onOpenSetup
-    self.onBuy = onBuy
-    self.onEnterKey = onEnterKey
-    self.onManageSubscription = onManageSubscription
-    self.onDeactivate = onDeactivate
+    self.onLicenceAction = onLicenceAction
   }
 
   public var body: some View {
     Form {
-      Section("Licence") {
-        Text(state.licence.status(key: state.licenceKey))
-        HStack {
-          Spacer()
-          if state.licence.hasKey {
-            Button("Deactivate This Mac…", action: onDeactivate)
-            Button("Manage Subscription…", action: onManageSubscription)
-          } else {
-            Button("Enter Licence Key…", action: onEnterKey)
-            Button(state.licence.buyTitle, action: onBuy)
-          }
-        }
-        if !state.licence.hasKey {
-          Text(Pricing.pitch)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
+      licenceSection
 
       Section {
         Toggle(
@@ -69,10 +42,10 @@ public struct SettingsView: View {
 
         if state.openAtLoginRequiresApproval {
           LabeledContent {
-            Button("Open Login Items…", action: onOpenLoginItemsSettings)
+            Button("Turn On…", action: onOpenLoginItemsSettings)
           } label: {
             Text("Needs your approval in System Settings.")
-              .foregroundStyle(.secondary)
+              .foregroundStyle(Palette.inkTertiary)
           }
         }
 
@@ -80,28 +53,11 @@ public struct SettingsView: View {
           "Show in menu bar",
           isOn: Binding(get: { state.showInMenuBar }, set: { onToggleShowInMenuBar($0) }))
       } footer: {
-        Text("DirBuff keeps clearing your folders when its icon is hidden.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-
-      Section {
-        LabeledContent {
-          Button("Check for Updates…", action: onCheckForUpdates)
-            .disabled(!state.canCheckForUpdates)
-        } label: {
-          Text("Version \(state.version)")
-        }
-
-        Toggle(
-          "Get dev builds",
-          isOn: Binding(get: { state.shouldGetDevBuilds }, set: { onToggleGetDevBuilds($0) }))
-      } header: {
-        Text("Updates")
-      } footer: {
-        Text("Every change as soon as it's merged. Some will be broken.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        Text("DirBuff keeps working when its icon is hidden.")
+          .font(.subheadline)
+          .foregroundStyle(Palette.inkTertiary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.leading, 10)
       }
 
       Section {
@@ -109,8 +65,71 @@ public struct SettingsView: View {
           Button("Set Up…", action: onOpenSetup)
         }
       }
+
+      Section {
+        LabeledContent("DirBuff \(state.version)") {
+          Button("Check for Updates…", action: onCheckForUpdates)
+            .disabled(!state.canCheckForUpdates)
+        }
+
+        Toggle(
+          isOn: Binding(get: { state.shouldGetDevBuilds }, set: { onToggleGetDevBuilds($0) })
+        ) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Get dev builds")
+            Text("A build of every change, before it’s released")
+              .font(.subheadline)
+              .foregroundStyle(Palette.inkTertiary)
+          }
+        }
+      } header: {
+        SectionHead("Updates")
+      }
     }
     .formStyle(.grouped)
-    .frame(width: 420)
+    .scrollContentBackground(.hidden)
+    .background(Palette.paper)
+    .frame(width: 520)
+  }
+
+  private var licenceSection: some View {
+    let licence = state.licenceSettings
+    return Section {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(licence.headline)
+        Text(licence.detail)
+          .font(.subheadline)
+          .foregroundStyle(Palette.inkSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 8) {
+          if let primary = licence.primary {
+            Button(primary.title) { onLicenceAction(primary) }
+              .keyboardShortcut(.defaultAction)
+          }
+          ForEach(licence.others, id: \.self) { action in
+            Button(action.title) { onLicenceAction(action) }
+          }
+        }
+        .padding(.top, 6)
+      }
+      .padding(.vertical, 2)
+    } header: {
+      SectionHead("Licence")
+    }
+  }
+}
+
+/// A group's title: Subheadline, semibold, Ink Tertiary.
+private struct SectionHead: View {
+  let title: String
+
+  init(_ title: String) {
+    self.title = title
+  }
+
+  var body: some View {
+    Text(title)
+      .font(.subheadline.weight(.semibold))
+      .foregroundStyle(Palette.inkTertiary)
   }
 }

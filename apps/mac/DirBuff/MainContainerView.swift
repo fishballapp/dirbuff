@@ -63,33 +63,10 @@ struct MainContainerView: View {
 
   private func chooseFolderForBuff(_ buff: Buff) {
     guard buff == .temporary else { return }
-    let panel = NSOpenPanel()
-    // The panel holds its delegate weakly.
-    let delegate = ProtectedFolderRefusal()
-    panel.delegate = delegate
-    panel.canChooseFiles = false
-    panel.canChooseDirectories = true
-    panel.allowsMultipleSelection = false
-    panel.treatsFilePackagesAsDirectories = false
-    panel.message = "Choose a folder to make Temporary"
-    panel.prompt = "Add"
-    guard withExtendedLifetime(delegate, { panel.runModal() }) == .OK, let url = panel.url else {
-      return
-    }
+    guard let url = NSOpenPanel.chooseFolderToMakeTemporary() else { return }
     Task {
       await appModel.addBuff(.temporary, toFolderAt: url)
       windowState.navigation = MainNavigation()
     }
-  }
-}
-
-/// Refuses a protected folder when Add is clicked, so the panel stays open and says why. Disabling
-/// it instead would also stop the user opening it, and Downloads is inside the home folder.
-private final class ProtectedFolderRefusal: NSObject, NSOpenSavePanelDelegate {
-  func panel(_ sender: Any, validate url: URL) throws {
-    guard System.isProtected(url) else { return }
-    throw NSError(
-      domain: "app.fishball.dirbuff", code: 1,
-      userInfo: [NSLocalizedDescriptionKey: AppModel.protectedFolderExplanation])
   }
 }

@@ -23,11 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     setUpNotifications()
   }
 
-  /// Opened by the user, DirBuff shows its window; started by macOS at login, it stays in the menu
-  /// bar.
+  /// Opened by the user, DirBuff shows its window, and the welcome over it the first time;
+  /// started by macOS at login, it stays in the menu bar.
   func applicationDidFinishLaunching(_ notification: Notification) {
     statusItem.start()
-    if !isLoginLaunch { windows.openMain() }
+    guard !isLoginLaunch else { return }
+    windows.openMain()
+    windows.openWelcomeIfNew()
   }
 
   /// Opening DirBuff again while it runs, from Finder or Spotlight, brings its window back.

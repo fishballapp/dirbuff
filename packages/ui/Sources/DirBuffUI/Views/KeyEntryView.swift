@@ -37,7 +37,7 @@ public struct KeyEntryView: View {
         Text("Enter Licence Key").font(.headline)
         Text("It's on the page that opened after you paid, and in your receipt email.")
           .font(.subheadline)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Palette.inkTertiary)
       }
 
       TextField("DIRBUFF-…", text: $key)
@@ -50,7 +50,7 @@ public struct KeyEntryView: View {
         VStack(alignment: .leading, spacing: 8) {
           Text(failure.message)
             .font(.callout)
-            .foregroundStyle(.red)
+            .foregroundStyle(Palette.amberText)
             .fixedSize(horizontal: false, vertical: true)
           if failure == .activationLimitReached {
             Button("Manage Subscription…", action: onManageSubscription)
@@ -73,5 +73,6 @@ public struct KeyEntryView: View {
     }
     .padding(20)
     .frame(width: 420)
+    .background(Palette.paper)
   }
 }

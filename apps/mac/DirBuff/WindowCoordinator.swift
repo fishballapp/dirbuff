@@ -12,7 +12,7 @@ final class MainWindowState {
 
 /// Opens DirBuff's windows. An accessory app has no SwiftUI scene to open windows from while the
 /// menu-bar window is closed (the Finder handoff), so they are plain AppKit windows: the main
-/// window, Settings, and Setup.
+/// window, Settings, the welcome and the licence key.
 @MainActor
 final class WindowCoordinator {
   private let appModel: AppModel
@@ -64,16 +64,30 @@ final class WindowCoordinator {
       })
   }
 
+  /// Opens Settings, whose first section is the Licence: the window is as tall as its content, so
+  /// every way in, the paused pill and Finder's Add Buff while paused included, lands on it.
   func openSettings() {
-    showContentSized(key: "settings", title: "DirBuff Settings") {
+    showContentSized(key: "settings", title: "Settings") {
       SettingsContainerView(appModel: appModel, updates: updates, coordinator: self)
     }
   }
 
-  func openSetup() {
-    showContentSized(key: "setup", title: "Set Up DirBuff") {
-      SetupContainerView(appModel: appModel)
+  /// Opens the welcome window: on its own the first time DirBuff runs, and from Settings' Set Up….
+  func openWelcome() {
+    appModel.markWelcomeSeen()
+    showContentSized(key: "welcome", title: "Welcome to DirBuff", isTitleHidden: true) {
+      WelcomeContainerView(appModel: appModel, coordinator: self)
     }
+  }
+
+  /// Opens the welcome window if it never has: DirBuff's first run, or its first since the buffs.
+  func openWelcomeIfNew() {
+    guard appModel.shouldWelcome else { return }
+    openWelcome()
+  }
+
+  func closeWelcome() {
+    windows["welcome"]?.close()
   }
 
   func openKeyEntry() {
@@ -118,6 +132,7 @@ final class WindowCoordinator {
   private func showContentSized(
     key: String,
     title: String,
+    isTitleHidden: Bool = false,
     content: () -> some View
   ) {
     showWindow(key: key) {
@@ -127,6 +142,12 @@ final class WindowCoordinator {
         backing: .buffered,
         defer: false)
       window.title = title
+      if isTitleHidden {
+        // The content says what the window is, so the bar is only the buttons, on Paper.
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(Palette.paper)
+      }
       // The window follows the content's own size as sections expand. Letting the hosting view size
       // it instead looped at 2x until AppKit threw: a grouped Form's height there depends on the
       // window's frame, which depended on the Form's height.

@@ -13,6 +13,9 @@ public struct SettingsState: Sendable, Equatable {
   public var licence: Licence
   public var licenceKey: String?
 
+  /// What the Licence section says and offers.
+  public var licenceSettings: LicenceSettings { licence.settings(key: licenceKey) }
+
   public init(
     openAtLogin: Bool = false,
     openAtLoginRequiresApproval: Bool = false,
