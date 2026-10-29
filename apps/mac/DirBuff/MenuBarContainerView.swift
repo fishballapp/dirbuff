@@ -16,10 +16,6 @@ struct MenuBarContainerView: View {
           closeMenu()
           appModel.perform(fix, on: folderID)
         },
-        onSelectFolder: { folder in
-          closeMenu()
-          windows.openMain(selecting: URL(fileURLWithPath: folder.path))
-        },
         onOpen: {
           closeMenu()
           windows.openMain()

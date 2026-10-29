@@ -1,13 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// The menu-bar popover: the status sentence, a callout for each folder that needs the user (or a
-/// bar while something clears), the folders with a line per buff, and the licence at the foot. The
+/// The menu-bar popover: the status sentence with the clean-up schedule, a callout for each folder
+/// that needs the user (or the clean-up running now), and the licence at the foot. The
 /// app hosts it in one item of a status menu, so an auto-hidden menu bar stays shown while it's open.
 public struct MenuBarView: View {
   public var state: PopoverState
   public var onFix: (_ folderID: Int64, Fix) -> Void
-  public var onSelectFolder: (FolderState) -> Void
   public var onOpen: () -> Void
   public var onSettings: () -> Void
   public var onBuy: () -> Void
@@ -16,7 +15,6 @@ public struct MenuBarView: View {
   public init(
     state: PopoverState,
     onFix: @escaping (_ folderID: Int64, Fix) -> Void = { _, _ in },
-    onSelectFolder: @escaping (FolderState) -> Void = { _ in },
     onOpen: @escaping () -> Void = {},
     onSettings: @escaping () -> Void = {},
     onBuy: @escaping () -> Void = {},
@@ -24,7 +22,6 @@ public struct MenuBarView: View {
   ) {
     self.state = state
     self.onFix = onFix
-    self.onSelectFolder = onSelectFolder
     self.onOpen = onOpen
     self.onSettings = onSettings
     self.onBuy = onBuy
@@ -33,38 +30,19 @@ public struct MenuBarView: View {
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(state.headline).font(.headline)
-        if let subheadline = state.subheadline {
-          Text(subheadline).font(.subheadline).foregroundStyle(.secondary)
+      if let run = state.run {
+        runSection(run)
+      } else {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(state.headline).font(.headline)
+          if let subheadline = state.subheadline {
+            Text(subheadline).font(.subheadline).foregroundStyle(.secondary)
+          }
         }
       }
 
       ForEach(state.needsYou) { item in
         callout(item).padding(.top, 10)
-      }
-      if state.needsYou.isEmpty && state.isClearing {
-        Capsule()
-          .fill(Palette.accentBlue)
-          .frame(height: 5)
-          .padding(.top, 10)
-          .accessibilityLabel("Clearing now")
-      }
-
-      if !state.folders.isEmpty {
-        Text("Folders")
-          .font(.caption)
-          .fontWeight(.semibold)
-          .foregroundStyle(.secondary)
-          .padding(.top, 14)
-          .padding(.horizontal, 8)
-        VStack(spacing: 0) {
-          ForEach(state.folders) { folder in
-            folderRow(folder)
-          }
-        }
-        .padding(.horizontal, -8)
-        .padding(.top, 2)
       }
 
       foot.padding(.top, 12)
@@ -73,16 +51,55 @@ public struct MenuBarView: View {
     .frame(width: 340, alignment: .leading)
   }
 
-  /// Spans the popover's content width. Its headline names the folder in a pill, so the name reads
-  /// as a folder.
+  /// The clean-up running now. Every line has a fixed height and truncates at its tail, and the
+  /// figures are tabular, so the item names changing don't move anything.
+  private func runSection(_ run: PopoverRun) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 6) {
+        Text("Clearing")
+        FolderPill(run.folderName, path: run.path)
+      }
+      .font(.headline)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(run.current ?? " ")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .truncationMode(.tail)
+          .frame(height: 16, alignment: .leading)
+        Capsule()
+          .fill(Palette.ruleStrong)
+          .frame(height: 5)
+          .overlay(alignment: .leading) {
+            GeometryReader { bar in
+              Capsule()
+                .fill(Palette.accentBlue)
+                .frame(width: bar.size.width * run.fraction)
+            }
+          }
+        Text(run.counts ?? " ")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+          .lineLimit(1)
+          .frame(height: 16, alignment: .leading)
+      }
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(state.headline)
+    .accessibilityValue(run.counts ?? "")
+  }
+
+  /// Spans the popover's full width, edge to edge. Its headline names the folder in a pill, so the
+  /// name reads as a folder.
   private func callout(_ item: NeedsYou) -> some View {
     HStack(alignment: .top, spacing: 10) {
       NeedsYouBadge(size: 20)
         .padding(.top, 1)
       VStack(alignment: .leading, spacing: 3) {
         HStack(spacing: 5) {
-          folderPill(item)
-          Text("isn't cleared")
+          Text(item.lead)
+          FolderPill(item.folderName, path: item.path)
         }
         .font(.headline)
         .foregroundStyle(Palette.amberText)
@@ -96,73 +113,13 @@ public struct MenuBarView: View {
           .padding(.top, 4)
       }
     }
-    .padding(10)
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Palette.amberTint, in: .rect(cornerRadius: 10))
-  }
-
-  private func folderPill(_ item: NeedsYou) -> some View {
-    HStack(spacing: 4) {
-      Image(nsImage: folderIcon(atPath: item.path))
-        .resizable()
-        .frame(width: 13, height: 13)
-        .accessibilityHidden(true)
-      Text(item.folderName).lineLimit(1)
-    }
-    .padding(.horizontal, 6)
-    .padding(.vertical, 1)
-    .background(Palette.amberText.opacity(0.12), in: .capsule)
-  }
-
-  private func folderRow(_ folder: FolderState) -> some View {
-    Button {
-      onSelectFolder(folder)
-    } label: {
-      HStack(alignment: .top, spacing: 8) {
-        ZStack(alignment: .bottomLeading) {
-          Image(nsImage: folderIcon(atPath: folder.path))
-            .resizable()
-            .frame(width: 20, height: 20)
-          if let mark = folder.mark {
-            Mark(mark, size: 12).offset(x: -3, y: 3)
-          }
-        }
-        .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 1) {
-          Text(folder.name).lineLimit(1)
-          ForEach(folder.buffs) { row in
-            buffLine(row)
-          }
-        }
-      }
-    }
-    .buttonStyle(MenuRowStyle())
-  }
-
-  /// One buff on a folder's row: its symbol and what it's doing, in numbers.
-  private func buffLine(_ row: BuffRow) -> some View {
-    HStack(spacing: 5) {
-      BuffSymbol(row.buff, width: 16)
-        .foregroundStyle(symbolColor(row.state))
-      Text(row.status)
-        .font(.subheadline)
-        .lineLimit(1)
-        .foregroundStyle(lineColor(row.state))
-    }
-  }
-
-  private func symbolColor(_ buffState: BuffState) -> Color {
-    guard state.isCleaning else { return Palette.inkTertiary }
-    return buffState.isPaused ? Palette.quiet : Palette.ink
-  }
-
-  private func lineColor(_ buffState: BuffState) -> Color {
-    guard state.isCleaning else { return Palette.inkTertiary }
-    switch buffState {
-    case .needsYou: return Palette.amberText
-    case .paused: return Palette.inkTertiary
-    case .atRest, .working: return Palette.inkSecondary
-    }
+    .background(Palette.amberTint)
+    .overlay(alignment: .top) { Palette.amberEdge.frame(height: 1) }
+    .overlay(alignment: .bottom) { Palette.amberEdge.frame(height: 1) }
+    .padding(.horizontal, -14)
   }
 
   /// The licence line and the button that acts on it, on one row with the app's own buttons.

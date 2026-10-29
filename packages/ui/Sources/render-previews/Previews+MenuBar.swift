@@ -13,6 +13,24 @@ func menuBarPreviews() -> [Preview] {
     ),
     (
       "popover-working",
+      AnyView(
+        MenuBarView(
+          state: Samples.popover(.licensed, working: [1], progress: Samples.progress()))),
+      nil
+    ),
+    (
+      "popover-working-long-name",
+      AnyView(
+        MenuBarView(
+          state: Samples.popover(
+            .licensed, working: [1],
+            progress: Samples.progress(
+              current: "Screenshot 2026-09-01 at 10.12.34 (a very long name that cannot fit).png")))
+      ),
+      nil
+    ),
+    (
+      "popover-working-starting",
       AnyView(MenuBarView(state: Samples.popover(.licensed, working: [1]))),
       nil
     ),
@@ -21,6 +39,13 @@ func menuBarPreviews() -> [Preview] {
       AnyView(
         MenuBarView(
           state: Samples.popover(.licensed, reports: Samples.reports + [Samples.lostAccessReport]))),
+      nil
+    ),
+    (
+      "popover-missing",
+      AnyView(
+        MenuBarView(
+          state: Samples.popover(.licensed, reports: Samples.reports + [Samples.missingReport]))),
       nil
     ),
     (

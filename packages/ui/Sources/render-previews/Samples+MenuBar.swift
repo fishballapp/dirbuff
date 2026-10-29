@@ -21,14 +21,32 @@ extension Samples {
       lastRunAt: now),
     reading: .failure(.unreachable))
 
+  /// Documents, which was moved to the Bin two days ago.
+  static let missingReport = FolderReport(
+    folder: Folder(
+      id: 7, bookmark: Data(), path: "/Users/sample/Documents",
+      settings: TemporarySettings(maxAgeDays: 90), wearsTemporary: true,
+      missingSince: now.addingTimeInterval(-2 * 86_400), createdAt: now, lastRunAt: now),
+    reading: .failure(.missing))
+
+  /// The run the working popover shows: 3 of 12 items in, one with a name too long for the line.
+  static func progress(folder: Int64 = 1, current: String = "zoom_bundle.zip") -> Engine.RunProgress
+  {
+    Engine.RunProgress(
+      folderID: folder, itemsDone: 3, itemsTotal: 12, bytesDone: 410_000_000,
+      bytesTotal: 1_300_000_000, current: current)
+  }
+
   /// The popover as the app builds it at `shownAt`, with the folders in `working` clearing.
   static func popover(
     _ licence: Licence,
     reports: [FolderReport] = Samples.reports,
-    working: Set<Int64> = []
+    working: Set<Int64> = [],
+    progress: Engine.RunProgress? = nil
   ) -> PopoverState {
     PopoverState(
-      folders: FolderState.all(reports, licence: licence, working: working, now: shownAt),
-      licence: licence, now: shownAt)
+      folders: FolderState.all(
+        reports, licence: licence, working: working, progress: progress, now: shownAt),
+      reports: reports, progress: progress, licence: licence, now: shownAt)
   }
 }
