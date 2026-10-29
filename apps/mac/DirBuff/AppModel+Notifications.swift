@@ -9,6 +9,8 @@ private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "notifi
 extension AppModel {
   /// After each hourly clean-up, with what each folder's run removed.
   func didCleanUp(_ runs: [Engine.RunResult], at hour: Date) async {
+    await trimHistory()
+    historyDidChange()
     if let notification = CleanUpNotification(runs: runs, reports: reports) {
       await notify(notification)
     }

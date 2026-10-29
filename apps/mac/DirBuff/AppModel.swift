@@ -31,6 +31,12 @@ final class AppModel {
   }
   /// How far the folder a clean-up is running in now has got; nil between runs.
   private(set) var runProgress: Engine.RunProgress?
+  /// Goes up whenever History changes (a clean-up, a Put Back, trimming or clearing), so open
+  /// History pages read it again. Set only by `historyDidChange()` in `AppModel+History`, which
+  /// is why it can't be `private(set)` here.
+  var historyRevision = 0
+  /// The run a clean-up is writing to now, which Clear History keeps; nil between clean-ups.
+  private(set) var openRunID: Int64?
 
   let engine: Engine
   private let polar: PolarLicensing
@@ -533,6 +539,7 @@ final class AppModel {
       runID = nil
     }
     var runs: [Engine.RunResult] = []
+    openRunID = runID
     for id in reports.compactMap(\.folder.id) {
       // The licence can end or be deactivated while earlier folders run.
       guard self.licence.mayClean else { break }
@@ -555,6 +562,7 @@ final class AppModel {
         logger.error("Run of folder \(id) failed: \(error.localizedDescription, privacy: .public)")
       }
     }
+    openRunID = nil
     if let runID {
       do {
         try engine.store.dropRunIfEmpty(id: runID)

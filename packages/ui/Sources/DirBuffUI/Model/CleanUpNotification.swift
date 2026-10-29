@@ -36,7 +36,7 @@ public struct CleanUpNotification: Sendable, Equatable {
   }
 
   private enum UserInfoKey {
-    static let folderPath = "folderPath"
+    static let runID = "runID"
     static let putBackEntryIDs = "putBackEntryIDs"
   }
 
@@ -46,9 +46,9 @@ public struct CleanUpNotification: Sendable, Equatable {
   /// "5 items went to the Bin · 2.3 GB".
   public var body: String
   public var actions: [Action]
-  /// The folder Show and tapping the notification open: the first folder the clean-up moved things
-  /// out of, in the order the folders were added.
-  public var folderPath: String
+  /// The run Show and tapping the notification open in History; nil if the clean-up couldn't
+  /// record one, and Show opens History itself.
+  public var runID: Int64?
   /// The journal entries Put Back undoes: what went to the Bin and isn't back yet. Empty when
   /// nothing can be put back, as when everything was deleted permanently.
   public var putBackEntryIDs: [Int64]
@@ -60,10 +60,11 @@ public struct CleanUpNotification: Sendable, Equatable {
   }
 
   public var userInfo: [AnyHashable: Any] {
-    [
-      UserInfoKey.folderPath: folderPath,
+    let info: [AnyHashable: Any?] = [
+      UserInfoKey.runID: runID,
       UserInfoKey.putBackEntryIDs: putBackEntryIDs,
     ]
+    return info.compactMapValues { $0 }
   }
 
   /// Nil when the clean-up moved nothing, so there is nothing to say.
@@ -71,7 +72,7 @@ public struct CleanUpNotification: Sendable, Equatable {
   /// - Parameter folders: Folders in the order they were added (the store's order).
   public init?(folders: [CleanUpFolder], binName: String = SystemBin.name) {
     let moved = folders.filter { !$0.entries.isEmpty }
-    guard let first = moved.first else { return nil }
+    guard !moved.isEmpty else { return nil }
     let entries = moved.flatMap(\.entries)
 
     title = Self.title(for: moved.map { Self.name(of: $0.path) })
@@ -84,7 +85,7 @@ public struct CleanUpNotification: Sendable, Equatable {
     let what = [went, gone].compactMap { $0 }.joined(separator: ", ")
     body = "\(what) · \(bytes(entries.reduce(0) { $0 + $1.size }))"
 
-    folderPath = first.path
+    runID = entries.lazy.compactMap(\.runID).first
     putBackEntryIDs =
       entries
       .filter { $0.disposal == .bin && $0.binnedPath != nil && $0.undoneAt == nil }
@@ -108,9 +109,9 @@ public struct CleanUpNotification: Sendable, Equatable {
     self.init(folders: folders, binName: binName)
   }
 
-  /// Reads the folder path stored in a delivered notification's `userInfo`.
-  public static func folderPath(from userInfo: [AnyHashable: Any]) -> String? {
-    userInfo[UserInfoKey.folderPath] as? String
+  /// Reads the run stored in a delivered notification's `userInfo`.
+  public static func runID(from userInfo: [AnyHashable: Any]) -> Int64? {
+    (userInfo[UserInfoKey.runID] as? NSNumber)?.int64Value
   }
 
   /// Reads the journal entry IDs stored in a delivered notification's `userInfo`.

@@ -5,6 +5,10 @@ import Testing
 
 @testable import DirBuffKit
 
+/// The made-up home the store's fixture folders sit in. Only this file spells it, so the public
+/// tree's leak check knows it as a fixture.
+let fixtureHome = "/Users/me"
+
 @Suite struct StoreTests {
   let store: Store
   let createdAt = Date(timeIntervalSince1970: 1_800_000_000)

@@ -11,10 +11,12 @@ private func entry(
   _ id: Int64,
   _ disposal: Disposal = .bin,
   size: Int64 = gigabytes,
-  undone: Bool = false
+  undone: Bool = false,
+  runID: Int64? = 42
 ) -> JournalEntry {
   JournalEntry(
     id: id,
+    runID: runID,
     folderID: 1,
     disposal: disposal,
     name: "item\(id)",
@@ -87,14 +89,13 @@ private func notification(
     #expect(note?.body == "2 items went to the Bin, 3 items were deleted permanently · 11.5 GB")
   }
 
-  @Test func twoFoldersNameBothInStoreOrderAndOpenTheFirst() {
+  @Test func twoFoldersNameBothInStoreOrder() {
     let note = notification([
       CleanUpFolder(path: "\(home)/Downloads", entries: [entry(1), entry(2)]),
       CleanUpFolder(path: "\(home)/Screenshots", entries: [entry(3, .delete)]),
     ])
     #expect(note?.title == "Downloads and Screenshots")
     #expect(note?.body == "2 items went to the Bin, 1 item was deleted permanently · 6.9 GB")
-    #expect(note?.folderPath == "\(home)/Downloads")
   }
 
   @Test func threeOrMoreFoldersNameFirstTwoAndCountTheRest() {
@@ -104,7 +105,6 @@ private func notification(
       CleanUpFolder(path: "\(home)/Scratch", entries: [entry(3)]),
     ])
     #expect(three?.title == "Downloads, Screenshots and 1 more")
-    #expect(three?.folderPath == "\(home)/Downloads")
 
     let four = notification([
       CleanUpFolder(path: "\(home)/Downloads", entries: [entry(1)]),
@@ -113,7 +113,6 @@ private func notification(
       CleanUpFolder(path: "\(home)/Desktop", entries: [entry(4)]),
     ])
     #expect(four?.title == "Downloads, Screenshots and 2 more")
-    #expect(four?.folderPath == "\(home)/Downloads")
   }
 
   @Test func foldersThatMovedNothingAreLeftOut() {
@@ -122,7 +121,19 @@ private func notification(
       CleanUpFolder(path: "\(home)/Downloads", entries: [entry(1)]),
     ])
     #expect(note?.title == "Downloads")
-    #expect(note?.folderPath == "\(home)/Downloads")
+  }
+
+  @Test func showOpensTheRun() {
+    let note = notification([CleanUpFolder(path: "\(home)/Downloads", entries: [entry(1)])])
+    #expect(note?.runID == 42)
+  }
+
+  @Test func showOpensHistoryWhenNoRunWasRecorded() {
+    let note = notification([
+      CleanUpFolder(path: "\(home)/Downloads", entries: [entry(1, runID: nil)])
+    ])
+    #expect(note?.runID == nil)
+    #expect(note.map { CleanUpNotification.runID(from: $0.userInfo) } == .some(nil))
   }
 
   @Test func nothingMovedMeansNoNotification() {
@@ -178,13 +189,14 @@ private func notification(
       Issue.record("Expected notification userInfo")
       return
     }
-    #expect(CleanUpNotification.folderPath(from: userInfo) == "\(home)/Scratch")
+    #expect(CleanUpNotification.runID(from: userInfo) == 42)
     #expect(CleanUpNotification.putBackEntryIDs(from: userInfo) == [10, 20])
 
     let bridged: [AnyHashable: Any] = [
-      "folderPath": "\(home)/Scratch",
+      "runID": NSNumber(value: 42),
       "putBackEntryIDs": [NSNumber(value: 10), NSNumber(value: 20)],
     ]
+    #expect(CleanUpNotification.runID(from: bridged) == 42)
     #expect(CleanUpNotification.putBackEntryIDs(from: bridged) == [10, 20])
   }
 }

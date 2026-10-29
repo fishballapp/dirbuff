@@ -39,31 +39,27 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
   ) async {
     let actionIdentifier = response.actionIdentifier
     let userInfo = response.notification.request.content.userInfo
-    let folderPath = CleanUpNotification.folderPath(from: userInfo)
+    let runID = CleanUpNotification.runID(from: userInfo)
     let putBackEntryIDs = CleanUpNotification.putBackEntryIDs(from: userInfo)
 
     await handleNotificationResponse(
       actionIdentifier: actionIdentifier,
-      folderPath: folderPath,
+      runID: runID,
       putBackEntryIDs: putBackEntryIDs
     )
   }
 
+  /// Put Back undoes the whole clean-up; Show opens its run in History.
   private func handleNotificationResponse(
     actionIdentifier: String,
-    folderPath: String?,
+    runID: Int64?,
     putBackEntryIDs: [Int64]
   ) async {
     switch actionIdentifier {
     case CleanUpNotification.Action.putBack.rawValue:
-      await appModel.putBack(entryIDs: putBackEntryIDs)
+      await appModel.putBackFromHistory(entryIDs: putBackEntryIDs)
     case CleanUpNotification.Action.show.rawValue, UNNotificationDefaultActionIdentifier:
-      guard let folderPath else { return }
-      let url = URL(fileURLWithPath: folderPath)
-      if appModel.report(for: url) == nil {
-        await appModel.refresh()
-      }
-      windows.openMain(selecting: url)
+      windows.openMain(route: runID.map { .run($0) } ?? .history(folderID: nil))
     default:
       break
     }
