@@ -28,8 +28,8 @@ extension AppDelegate {
       }
     case .takeTemporaryOff:
       Task {
-        guard let report = appModel.report(for: folderURL) else { return }
-        await appModel.setTemporary(report.folder, false)
+        guard let id = appModel.report(for: folderURL)?.folder.id else { return }
+        await appModel.confirmTakeOff(.temporary, on: id)
       }
     case .change, .whatGoesNext, .openFolder:
       Task {

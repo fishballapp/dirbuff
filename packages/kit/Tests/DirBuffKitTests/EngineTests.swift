@@ -83,6 +83,7 @@ import Testing
     try engine.setTemporary(folder, true)
     stored = try #require(try engine.store.folder(id: folderID))
     #expect(stored.wearsTemporary && !stored.turnedOffByLicence)
+    #expect(stored.settings == deleting)
   }
 
   @Test func takingTemporaryOffForgetsItsSettings() throws {

@@ -197,12 +197,15 @@ func renderSite(into directory: URL) {
       AnyView(
         MainView(
           state: Samples.site, navigation: .constant(MainNavigation(opening: .folder(1))),
-          destination: Samples.folderPageDestination(Samples.site))),
+          destination: Samples.folderPageDestination(
+            Samples.site, reports: Samples.siteReports, now: Samples.shownAt))),
       CGSize(width: 760, height: 760)
     ),
     (
       "site-folder-phone",
-      AnyView(FolderPage(folder: Samples.site.folders[0], binName: Samples.binName)),
+      AnyView(
+        Samples.folderPageDestination(
+          Samples.site, reports: Samples.siteReports, now: Samples.shownAt)(.folder(1))),
       CGSize(width: 390, height: 780)
     ),
   ]

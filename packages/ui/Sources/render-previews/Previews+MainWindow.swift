@@ -110,7 +110,9 @@ func mainWindowPreviews() -> [Preview] {
         MainView(
           state: Samples.shelf(),
           navigation: .constant(MainNavigation(opening: .folder(1))),
-          destination: Samples.folderPageDestination(Samples.shelf())
+          destination: Samples.folderPageDestination(
+            Samples.shelf(), reports: Samples.shelfReports(), now: Samples.shelfMoment,
+            home: Samples.shelfHome)
         )),
       fullSize
     ),
@@ -118,15 +120,6 @@ func mainWindowPreviews() -> [Preview] {
 }
 
 extension Samples {
-  /// Draws a pushed folder page from `state`, as the app's `MainContainerView` does.
-  static func folderPageDestination(_ state: MainState) -> (MainRoute) -> AnyView {
-    { route in
-      guard case .folder(let id) = route, let folder = state.folders.first(where: { $0.id == id })
-      else { return AnyView(EmptyView()) }
-      return AnyView(FolderPage(folder: folder, binName: binName))
-    }
-  }
-
   /// Real home directory so existing standard folders (`~/Downloads`) draw their real Finder icons
   /// while `MainState` still formats locations as `~/…`.
   fileprivate static let shelfHome = NSHomeDirectory()

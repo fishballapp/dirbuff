@@ -57,35 +57,6 @@ extension FolderState {
   }
 }
 
-/// A folder shown in the pushed folder page (`FolderDetailView`).
-public struct MainFolder: Sendable, Equatable, Identifiable {
-  public var id: Int64
-  public var name: String
-  public var path: String
-  public var isTemporary: Bool
-  public var isReadable: Bool
-  public var settings: TemporarySettings
-  public var preview: FolderPreview
-
-  public init(
-    id: Int64,
-    name: String,
-    path: String,
-    isTemporary: Bool,
-    isReadable: Bool,
-    settings: TemporarySettings,
-    preview: FolderPreview
-  ) {
-    self.id = id
-    self.name = name
-    self.path = path
-    self.isTemporary = isTemporary
-    self.isReadable = isReadable
-    self.settings = settings
-    self.preview = preview
-  }
-}
-
 /// What the main window shows: the shelf of folder tiles, its sidebar counts and filters, and the
 /// folder pages pushed over it.
 public struct MainState: Sendable, Equatable {
