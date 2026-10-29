@@ -36,7 +36,11 @@ extension AppDelegate {
         if appModel.report(for: folderURL) == nil {
           guard await appModel.addFolder(folderURL) != nil else { return }
         }
-        windows.openMain(selecting: folderURL)
+        if action == .whatGoesNext, let id = appModel.report(for: folderURL)?.folder.id {
+          windows.openMain(route: .files(id))
+        } else {
+          windows.openMain(selecting: folderURL)
+        }
       }
     }
   }

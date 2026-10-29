@@ -6,7 +6,15 @@ extension MainContainerView {
   @ViewBuilder
   func filesPage(_ id: Int64, state: MainState, now: Date) -> some View {
     if let folder = state.folders.first(where: { $0.id == id }) {
-      FolderFilesPage(folder: folder)
+      FolderFilesPage(
+        folder: folder,
+        folderState: state.shelfFolders.first { $0.id == id },
+        now: now,
+        isPaused: !state.mayClean,
+        onShowInFinder: appModel.showInFinder,
+        onFix: { appModel.perform($0, on: id) },
+        onShowHistory: { windowState.navigation.path.append(.history(folderID: id)) }
+      )
     }
   }
 }
