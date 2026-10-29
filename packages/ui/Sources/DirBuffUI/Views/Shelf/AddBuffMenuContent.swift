@@ -33,38 +33,6 @@ struct FolderAddBuffMenuContent: View {
   }
 }
 
-/// Toolbar + Buff menu items until the + Buff popover lands: Temporary asks for a folder and puts
-/// Temporary on it; Soon buffs are listed disabled.
-struct ToolbarAddBuffMenuContent: View {
-  var onChooseFolder: (Buff) -> Void
-
-  var body: some View {
-    Button {
-      onChooseFolder(.temporary)
-    } label: {
-      Label {
-        Text(Buff.temporary.name)
-        Text("Choose Folder…")
-      } icon: {
-        Image(nsImage: buffMenuImage(.temporary))
-      }
-    }
-    Divider()
-    ForEach(Buff.allCases.filter { !$0.isAvailable }, id: \.self) { buff in
-      Button {
-      } label: {
-        Label {
-          Text(buff.name)
-          Text("Soon")
-        } icon: {
-          Image(nsImage: buffMenuImage(buff))
-        }
-      }
-      .disabled(true)
-    }
-  }
-}
-
 @ViewBuilder
 private func buffMenuButton(_ item: AddBuffItem, action: @escaping () -> Void) -> some View {
   Button(action: action) {

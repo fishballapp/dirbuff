@@ -77,7 +77,7 @@ struct MainContainerView: View {
       return
     }
     Task {
-      await appModel.addFolderWearingTemporary(url)
+      await appModel.addBuff(.temporary, toFolderAt: url)
       windowState.navigation = MainNavigation()
     }
   }

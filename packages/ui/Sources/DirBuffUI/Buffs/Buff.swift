@@ -17,8 +17,8 @@ public enum Buff: CaseIterable, Sendable, Hashable {
   /// One line of what it does, in + Buff.
   public var summary: String {
     switch self {
-    case .temporary: "Old things go, on their own"
-    case .backup: "Every version, to Drive"
+    case .temporary: "Clears old files automatically"
+    case .backup: "Every version, to Google Drive"
     case .organise: "Files into subfolders"
     case .search: "Find files by what’s in them"
     }

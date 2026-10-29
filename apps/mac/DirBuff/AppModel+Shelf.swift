@@ -22,14 +22,6 @@ extension AppModel {
     reports.first(where: { $0.folder.id == id })?.folder
   }
 
-  /// Adds `url` to DirBuff and puts Temporary on it in one step (toolbar + Buff › Temporary).
-  @discardableResult
-  func addFolderWearingTemporary(_ url: URL) async -> Folder? {
-    guard let folder = await addFolder(url) else { return nil }
-    await setTemporary(folder, true)
-    return reports.first(where: { $0.folder.id == folder.id })?.folder ?? folder
-  }
-
   /// Asks where a missing folder went, and points DirBuff at the folder the user chooses.
   func locate(folderID: Int64) async {
     guard let report = reports.first(where: { $0.folder.id == folderID }) else { return }

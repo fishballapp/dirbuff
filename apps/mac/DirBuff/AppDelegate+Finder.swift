@@ -18,14 +18,7 @@ extension AppDelegate {
     }
     switch action {
     case .addTemporary:
-      Task {
-        guard let folder = await appModel.addFolder(folderURL) else { return }
-        let defaults = TemporarySettings()
-        if folder.settings != defaults {
-          await appModel.save(defaults, for: folder)
-        }
-        await appModel.setTemporary(folder, true)
-      }
+      Task { await appModel.addBuff(.temporary, toFolderAt: folderURL) }
     case .takeTemporaryOff:
       Task {
         guard let id = appModel.report(for: folderURL)?.folder.id else { return }

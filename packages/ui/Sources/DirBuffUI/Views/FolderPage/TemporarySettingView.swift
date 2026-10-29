@@ -93,8 +93,6 @@ struct TemporarySettingView: View {
     case automatic
   }
 
-  private static let ageChoices = [7, 14, 30, 90]
-
   private var ruleSelection: RuleChoice {
     switch settings.rule {
     case .age: .age(days: settings.maxAgeDays)
@@ -105,8 +103,9 @@ struct TemporarySettingView: View {
   }
 
   private var ruleEntries: [SettingPopUp<RuleChoice>.Entry] {
-    let ages = Set(Self.ageChoices + (settings.rule == .age ? [settings.maxAgeDays] : []))
-    var entries: [SettingPopUp<RuleChoice>.Entry] = ages.sorted().map {
+    let ages = TemporarySettings.ageDayChoices(
+      including: settings.rule == .age ? settings.maxAgeDays : nil)
+    var entries: [SettingPopUp<RuleChoice>.Entry] = ages.map {
       .choice(.age(days: $0), title: "they're older than \(days($0))")
     }
     entries.append(.choice(.otherAge, title: "they're older than…"))

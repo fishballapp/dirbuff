@@ -51,6 +51,8 @@ public struct MarkedFolderIcon: View {
         if let mark {
           Mark(mark, size: size.markPoints)
             .offset(size.markOffset)
+            // Scales in when it arrives, as the surrounding animation times it.
+            .transition(.scale)
         }
       }
       .accessibilityHidden(true)

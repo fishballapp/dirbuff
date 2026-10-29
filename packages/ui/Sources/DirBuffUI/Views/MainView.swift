@@ -14,6 +14,8 @@ public struct MainView: View {
 
   @State private var filter: ShelfFilter
   @State private var searchQuery: String
+  /// The folder last opened, selected on the shelf when it comes back: + Buff's click adds to it.
+  @State private var selectedFolderID: Int64?
 
   public init(
     state: MainState,
@@ -21,6 +23,7 @@ public struct MainView: View {
     actions: ShelfActions = ShelfActions(),
     initialFilter: ShelfFilter = .allFolders,
     initialSearchQuery: String = "",
+    initialSelectedFolderID: Int64? = nil,
     destination: @escaping (MainRoute) -> AnyView = { _ in AnyView(EmptyView()) }
   ) {
     self.state = state
@@ -29,6 +32,7 @@ public struct MainView: View {
     self.destination = destination
     self._filter = State(initialValue: initialFilter)
     self._searchQuery = State(initialValue: initialSearchQuery)
+    self._selectedFolderID = State(initialValue: initialSelectedFolderID)
   }
 
   private var activeFilter: ShelfFilter {
@@ -65,6 +69,12 @@ public struct MainView: View {
     .onChange(of: state.folders.map(\.id)) { _, ids in
       let kept = navigation.keeping(folders: Set(ids))
       if kept != navigation { navigation = kept }
+    }
+    // However a folder's page opened (a tile, the switcher, Finder, a notification).
+    .onChange(of: navigation.path, initial: true) {
+      if let opened = navigation.path.compactMap(\.folderID).last {
+        selectedFolderID = opened
+      }
     }
   }
 
@@ -254,15 +264,10 @@ public struct MainView: View {
     .navigationSubtitle(state.toolbarSubtitle(for: activeFilter))
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
-        Menu {
-          ToolbarAddBuffMenuContent(onChooseFolder: actions.chooseFolderForBuff)
-        } label: {
-          Label("Buff", systemImage: "plus")
-            .labelStyle(.titleAndIcon)
-        }
-        .menuIndicator(.hidden)
-        .disabled(!state.mayClean)
-        .help("Add a buff to a folder")
+        AddBuffButton(
+          target: state.shelfFolders.first { $0.id == selectedFolderID }.map(state.addBuffTarget),
+          isEnabled: state.mayClean,
+          actions: actions)
       }
 
       ToolbarItem(placement: .primaryAction) {
@@ -286,6 +291,7 @@ public struct MainView: View {
             folder: folder,
             addBuffItems: state.addBuffItems(for: folder),
             canAddBuff: state.mayClean,
+            isSelected: folder.id == selectedFolderID,
             actions: actions,
             onOpen: { navigation.path = [.folder(folder.id)] }
           )
@@ -352,5 +358,13 @@ extension LicenceLine.Action {
     case .renew: "Renew…"
     case .checkNow: title
     }
+  }
+}
+
+extension MainRoute {
+  /// The folder whose page this is.
+  fileprivate var folderID: Int64? {
+    if case .folder(let id) = self { return id }
+    return nil
   }
 }
