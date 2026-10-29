@@ -7,7 +7,7 @@ public struct FinderBuff: Sendable, Equatable, Codable {
   public var buff: Buff
   /// The same setting sentence the app's tiles show, e.g. "Older than 14 days, to the Bin".
   public var setting: String
-  /// "12 items go tomorrow · 1.3 GB", the buff's next event or status.
+  /// "12 items to clear tomorrow · 1.3 GB", the buff's next event or status.
   public var nextEvent: String
 
   public init(buff: Buff, setting: String, nextEvent: String) {

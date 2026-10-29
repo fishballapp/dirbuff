@@ -95,7 +95,7 @@ public struct HistoryRunRow: Sendable, Equatable, Identifiable {
   }
 }
 
-/// A run's page: what it removed, folder by folder, and where each thing went.
+/// A run's page: what it removed, folder by folder, and where each thing ended up.
 public struct RunState: Sendable, Equatable {
   public var id: Int64
   public var buff: Buff
@@ -187,7 +187,7 @@ public struct RunFolderGroup: Sendable, Equatable, Identifiable {
   }
 }
 
-/// A file a run removed, and where it went.
+/// A file a run removed, and where it ended up.
 public struct RunFile: Sendable, Equatable, Identifiable {
   public var id: Int64
   public var name: String

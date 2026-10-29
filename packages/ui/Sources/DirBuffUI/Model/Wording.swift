@@ -1,8 +1,8 @@
 import Foundation
 
-/// "1 item goes", "3 items go".
-func itemsGo(_ count: Int) -> String {
-  count == 1 ? "1 item goes" : "\(count) items go"
+/// "1 item to clear", "3 items to clear".
+func itemsToClear(_ count: Int) -> String {
+  "\(items(count)) to clear"
 }
 
 /// "1 item", "3 items".

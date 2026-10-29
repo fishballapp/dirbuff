@@ -15,8 +15,8 @@ public struct AddedBuffCard: View {
   @State private var maxAgeDays: Int
 
   /// - Parameters:
-  ///   - maxAgeDays: The folder's Age, which a buff that just went on has from its defaults.
-  ///   - disposal: Where its things go, from the same defaults.
+  ///   - maxAgeDays: The folder's Age, which a buff that was just added has from its defaults.
+  ///   - disposal: What becomes of its things, from the same defaults.
   public init(
     folderName: String,
     folderPath: String,
@@ -51,8 +51,8 @@ public struct AddedBuffCard: View {
 
       VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 8) {
-          Text("Files go after")
-          Picker("Files go after", selection: maxAgeBinding) {
+          Text("Files are cleared after")
+          Picker("Files are cleared after", selection: maxAgeBinding) {
             ForEach(TemporarySettings.ageDayChoices(including: maxAgeDays), id: \.self) {
               Text(days($0)).tag($0)
             }

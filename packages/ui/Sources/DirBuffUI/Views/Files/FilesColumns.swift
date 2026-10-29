@@ -5,7 +5,7 @@ import SwiftUI
 enum FilesColumns {
   static let size: CGFloat = 90
   static let added: CGFloat = 110
-  static let goes: CGFloat = 130
+  static let clears: CGFloat = 130
   /// The Finder button's.
   static let actions: CGFloat = 32
   static let spacing: CGFloat = 8
@@ -20,7 +20,7 @@ struct FilesHead: View {
       Text("Name").frame(maxWidth: .infinity, alignment: .leading)
       Text("Size").frame(width: FilesColumns.size, alignment: .leading)
       Text("Added").frame(width: FilesColumns.added, alignment: .leading)
-      Text("Goes").frame(width: FilesColumns.goes, alignment: .leading)
+      Text("Clears").frame(width: FilesColumns.clears, alignment: .leading)
       Color.clear.frame(width: FilesColumns.actions)
     }
     .font(.subheadline)

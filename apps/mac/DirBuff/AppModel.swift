@@ -517,7 +517,7 @@ final class AppModel {
 
   /// Runs every folder, one after another: each run reads free space after the last one freed
   /// some. Each run counts from `hour`, not from when the timer fired, so it removes what the
-  /// forecast said would go at that hour. Polar is asked afterwards, not before: a build the last
+  /// forecast said would be cleared at that hour. Polar is asked afterwards, not before: a build the last
   /// answer covers needs no answer to run, and one it doesn't is paused and never runs. So the run
   /// starts on the hour, before the user can change what was shown.
   private func cleanUp(at hour: Date) async {

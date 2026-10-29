@@ -22,7 +22,7 @@ extension AppModel {
     await setTemporary(folder, false)
   }
 
-  /// Sets how old things get before they go, from the drop card's pop-up.
+  /// Sets how old things get before they are cleared, from the drop card's pop-up.
   func setMaxAge(days: Int, on folderID: Int64) async {
     guard let folder = folder(id: folderID) else { return }
     var settings = folder.settings

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The floating Buffs panel's content, what + Buff becomes torn off: a piece per buff, and a line
-/// on where they go.
+/// on where to drag them.
 public struct BuffsPanelView: View {
   public init() {}
 

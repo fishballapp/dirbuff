@@ -14,11 +14,11 @@ extension AppModel {
     if let notification = CleanUpNotification(runs: runs, reports: reports) {
       await notify(notification)
     }
-    await notifyWhatGoesTomorrow(now: hour)
+    await notifyWhatsClearedTomorrow(now: hour)
   }
 
-  /// Once a day per folder: "Downloads: 3 items go to the Bin tomorrow".
-  private func notifyWhatGoesTomorrow(now: Date) async {
+  /// Once a day per folder: "Downloads: 3 items will be moved to the Bin tomorrow".
+  private func notifyWhatsClearedTomorrow(now: Date) async {
     let calendar = Calendar.current
     for report in reports {
       guard let id = report.folder.id, let status = report.status else { continue }
@@ -34,7 +34,7 @@ extension AppModel {
         title: URL(fileURLWithPath: report.folder.path).lastPathComponent,
         body: report.folder.settings.disposal == .delete
           ? "\(items) will be deleted permanently tomorrow."
-          : "\(items) will go to the \(SystemBin.name) tomorrow.")
+          : "\(items) will be moved to the \(SystemBin.name) tomorrow.")
     }
   }
 

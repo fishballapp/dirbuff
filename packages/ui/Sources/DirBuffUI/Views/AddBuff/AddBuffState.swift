@@ -82,7 +82,7 @@ public enum BuffDropVerdict: Sendable, Equatable {
 }
 
 extension Disposal {
-  /// Where things go, as the card after a drop says it: "Moved to the Bin", "Deleted permanently".
+  /// What becomes of cleared things, as the card after a drop says it: "Moved to the Bin", "Deleted permanently".
   public func addedLine(binName: String) -> String {
     switch self {
     case .bin: "Moved to the \(binName)"

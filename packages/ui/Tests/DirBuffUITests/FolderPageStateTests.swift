@@ -78,33 +78,33 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
 }
 
 @Suite struct TemporaryCardSummary {
-  @Test func saysWhatGoesTomorrowAndWhy() {
+  @Test func saysWhatClearsTomorrowAndWhy() {
     let card = card(
       report(
         1, TemporarySettings(maxAgeDays: 14),
         upcoming: [(item("a", size: 1_000), oneDay), (item("b", size: 2_000), oneDay)]))
-    #expect(card?.headline == FolderSentence("2 items go tomorrow · \(bytes(3_000))"))
+    #expect(card?.headline == FolderSentence("2 items to clear tomorrow · \(bytes(3_000))"))
     let detail = card?.detail?.text ?? ""
     #expect(
       detail.hasPrefix(
-        "They haven't been added or changed for 14 days. They go at the clean-up at "))
+        "They haven't been added or changed for 14 days. They're cleared at the clean-up at "))
   }
 
-  @Test func saysWhenTheNextThingGoesWhenNothingGoesTomorrow() {
+  @Test func saysWhenTheNextThingClearsWhenNothingClearsTomorrow() {
     let card = card(
       report(1, TemporarySettings(maxAgeDays: 30), upcoming: [(item("a"), 5 * oneDay)]))
-    #expect(card?.headline == FolderSentence("Nothing goes tomorrow"))
+    #expect(card?.headline == FolderSentence("Nothing to clear tomorrow"))
     let detail = card?.detail?.text ?? ""
-    #expect(detail.hasPrefix("The next file goes on "))
+    #expect(detail.hasPrefix("The next file is cleared on "))
     #expect(detail.hasSuffix(", when it turns 30 days old."))
   }
 
-  @Test func saysWhenFilesWillGoWhenNothingIsDated() {
+  @Test func saysWhenFilesWillClearWhenNothingIsDated() {
     let card = card(report(1, items: [item("a")]))
-    #expect(card?.headline == FolderSentence("Nothing goes yet"))
+    #expect(card?.headline == FolderSentence("Nothing to clear yet"))
     #expect(
       card?.detail
-        == FolderSentence("Files go once they haven't been added or changed for 90 days."))
+        == FolderSentence("Files are cleared once they haven't been added or changed for 90 days."))
   }
 
   @Test func gaugesTheFolderAgainstItsSizeAndNamesItInTheSentence() {
@@ -112,7 +112,7 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
       report(
         1, TemporarySettings(rule: .size, sizeLimit: 100_000), items: [item("a", size: 47_000)])
     )
-    #expect(card?.headline == FolderSentence("Nothing goes yet"))
+    #expect(card?.headline == FolderSentence("Nothing to clear yet"))
     #expect(card?.detail?.pill == .before)
     #expect(card?.detail?.text.hasPrefix("holds \(bytes(47_000)). Past \(bytes(100_000)),") == true)
     #expect(card?.gauge?.kind == .level)
@@ -130,11 +130,12 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
     #expect(card?.gauge?.fraction == 1)
   }
 
-  @Test func saysEverythingGoesAtRestart() {
+  @Test func saysEverythingClearsAtRestart() {
     let card = card(report(1, TemporarySettings(rule: .emptyOnRestart), items: [item("a")]))
     #expect(
       card?.detail
-        == FolderSentence("Files here now go at the first clean-up after the Mac restarts."))
+        == FolderSentence(
+          "The files here now are cleared at the first clean-up after the Mac restarts."))
   }
 
   @Test func countsAClearingRunsItems() {
@@ -172,11 +173,11 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
     (
       TemporarySettings(rule: .size, sizeLimit: 1_000, disposal: .delete),
       "/Volumes/T7 Shuttle/Exports",
-      "What goes can't be put back, so the space on T7 Shuttle is free at once."
+      "What's cleared can't be put back, so the space on T7 Shuttle is free at once."
     ),
     (
       TemporarySettings(rule: .automatic), "\(home)/F",
-      "What goes can't be put back, so the space on Macintosh HD is free at once."
+      "What's cleared can't be put back, so the space on Macintosh HD is free at once."
     ),
     (
       TemporarySettings(rule: .size, sizeLimit: 1_000), "\(home)/F",

@@ -70,7 +70,7 @@ extension Samples {
   static let downloadsPath = "\(pageHome)/Downloads"
   static let exportsPath = "/Volumes/T7 Shuttle/Exports"
 
-  /// 214 items, 12 of them turning 14 days old at 13:30 tomorrow, so they go at 14:00.
+  /// 214 items, 12 of them turning 14 days old at 13:30 tomorrow, so they clear at 14:00.
   static let pageDownloadsItems =
     pageFiles(
       1, in: downloadsPath, named: "keynote-export.zip", age: 13 * 86_400 + 420,

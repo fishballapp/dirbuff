@@ -1,8 +1,8 @@
 # DirBuff
 
 **`/tmp` for your own folders.** A macOS menu-bar app that gives ordinary Finder folders opt-in
-capabilities. Right-click a folder → **Add to DirBuff…**, switch on **Temporary**, and DirBuff
-clears old things out of it from then on.
+capabilities, called buffs. Right-click a folder → **DirBuff: Add Buff › Temporary**, or drag the
+buff from DirBuff onto it, and DirBuff clears old files out of it from then on.
 
 Download DirBuff, with automatic updates, from [dirbuff.fishball.app](https://dirbuff.fishball.app)
 (price and licence there) or from [Releases](https://github.com/fishballapp/dirbuff/releases).
@@ -10,8 +10,8 @@ Licensed under [GPL-3.0](LICENSE).
 
 ## Temporary
 
-A Temporary folder has one rule. An item goes when it says so, at the next clean-up: on the hour,
-by the clock, and at no other time.
+A Temporary folder has one rule. An item is cleared when the rule says so, at the next clean-up:
+on the hour, by the clock, and at no other time.
 
 | Rule | Behaviour |
 | --- | --- |
@@ -22,14 +22,14 @@ by the clock, and at no other time.
 
 - Each top-level item is judged on its own. A subfolder counts as its newest content; a package
   (`.app`, `.photoslibrary`) is one item. Hidden items are left alone.
-- Items go to the Bin, so you can undo (Finder's Put Back works too), or are deleted permanently,
-  per folder.
+- Items are moved to the Bin, so you can put them back (Finder's Put Back works too), or deleted
+  permanently, per folder.
 - Your home folder, its Library, system folders and the top of a disk can't be added: clearing them would break the Mac.
 - DirBuff lists a folder's items and their dates. It never reads a file's contents.
 
 ## How it is built
 
-Every capability runs the same pipeline: **snapshot** the folder → **plan** what goes → **preview**
+Every capability runs the same pipeline: **snapshot** the folder → **plan** what clears → **preview**
 → **apply** → **journal** for undo. Only the engine touches your files.
 
 | Path | What |

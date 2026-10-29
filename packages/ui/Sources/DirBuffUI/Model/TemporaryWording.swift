@@ -16,30 +16,44 @@ func temporarySetting(_ settings: TemporarySettings, binName: String) -> String 
   return "\(rule), \(destination)"
 }
 
-/// What Temporary does next, in numbers: the items that go together soonest, when, and their
-/// size ("12 items go tomorrow · 1.3 GB"), or "Nothing goes yet".
+/// What Temporary does next, in numbers: the items that clear together soonest, when, and their
+/// size ("12 items to clear tomorrow · 1.3 GB"), or "Nothing to clear yet".
 func temporaryStatus(
   _ status: Engine.FolderStatus, settings: TemporarySettings, now: Date, calendar: Calendar
 ) -> String {
   let cleanUps = status.cleanUps(now: now, calendar: calendar)
   guard let soonest = cleanUps.first?.at else {
-    // Empty on restart has no date: everything dated goes at the first clean-up after a restart.
-    let atRestart = status.items.filter { $0.freshness != nil }
-    guard settings.rule == .emptyOnRestart, !atRestart.isEmpty else { return "Nothing goes yet" }
-    return "\(itemsGo(atRestart.count)) at restart · \(bytes(atRestart.size))"
+    let atRestart = status.clearedAtRestart(settings)
+    guard !atRestart.isEmpty else { return "Nothing to clear yet" }
+    return "\(itemsToClear(atRestart.count)) at restart · \(bytes(atRestart.size))"
   }
-  // Today's clean-ups are told apart by the minute; later ones by the day.
-  let together = cleanUps.filter {
-    isTodays(cleanUp: soonest, now: now, calendar: calendar)
-      ? $0.at == soonest : calendar.isDate($0.at, inSameDayAs: soonest)
-  }.map(\.item)
+  let together = soonestTogether(cleanUps, now: now, calendar: calendar).map(\.item)
   return
-    "\(itemsGo(together.count)) \(cleanUpFromNow(soonest, now: now, calendar: calendar)) · \(bytes(together.size))"
+    "\(itemsToClear(together.count)) \(cleanUpFromNow(soonest, now: now, calendar: calendar)) · \(bytes(together.size))"
+}
+
+/// The items cleared first, together, as the status line counts them: today's by the minute,
+/// later ones by the day.
+func soonestTogether(
+  _ cleanUps: [(item: Item, at: Date)], now: Date, calendar: Calendar
+) -> [(item: Item, at: Date)] {
+  guard let soonest = cleanUps.first?.at else { return [] }
+  let byMinute = isTodays(cleanUp: soonest, now: now, calendar: calendar)
+  return cleanUps.filter {
+    byMinute ? $0.at == soonest : calendar.isDate($0.at, inSameDayAs: soonest)
+  }
 }
 
 /// "1 day", "14 days".
 func days(_ count: Int) -> String {
   count == 1 ? "1 day" : "\(count) days"
+}
+
+extension Engine.FolderStatus {
+  /// Empty on restart has no date: everything dated clears at the first clean-up after a restart.
+  func clearedAtRestart(_ settings: TemporarySettings) -> [Item] {
+    settings.rule == .emptyOnRestart ? items.filter { $0.freshness != nil } : []
+  }
 }
 
 extension [Item] {

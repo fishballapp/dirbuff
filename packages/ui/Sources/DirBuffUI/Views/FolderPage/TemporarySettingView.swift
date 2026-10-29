@@ -1,9 +1,9 @@
 import DirBuffCore
 import SwiftUI
 
-/// Temporary's one setting as a sentence with pop-up buttons in it: "Files go when [they're older
-/// than 14 days], and [move to the Bin].", with a line under it on what that means. A choice takes
-/// effect at once, except that starting to delete permanently asks first.
+/// Temporary's one setting as a sentence with pop-up buttons in it: "Files are cleared when
+/// [they're older than 14 days], and [moved to the Bin].", with a line under it on what that
+/// means. A choice takes effect at once, except that starting to delete permanently asks first.
 struct TemporarySettingView: View {
   var settings: TemporarySettings
   var meaning: String
@@ -19,9 +19,9 @@ struct TemporarySettingView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       SentenceFlow {
-        words("Files go when")
+        words("Files are cleared when")
         SettingPopUp(entries: ruleEntries, selection: ruleSelection, onChoose: chooseRule)
-          .accessibilityLabel("Files go when")
+          .accessibilityLabel("Files are cleared when")
         if settings.rule == .size || settings.rule == .automatic {
           Text(",").hugsPrevious()
           words("oldest first,")
@@ -31,7 +31,7 @@ struct TemporarySettingView: View {
         words("and")
         if settings.rule == .automatic {
           // The disk rule always deletes: binning frees no space.
-          words("are deleted permanently")
+          words("deleted permanently")
         } else {
           SettingPopUp(
             entries: disposalEntries, selection: settings.disposal, onChoose: chooseDisposal
@@ -71,7 +71,7 @@ struct TemporarySettingView: View {
       Button("Delete Permanently") { onChange(next) }
       Button("Cancel", role: .cancel) {}
     } message: { _ in
-      Text("They won't go to the \(binName), so they can't be put back.")
+      Text("They won't be moved to the \(binName), so they can't be put back.")
     }
   }
 
@@ -143,14 +143,14 @@ struct TemporarySettingView: View {
     }
   }
 
-  // MARK: - Where files go
+  // MARK: - What happens to cleared files
 
   private var disposalEntries: [SettingPopUp<Disposal>.Entry] {
     [
-      .choice(.bin, title: "move to the \(binName)"),
+      .choice(.bin, title: "moved to the \(binName)"),
       .separator,
       .choice(
-        .delete, title: "are deleted permanently",
+        .delete, title: "deleted permanently",
         subtitle: "Frees the space at once. Can't be put back."),
     ]
   }
@@ -194,8 +194,8 @@ private enum Amount: Identifiable {
 
   var prompt: String {
     switch self {
-    case .age: "Files go when they're older than"
-    case .size: "Files go when the folder is over"
+    case .age: "Files are cleared when they're older than"
+    case .size: "Files are cleared when the folder is over"
     }
   }
 
@@ -214,8 +214,8 @@ private enum Amount: Identifiable {
   }
 }
 
-/// Asks for a rule's amount, finishing the sentence: "Files go when they're older than [45]
-/// days".
+/// Asks for a rule's amount, finishing the sentence: "Files are cleared when they're older
+/// than [45] days".
 private struct AmountSheet: View {
   var amount: Amount
   var onCancel: () -> Void

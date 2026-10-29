@@ -48,7 +48,7 @@ private func groups(_ reports: [FolderReport], at moment: Date = now) -> [Foreca
   }
 
   @Test func countsDownToMidnightsCleanUp() {
-    // Due at 23:30, so it goes at midnight: still today's last clean-up, not "Tomorrow".
+    // Due at 23:30, so it clears at midnight: still today's last clean-up, not "Tomorrow".
     let forecast = groups([report(1, upcoming: [(item("late"), 15.5 * 3_600)])])
     #expect(forecast.map(\.when) == ["In 16 hr"])
   }
@@ -107,11 +107,11 @@ private func groups(_ reports: [FolderReport], at moment: Date = now) -> [Foreca
     return FolderPreview(status, settings: settings, now: now, calendar: calendar, binName: "Bin")
   }
 
-  @Test func countsWhatGoesThisWeekOnce() {
-    #expect(preview(dueNow: [item("a"), item("b")]).headline == "2 items go in 1 hr")
+  @Test func countsWhatClearsThisWeekOnce() {
+    #expect(preview(dueNow: [item("a"), item("b")]).headline == "2 items to clear in 1 hr")
     #expect(
       preview(dueNow: [item("a")], upcoming: [(item("b"), 2 * oneDay)]).headline
-        == "2 items go this week")
+        == "2 items to clear this week")
   }
 
   @Test func saysWhatHappensToEachGroup() {
@@ -123,10 +123,10 @@ private func groups(_ reports: [FolderReport], at moment: Date = now) -> [Foreca
       ])
   }
 
-  @Test func saysWhenTheOldestGoesWhenNothingGoesThisWeek() {
+  @Test func saysWhenTheOldestClearsWhenNothingClearsThisWeek() {
     #expect(
       preview(upcoming: [(item("a"), 20 * oneDay)]).headline
-        == "Nothing goes this week. The oldest item goes in 20 days.")
-    #expect(preview().headline == "Nothing goes this week.")
+        == "Nothing to clear this week. The oldest item is cleared in 20 days.")
+    #expect(preview().headline == "Nothing to clear this week.")
   }
 }

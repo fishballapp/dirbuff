@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A group of files that go together, on a Well band that collapses. A long group shows a few
+/// A group of files cleared together, on a Well band that collapses. A long group shows a few
 /// files, then "and 8 more", which opens the rest.
 struct FilesGroupView: View {
   /// Files a long group shows before "and N more".

@@ -33,16 +33,18 @@ private func status(daysOld: [Double], settings: TemporarySettings) -> Engine.Fo
       status: status(daysOld: [88.9, 88.8, 88.7, 20], settings: settings), now: now,
       calendar: calendar, binName: "Bin")
     #expect(placement.setting == "90 days")
-    #expect(placement.sentence == "Files older than 90 days go to the Bin; 3 go tomorrow.")
+    #expect(
+      placement.sentence == "Files older than 90 days are moved to the Bin; 3 to clear tomorrow.")
   }
 
-  @Test func saysNothingGoesFromAFolderWithNothingInIt() {
+  @Test func saysNothingClearsFromAFolderWithNothingInIt() {
     let settings = TemporarySettings()
     let placement = WelcomePlacement(
       folder: downloads, folderID: 1, settings: settings,
       status: status(daysOld: [], settings: settings), now: now, calendar: calendar,
       binName: "Bin")
-    #expect(placement.sentence == "Files older than 90 days go to the Bin; nothing goes yet.")
+    #expect(
+      placement.sentence == "Files older than 90 days are moved to the Bin; nothing to clear yet.")
   }
 
   @Test func saysOnlyWhatTheSettingDoesForAFolderItCouldntRead() {
@@ -53,13 +55,42 @@ private func status(daysOld: [Double], settings: TemporarySettings) -> Engine.Fo
     #expect(placement.sentence == "Files older than 30 days are deleted permanently.")
   }
 
-  @Test func countsOneItemAsGoing() {
+  @Test func countsOnlyTheSoonestCleanUpWhenItIsToday() {
+    let settings = TemporarySettings()
+    let placement = WelcomePlacement(
+      folder: downloads, folderID: 1, settings: settings,
+      status: status(daysOld: [89.97, 89.9, 89.89], settings: settings), now: now,
+      calendar: calendar, binName: "Bin")
+    #expect(placement.sentence.hasSuffix("1 to clear in 1 hr."))
+  }
+
+  @Test func countsWhatClearsAtRestartForEmptyOnRestart() {
+    let settings = TemporarySettings(rule: .emptyOnRestart, disposal: .delete)
+    let placement = WelcomePlacement(
+      folder: downloads, folderID: 1, settings: settings,
+      status: status(daysOld: [1, 2, 3], settings: settings), now: now, calendar: calendar,
+      binName: "Bin")
+    #expect(placement.setting == "At restart")
+    #expect(
+      placement.sentence == "Files are deleted permanently at restart; 3 to clear at restart.")
+  }
+
+  @Test func saysNothingClearsYetForAnEmptyEmptyOnRestartFolder() {
+    let settings = TemporarySettings(rule: .emptyOnRestart)
+    let placement = WelcomePlacement(
+      folder: downloads, folderID: 1, settings: settings,
+      status: status(daysOld: [], settings: settings), now: now, calendar: calendar,
+      binName: "Bin")
+    #expect(placement.sentence == "Files are moved to the Bin at restart; nothing to clear yet.")
+  }
+
+  @Test func countsOneItemToClear() {
     let settings = TemporarySettings()
     let placement = WelcomePlacement(
       folder: downloads, folderID: 1, settings: settings,
       status: status(daysOld: [88.9], settings: settings), now: now, calendar: calendar,
       binName: "Bin")
-    #expect(placement.sentence.hasSuffix("1 goes tomorrow."))
+    #expect(placement.sentence.hasSuffix("1 to clear tomorrow."))
   }
 }
 
@@ -92,7 +123,7 @@ private func status(daysOld: [Double], settings: TemporarySettings) -> Engine.Fo
     let reports = [wearing(downloads.path, TemporarySettings(maxAgeDays: 30))]
     let placement = state(reports, chosen: downloads).chosenPlacement
     #expect(placement?.setting == "30 days")
-    #expect(placement?.sentence.hasPrefix("Files older than 30 days go to the Bin") == true)
+    #expect(placement?.sentence.hasPrefix("Files older than 30 days are moved to the Bin") == true)
   }
 
   @Test func dropsTheTileOnceTheFolderIsPlainAgain() {

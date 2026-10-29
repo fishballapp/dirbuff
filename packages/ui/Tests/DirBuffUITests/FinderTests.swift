@@ -203,7 +203,7 @@ private func makeSnapshot(
       menu.items == [
         FinderMenuItem(
           title: "Temporary",
-          subtitle: "Things go after 90 days, to the Bin",
+          subtitle: "Files are cleared after 90 days, moved to the Bin",
           buff: .temporary,
           action: .addTemporary,
           isEnabled: true
@@ -273,13 +273,13 @@ private func makeSnapshot(
         .sectionHeader("Downloads wears"),
         FinderMenuItem(
           title: "Temporary \u{00b7} Older than 14 days, to the Bin",
-          subtitle: "2 items go tomorrow \u{00b7} \(bytes(1_300_000_000))",
+          subtitle: "2 items to clear tomorrow \u{00b7} \(bytes(1_300_000_000))",
           buff: .temporary,
           action: .openFolder,
           isEnabled: true
         ),
         FinderMenuItem(title: "Change\u{2026}", action: .change),
-        FinderMenuItem(title: "What Goes Next\u{2026}", action: .whatGoesNext),
+        FinderMenuItem(title: "What's Cleared Next\u{2026}", action: .whatsClearedNext),
         FinderMenuItem(title: "Take Temporary Off", action: .takeTemporaryOff),
         .separator,
         .sectionHeader("Add"),
@@ -385,7 +385,7 @@ private func makeSnapshot(
       #expect(FinderAction.addTemporary.opensSettings(under: inactiveLicence))
       #expect(!FinderAction.takeTemporaryOff.opensSettings(under: inactiveLicence))
       #expect(!FinderAction.change.opensSettings(under: inactiveLicence))
-      #expect(!FinderAction.whatGoesNext.opensSettings(under: inactiveLicence))
+      #expect(!FinderAction.whatsClearedNext.opensSettings(under: inactiveLicence))
       #expect(!FinderAction.openFolder.opensSettings(under: inactiveLicence))
     }
 

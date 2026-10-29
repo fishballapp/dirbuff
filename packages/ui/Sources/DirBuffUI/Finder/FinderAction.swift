@@ -9,8 +9,8 @@ public enum FinderAction: String, Sendable, Equatable, CaseIterable {
   case takeTemporaryOff = "take-temporary-off"
   /// Opens the folder in DirBuff to change its buff settings.
   case change = "change"
-  /// Opens the folder in DirBuff to see what goes next.
-  case whatGoesNext = "what-goes-next"
+  /// Opens the folder in DirBuff to see what is cleared next.
+  case whatsClearedNext = "what-goes-next"
   /// Opens the folder in DirBuff.
   case openFolder = "folder"
 
@@ -42,7 +42,7 @@ public enum FinderAction: String, Sendable, Equatable, CaseIterable {
     switch self {
     case .addTemporary:
       !licence.mayClean
-    case .takeTemporaryOff, .change, .whatGoesNext, .openFolder:
+    case .takeTemporaryOff, .change, .whatsClearedNext, .openFolder:
       false
     }
   }

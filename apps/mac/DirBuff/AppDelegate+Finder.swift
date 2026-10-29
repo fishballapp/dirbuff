@@ -24,12 +24,12 @@ extension AppDelegate {
         guard let id = appModel.report(for: folderURL)?.folder.id else { return }
         await appModel.confirmTakeOff(.temporary, on: id)
       }
-    case .change, .whatGoesNext, .openFolder:
+    case .change, .whatsClearedNext, .openFolder:
       Task {
         if appModel.report(for: folderURL) == nil {
           guard await appModel.addFolder(folderURL) != nil else { return }
         }
-        if action == .whatGoesNext, let id = appModel.report(for: folderURL)?.folder.id {
+        if action == .whatsClearedNext, let id = appModel.report(for: folderURL)?.folder.id {
           windows.openMain(route: .files(id))
         } else {
           windows.openMain(selecting: folderURL)

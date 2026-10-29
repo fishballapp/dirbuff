@@ -136,7 +136,7 @@ final class FinderSyncExtension: FIFinderSync {
     case .addTemporary: #selector(addTemporaryAction(_:))
     case .takeTemporaryOff: #selector(takeTemporaryOffAction(_:))
     case .change: #selector(changeAction(_:))
-    case .whatGoesNext: #selector(whatGoesNextAction(_:))
+    case .whatsClearedNext: #selector(whatsClearedNextAction(_:))
     case .openFolder: #selector(openFolderAction(_:))
     }
   }
@@ -177,8 +177,8 @@ final class FinderSyncExtension: FIFinderSync {
     perform(.change)
   }
 
-  @objc private func whatGoesNextAction(_ sender: AnyObject?) {
-    perform(.whatGoesNext)
+  @objc private func whatsClearedNextAction(_ sender: AnyObject?) {
+    perform(.whatsClearedNext)
   }
 
   @objc private func openFolderAction(_ sender: AnyObject?) {

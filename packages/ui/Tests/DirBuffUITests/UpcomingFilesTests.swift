@@ -62,7 +62,7 @@ private let dateStyle = Date.FormatStyle(calendar: calendar, timeZone: calendar.
     #expect(groups[2].summary == "1 item · \(bytes(1_000)) · from \(dayAndDate(now + 9 * oneDay))")
   }
 
-  @Test func namesWhenEachFileGoesAndWasAdded() {
+  @Test func namesWhenEachFileClearsAndWasAdded() {
     let old = Item(
       url: URL(fileURLWithPath: "\(home)/F/old"), freshness: now - 20 * oneDay, size: 5)
     let files = preview(
@@ -70,7 +70,7 @@ private let dateStyle = Date.FormatStyle(calendar: calendar, timeZone: calendar.
     ).files.flatMap(\.files)
     let nine = clock(now.addingTimeInterval(3_600))
     #expect(
-      files.map(\.goes) == [
+      files.map(\.clears) == [
         "Today, \(nine)", "\(weekday(now + 2 * oneDay)), \(nine)",
         "\(dayAndDate(now + 9 * oneDay)), \(nine)",
       ])
@@ -109,7 +109,7 @@ private let dateStyle = Date.FormatStyle(calendar: calendar, timeZone: calendar.
     ).files
     #expect(groups.map(\.kind) == [.restart])
     #expect(groups[0].title == "At restart")
-    #expect(groups[0].files.map(\.goes) == ["At restart"])
+    #expect(groups[0].files.map(\.clears) == ["At restart"])
   }
 
   @Test func listsAFileAlreadyDueOnlyAtTheNextCleanUp() {
@@ -160,7 +160,7 @@ private let dateStyle = Date.FormatStyle(calendar: calendar, timeZone: calendar.
       ),
       (.isPaused, "Cleaning is paused", "No files will be cleaned while it's paused."),
       (.isNotTemporary, "Temporary is off for this folder", "No files will be cleaned from it."),
-      (.nothingGoesNext, "No files due for cleaning", "Files will appear here when they're due."),
+      (.nothingDue, "No files due for cleaning", "Files will appear here when they're due."),
     ])
   func saysWhyInTwoLines(emptiness: FilesEmptiness, title: String, detail: String) {
     #expect(emptiness.title == title)
@@ -176,12 +176,12 @@ private let dateStyle = Date.FormatStyle(calendar: calendar, timeZone: calendar.
     ).folders[0].filesEmptiness(isPaused: isPaused)
   }
 
-  @Test func isNilWhileSomethingGoesNext() {
+  @Test func isNilWhileSomethingClearsNext() {
     #expect(folder(report(1, dueNow: [item("a")])) == nil)
   }
 
-  @Test func saysNothingGoesNext() {
-    #expect(folder(report(1)) == .nothingGoesNext)
+  @Test func saysNothingIsDue() {
+    #expect(folder(report(1)) == .nothingDue)
   }
 
   @Test func saysItCantReadAnUnreadableFolder() {

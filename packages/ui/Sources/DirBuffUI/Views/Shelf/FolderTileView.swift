@@ -269,7 +269,7 @@ struct FolderTileView: View {
         .buttonStyle(.plain)
 
         // Outside the row's button, so a click opens Settings rather than the folder.
-        if case .paused(let reason) = row.state {
+        if let reason = row.state.pillReason {
           PausedPill(reason: reason, onOpenLicence: actions.openLicenceSettings)
             .padding(.leading, 42)
             .padding(.top, 8)

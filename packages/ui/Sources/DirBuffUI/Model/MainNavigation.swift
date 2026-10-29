@@ -44,7 +44,7 @@ public enum MainRoot: Hashable, Sendable {
 public enum MainRoute: Hashable, Sendable {
   /// A folder's page: its buffs as cards.
   case folder(Int64)
-  /// What goes next from a folder.
+  /// What is cleared next from a folder.
   case files(Int64)
   /// History's runs; with a folder, only the runs that touched it.
   case history(folderID: Int64?)

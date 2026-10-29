@@ -43,13 +43,13 @@ public struct CleanUpNotification: Sendable, Equatable {
   /// "Downloads", "Downloads and Screenshots", or "Downloads, Screenshots and 1 more" when the
   /// clean-up moved things out of several folders, in the order the folders were added.
   public var title: String
-  /// "5 items went to the Bin · 2.3 GB".
+  /// "5 items moved to the Bin · 2.3 GB".
   public var body: String
   public var actions: [Action]
   /// The run Show and tapping the notification open in History; nil if the clean-up couldn't
   /// record one, and Show opens History itself.
   public var runID: Int64?
-  /// The journal entries Put Back undoes: what went to the Bin and isn't back yet. Empty when
+  /// The journal entries Put Back undoes: what was moved to the Bin and isn't back yet. Empty when
   /// nothing can be put back, as when everything was deleted permanently.
   public var putBackEntryIDs: [Int64]
 
@@ -79,10 +79,10 @@ public struct CleanUpNotification: Sendable, Equatable {
 
     let binned = entries.count { $0.disposal == .bin }
     let deleted = entries.count - binned
-    let went = binned > 0 ? "\(items(binned)) went to the \(binName)" : nil
-    let gone =
+    let binnedLine = binned > 0 ? "\(items(binned)) moved to the \(binName)" : nil
+    let deletedLine =
       deleted > 0 ? "\(items(deleted)) \(deleted == 1 ? "was" : "were") deleted permanently" : nil
-    let what = [went, gone].compactMap { $0 }.joined(separator: ", ")
+    let what = [binnedLine, deletedLine].compactMap { $0 }.joined(separator: ", ")
     body = "\(what) · \(bytes(entries.reduce(0) { $0 + $1.size }))"
 
     runID = entries.lazy.compactMap(\.runID).first

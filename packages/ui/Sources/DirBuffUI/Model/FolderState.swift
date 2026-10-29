@@ -27,7 +27,7 @@ public struct BuffRow: Sendable, Equatable, Identifiable {
   public var id: Buff { buff }
   public var buff: Buff
   public var state: BuffState
-  /// "12 items go tomorrow · 1.3 GB", "macOS took away access".
+  /// "12 items to clear tomorrow · 1.3 GB", "macOS took away access".
   public var status: String
   /// "Older than 14 days, to the Bin".
   public var setting: String
@@ -61,6 +61,26 @@ extension BuffState {
     if case .paused = self { return true }
     return false
   }
+
+  /// Why the row wears the Paused pill; nil when it doesn't. A folder DirBuff can't find or open
+  /// does nothing too, so it wears the pill beside its callout.
+  public var pillReason: PillReason? {
+    switch self {
+    case .atRest, .working: nil
+    case .paused(let reason): .paused(reason)
+    case .needsYou(.locate): .folderMissing
+    case .needsYou(.giveAccess): .accessLost
+    }
+  }
+}
+
+/// What a Paused pill's tooltip says.
+public enum PillReason: Sendable, Equatable {
+  case paused(PauseReason)
+  /// DirBuff can't find the folder.
+  case folderMissing
+  /// macOS took away DirBuff's access to the folder.
+  case accessLost
 }
 
 /// Why a buff is paused.
@@ -145,9 +165,9 @@ private func temporaryRow(
 
   let licencePause = BuffState.paused(.licence(licence.line?.action ?? .buy))
   // A trial or licence end takes Temporary off but keeps the folder's buff, paused.
-  if folder.turnedOffByLicence { return row(licencePause, "Nothing goes while paused") }
+  if folder.turnedOffByLicence { return row(licencePause, "Nothing is cleared while paused") }
   guard folder.wearsTemporary else { return nil }
-  guard licence.mayClean else { return row(licencePause, "Nothing goes while paused") }
+  guard licence.mayClean else { return row(licencePause, "Nothing is cleared while paused") }
   switch report.reading {
   case .failure(.noAccess):
     return row(

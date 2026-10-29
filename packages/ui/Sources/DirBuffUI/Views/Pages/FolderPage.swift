@@ -201,7 +201,7 @@ public struct FolderPage: View {
     }
   }
 
-  /// "older than 30 days now · nothing goes tomorrow": what changed, then the card's new line.
+  /// "older than 30 days now · nothing to clear tomorrow": what changed, then the card's new line.
   private func toastLine(_ toast: SettingsToast) -> String {
     guard let headline = state.cards.first(where: { $0.buff == .temporary })?.headline.text,
       let first = headline.first

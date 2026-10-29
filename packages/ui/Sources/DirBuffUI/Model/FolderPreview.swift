@@ -2,7 +2,7 @@ import DirBuffCore
 import DirBuffKit
 import Foundation
 
-/// Items that go at the same moment in the same way: "In 23 min · Move to Bin", "Tomorrow · Move
+/// Items cleared at the same moment in the same way: "In 23 min · Move to Bin", "Tomorrow · Move
 /// to Bin".
 public struct ForecastGroup: Sendable, Equatable, Identifiable {
   public var id: String { header }
@@ -13,7 +13,7 @@ public struct ForecastGroup: Sendable, Equatable, Identifiable {
   public var action: String
   public var header: String { "\(when) · \(action)" }
   public var isPermanent: Bool
-  /// Empty on restart's group: it goes at the first clean-up after a restart, whenever that is.
+  /// Empty on restart's group: it is cleared at the first clean-up after a restart, whenever that is.
   public var isAtRestart: Bool
   public var items: [URL]
   public var names: [String] { items.map(\.lastPathComponent) }
@@ -25,7 +25,7 @@ public struct ForecastGroup: Sendable, Equatable, Identifiable {
 public struct FolderPreview: Sendable, Equatable {
   public var headline: String
   public var forecast: [ForecastGroup]
-  /// What the folder's files page lists: every file still to go, grouped by when.
+  /// What the folder's files page lists: every file still to be cleared, grouped by when.
   public var files: [UpcomingGroup]
 
   public static let loading = FolderPreview(headline: "Looking through the folder…", forecast: [])
@@ -53,13 +53,13 @@ public struct FolderPreview: Sendable, Equatable {
     let atNext = cleanUps.count { $0.at == next }
     let headline = {
       if atNext > 0, atNext == thisWeek {
-        return "\(itemsGo(thisWeek)) in \(timeLeft(until: next, now: now))"
+        return "\(itemsToClear(thisWeek)) in \(timeLeft(until: next, now: now))"
       }
-      if thisWeek > 0 { return "\(itemsGo(thisWeek)) this week" }
+      if thisWeek > 0 { return "\(itemsToClear(thisWeek)) this week" }
       let later = cleanUps.first.map {
-        " The oldest item goes \(cleanUpFromNow($0.at, now: now, calendar: calendar))."
+        " The oldest item is cleared \(cleanUpFromNow($0.at, now: now, calendar: calendar))."
       }
-      return "Nothing goes this week.\(later ?? "")"
+      return "Nothing to clear this week.\(later ?? "")"
     }()
     self.init(
       headline: headline,
@@ -69,7 +69,7 @@ public struct FolderPreview: Sendable, Equatable {
   }
 }
 
-/// A file that is still to go, as a row of the folder's files page.
+/// A file that is still to be cleared, as a row of the folder's files page.
 public struct UpcomingFile: Sendable, Equatable, Identifiable {
   public var id: URL { url }
   public var url: URL
@@ -77,14 +77,14 @@ public struct UpcomingFile: Sendable, Equatable, Identifiable {
   /// When it last arrived or changed: "Sat 10 Oct".
   public var added: String
   /// "Mon, 14:00", or "At restart".
-  public var goes: String
+  public var clears: String
 
   public var name: String { url.lastPathComponent }
   public var size: String { bytes(byteCount) }
 }
 
-/// Files that go together, in the order the files page lists them: the next clean-up that takes
-/// anything, the rest of the next day something goes, then everything later.
+/// Files cleared together, in the order the files page lists them: the next clean-up that takes
+/// anything, the rest of the next day something is cleared, then everything later.
 public struct UpcomingGroup: Sendable, Equatable, Identifiable {
   public enum Kind: Sendable, Hashable {
     case nextCleanUp
@@ -128,14 +128,14 @@ public enum FilesEmptiness: Sendable, Equatable {
   case cantRead
   case isPaused
   case isNotTemporary
-  case nothingGoesNext
+  case nothingDue
 
   public var title: String {
     switch self {
     case .cantRead: "Can't read this folder"
     case .isPaused: "Cleaning is paused"
     case .isNotTemporary: "Temporary is off for this folder"
-    case .nothingGoesNext: "No files due for cleaning"
+    case .nothingDue: "No files due for cleaning"
     }
   }
 
@@ -144,7 +144,7 @@ public enum FilesEmptiness: Sendable, Equatable {
     case .cantRead: "DirBuff needs access to show and clean its files."
     case .isPaused: "No files will be cleaned while it's paused."
     case .isNotTemporary: "No files will be cleaned from it."
-    case .nothingGoesNext: "Files will appear here when they're due."
+    case .nothingDue: "Files will appear here when they're due."
     }
   }
 }
@@ -193,12 +193,12 @@ extension MainFolder {
     if isPaused { return .isPaused }
     if !isReadable { return .cantRead }
     if !isTemporary { return .isNotTemporary }
-    return preview.files.isEmpty ? .nothingGoesNext : nil
+    return preview.files.isEmpty ? .nothingDue : nil
   }
 }
 
 /// Every file the folder's rule will take, grouped by when: the next clean-up that takes
-/// anything, the rest of the next day something goes, and everything later. Empty on restart's
+/// anything, the rest of the next day something is cleared, and everything later. Empty on restart's
 /// files have no time, so they are one group of their own.
 func upcomingGroups(
   _ status: Engine.FolderStatus,
@@ -211,7 +211,7 @@ func upcomingGroups(
   }
   let timed = timedGroups(cleanUps, now: now, calendar: calendar)
   guard settings.rule == .emptyOnRestart else { return timed }
-  // A file already due goes at the next clean-up, so it isn't listed again for the restart.
+  // A file already due is cleared at the next clean-up, so it isn't listed again for the restart.
   let timedURLs = Set(cleanUps.map(\.item.url))
   let atRestart = status.items.filter { $0.freshness != nil && !timedURLs.contains($0.url) }
   guard !atRestart.isEmpty else { return timed }
@@ -221,7 +221,7 @@ func upcomingGroups(
       title: "At restart",
       detail: nil,
       files: atRestart.sorted { $0.url.isNamedBefore($1.url) }.map {
-        file($0, goes: "At restart", calendar: calendar)
+        file($0, clears: "At restart", calendar: calendar)
       })
   ]
 }
@@ -238,7 +238,7 @@ private func timedGroups(
 
   func files(_ cleanUps: [(item: Item, at: Date)]) -> [UpcomingFile] {
     cleanUps.map { item, at in
-      file(item, goes: goes(at, now: now, calendar: calendar), calendar: calendar)
+      file(item, clears: clearTime(at, now: now, calendar: calendar), calendar: calendar)
     }
   }
 
@@ -263,16 +263,16 @@ private func timedGroups(
   ].compactMap(\.self)
 }
 
-private func file(_ item: Item, goes: String, calendar: Calendar) -> UpcomingFile {
+private func file(_ item: Item, clears: String, calendar: Calendar) -> UpcomingFile {
   UpcomingFile(
     url: item.url,
     byteCount: item.size,
     added: item.freshness.map { dayAndDate($0, calendar: calendar) } ?? "—",
-    goes: goes)
+    clears: clears)
 }
 
 /// "Today, 09:00", "Mon, 14:00", and a date past a week.
-private func goes(_ date: Date, now: Date, calendar: Calendar) -> String {
+private func clearTime(_ date: Date, now: Date, calendar: Calendar) -> String {
   let time = time(date, calendar: calendar)
   switch daysAhead(date, now: now, calendar: calendar) {
   case ...0: return "Today, \(time)"
@@ -317,7 +317,7 @@ private func time(_ date: Date, calendar: Calendar) -> String {
 private let forecastHorizonDays = 7
 
 extension Engine.FolderStatus {
-  /// When each item a rule has a time for goes, soonest first: what's due now at the next
+  /// When each item a rule has a time for is cleared, soonest first: what's due now at the next
   /// clean-up, the rest at the clean-up after the Age rule finds it due. Never before the next
   /// clean-up, even when the status was read before the clock moved on.
   func cleanUps(now: Date, calendar: Calendar) -> [(item: Item, at: Date)] {

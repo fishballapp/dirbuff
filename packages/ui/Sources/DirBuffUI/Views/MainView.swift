@@ -304,7 +304,7 @@ public struct MainView: View {
   private var emptyShelf: some View {
     VStack(spacing: 12) {
       Text(
-        "Add a buff with + Buff, or right-click a folder in Finder and choose Add to DirBuff…"
+        "Add a buff with + Buff, or right-click a folder in Finder and choose DirBuff: Add Buff"
       )
       .foregroundStyle(Palette.inkSecondary)
       .multilineTextAlignment(.center)

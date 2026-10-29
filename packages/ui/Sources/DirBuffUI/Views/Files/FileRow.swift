@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// One file that is still to go: its icon and name, size, when it arrived and when it goes, and a
-/// quiet Finder button that shows it there.
+/// One file that is still to be cleared: its icon and name, size, when it arrived and when it
+/// clears, and a quiet Finder button that shows it there.
 struct FileRow: View {
   var file: UpcomingFile
   var isStriped: Bool
@@ -24,7 +24,7 @@ struct FileRow: View {
       .frame(maxWidth: .infinity, alignment: .leading)
       Text(file.size).frame(width: FilesColumns.size, alignment: .leading)
       Text(file.added).frame(width: FilesColumns.added, alignment: .leading)
-      Text(file.goes).frame(width: FilesColumns.goes, alignment: .leading)
+      Text(file.clears).frame(width: FilesColumns.clears, alignment: .leading)
       GhostIconButton("Show in Finder", systemImage: GhostIconButton.finderSymbol) {
         onShowInFinder()
       }

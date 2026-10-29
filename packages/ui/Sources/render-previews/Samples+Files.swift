@@ -18,16 +18,16 @@ extension Samples {
   private static let filesSettings = TemporarySettings(maxAgeDays: 14)
   private static let filesDownloadsPath = "\(NSHomeDirectory())/Downloads"
 
-  /// A file that goes at the clean-up after `goesAt`: added 14 days before it.
-  private static func upcomingFile(_ name: String, size: Int64, goesAt: Date) -> Upcoming {
+  /// A file cleared at the clean-up after `clearsAt`: added 14 days before it.
+  private static func upcomingFile(_ name: String, size: Int64, clearsAt: Date) -> Upcoming {
     Upcoming(
       item: Item(
         url: URL(fileURLWithPath: "\(filesDownloadsPath)/\(name)"),
-        freshness: goesAt.addingTimeInterval(-14 * filesDay), size: size),
-      date: goesAt)
+        freshness: clearsAt.addingTimeInterval(-14 * filesDay), size: size),
+      date: clearsAt)
   }
 
-  /// Mon 26 Oct, 13:20 to 13:50: twelve files that go at 14:00.
+  /// Mon 26 Oct, 13:20 to 13:50: twelve files cleared at 14:00.
   private static let mondaysFiles: [Upcoming] = [
     ("Figma-Installer.dmg", 312_000_000), ("Q3-report-final-v3.pdf", 4_100_000),
     ("zoom_bundle.zip", 880_000_000), ("IMG_4471.HEIC", 3_200_000),
@@ -37,17 +37,17 @@ extension Samples {
   ].enumerated().map { index, file in
     upcomingFile(
       file.0, size: Int64(file.1),
-      goesAt: filesMoment.addingTimeInterval(filesDay - 17 * 60 + Double(index) * 150))
+      clearsAt: filesMoment.addingTimeInterval(filesDay - 17 * 60 + Double(index) * 150))
   }
 
-  /// Wed 28 Oct: four files that go at 14:00, 15:00, 16:00 and 17:00.
+  /// Wed 28 Oct: four files cleared at 14:00, 15:00, 16:00 and 17:00.
   private static let wednesdaysFiles: [Upcoming] = [
     ("brochure-draft.pdf", 2_400_000), ("Design-assets.zip", 192_000_000),
     ("logo-options.png", 640_000), ("invoice-1042.pdf", 120_000),
   ].enumerated().map { index, file in
     upcomingFile(
       file.0, size: Int64(file.1),
-      goesAt: filesMoment.addingTimeInterval(3 * filesDay - 17 * 60 + Double(index) * 3_600))
+      clearsAt: filesMoment.addingTimeInterval(3 * filesDay - 17 * 60 + Double(index) * 3_600))
   }
 
   /// Thu 29 Oct onwards: thirty-seven screenshots, one every few hours.
@@ -55,7 +55,7 @@ extension Samples {
     upcomingFile(
       "Screenshot 2026-10-\(String(format: "%02d", 15 + index / 3)) at \(9 + index % 9).\(10 + index).png",
       size: 1_200_000 + Int64(index) * 31_000,
-      goesAt: filesMoment.addingTimeInterval(4 * filesDay + Double(index) * 5 * 3_600))
+      clearsAt: filesMoment.addingTimeInterval(4 * filesDay + Double(index) * 5 * 3_600))
   }
 
   private static func filesFolder(
@@ -91,17 +91,17 @@ extension Samples {
       home: NSHomeDirectory(), startupVolumeName: "Macintosh HD")
   }
 
-  /// Twelve files go tomorrow at 14:00, four on Wednesday, thirty-seven later.
+  /// Twelve files clear tomorrow at 14:00, four on Wednesday, thirty-seven later.
   static var filesToGo: MainState {
     filesState(.success(filesStatus(upcoming: mondaysFiles + wednesdaysFiles + laterFiles)))
   }
 
-  /// Four files go at the next clean-up and nothing after: one group.
+  /// Four files clear at the next clean-up and nothing after: one group.
   static var filesOneGroup: MainState {
     filesState(.success(filesStatus(upcoming: Array(mondaysFiles.prefix(4)))))
   }
 
-  /// Empty on restart: everything dated goes at the first clean-up after one.
+  /// Empty on restart: everything dated clears at the first clean-up after one.
   static var filesAtRestart: MainState {
     filesState(
       .success(filesStatus(items: mondaysFiles.map(\.item))),

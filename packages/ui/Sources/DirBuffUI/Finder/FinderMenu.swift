@@ -50,7 +50,8 @@ public struct FinderMenu: Sendable, Equatable {
       )
       if entry.buff == .temporary {
         items.append(FinderMenuItem(title: "Change\u{2026}", action: .change))
-        items.append(FinderMenuItem(title: "What Goes Next\u{2026}", action: .whatGoesNext))
+        items.append(
+          FinderMenuItem(title: "What's Cleared Next\u{2026}", action: .whatsClearedNext))
         items.append(FinderMenuItem(title: "Take Temporary Off", action: .takeTemporaryOff))
       }
     }
@@ -87,7 +88,7 @@ public struct FinderMenu: Sendable, Equatable {
     return FinderMenuItem(
       title: Buff.temporary.name,
       subtitle:
-        "Things go after \(days(TemporarySettings.defaultMaxAgeDays)), to the \(binName)",
+        "Files are cleared after \(days(TemporarySettings.defaultMaxAgeDays)), moved to the \(binName)",
       buff: .temporary,
       action: .addTemporary,
       isEnabled: true

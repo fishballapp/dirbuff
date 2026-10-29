@@ -42,7 +42,7 @@ public struct WelcomePlacement: Sendable, Equatable {
   public var folderID: Int64
   /// The tile's line next to the symbol: "90 days".
   public var setting: String
-  /// What it means, in numbers: "Files older than 90 days go to the Bin; 3 go tomorrow."
+  /// What it means, in numbers: "Files older than 90 days are moved to the Bin; 3 to clear tomorrow."
   public var sentence: String
 
   public init(folder: WelcomeFolder, folderID: Int64, setting: String, sentence: String) {
@@ -63,37 +63,42 @@ public struct WelcomePlacement: Sendable, Equatable {
     calendar: Calendar = .current,
     binName: String = SystemBin.name
   ) {
-    let goes = settings.disposal == .delete ? "are deleted permanently" : "go to the \(binName)"
+    let disposal =
+      settings.disposal == .delete ? "are deleted permanently" : "are moved to the \(binName)"
     let (setting, promise) =
       switch settings.rule {
       case .age:
-        (days(settings.maxAgeDays), "Files older than \(days(settings.maxAgeDays)) \(goes)")
+        (days(settings.maxAgeDays), "Files older than \(days(settings.maxAgeDays)) \(disposal)")
       case .size:
         (
           bytes(settings.sizeLimit),
-          "The oldest files \(goes) once the folder passes \(bytes(settings.sizeLimit))"
+          "The oldest files \(disposal) once the folder passes \(bytes(settings.sizeLimit))"
         )
       case .automatic:
         ("Automatic", "The oldest files are deleted when the disk is nearly full")
       case .emptyOnRestart:
-        ("At restart", "Files \(goes) at restart")
+        ("At restart", "Files \(disposal) at restart")
       }
     self.init(
       folder: folder, folderID: folderID, setting: setting,
       sentence:
-        "\(promise)\(Self.next(status, now: now, calendar: calendar).map { "; \($0)" } ?? "")."
+        "\(promise)\(Self.next(status, settings: settings, now: now, calendar: calendar).map { "; \($0)" } ?? "")."
     )
   }
 
-  /// "3 go tomorrow", or "nothing goes yet"; nil when the folder couldn't be read.
-  private static func next(_ status: Engine.FolderStatus?, now: Date, calendar: Calendar)
-    -> String?
-  {
-    guard let cleanUps = status?.cleanUps(now: now, calendar: calendar) else { return nil }
-    guard let soonest = cleanUps.first?.at else { return "nothing goes yet" }
-    let together = cleanUps.count { calendar.isDate($0.at, inSameDayAs: soonest) }
-    return
-      "\(together) \(together == 1 ? "goes" : "go") \(cleanUpFromNow(soonest, now: now, calendar: calendar))"
+  /// "3 to clear in 23 min" (the soonest clean-up's), "38 to clear at restart", or "nothing to
+  /// clear yet"; nil when the folder couldn't be read.
+  private static func next(
+    _ status: Engine.FolderStatus?, settings: TemporarySettings, now: Date, calendar: Calendar
+  ) -> String? {
+    guard let status else { return nil }
+    let cleanUps = status.cleanUps(now: now, calendar: calendar)
+    guard let soonest = cleanUps.first?.at else {
+      let atRestart = status.clearedAtRestart(settings).count
+      return atRestart > 0 ? "\(atRestart) to clear at restart" : "nothing to clear yet"
+    }
+    let together = soonestTogether(cleanUps, now: now, calendar: calendar).count
+    return "\(together) to clear \(cleanUpFromNow(soonest, now: now, calendar: calendar))"
   }
 }
 

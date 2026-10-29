@@ -23,7 +23,7 @@ extension Samples {
       FinderBuff(
         buff: .temporary,
         setting: "Older than 14 days, to the Bin",
-        nextEvent: "12 items go tomorrow \u{00b7} 1.3 GB"
+        nextEvent: "12 items to clear tomorrow \u{00b7} 1.3 GB"
       )
     ],
     binName: binName

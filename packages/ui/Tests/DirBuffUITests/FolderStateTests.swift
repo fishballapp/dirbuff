@@ -23,24 +23,25 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
 // The fixtures' `now` is 08:00, so the next clean-up is at 09:00, an hour away.
 
 @Suite struct TemporaryRow {
-  @Test func saysWhatGoesNextTogether() {
+  @Test func saysWhatClearsNextTogether() {
     let report = report(
       1, upcoming: [(item("a", size: 1_000), oneDay), (item("b", size: 2_000), oneDay + 60)])
-    #expect(row(report)?.status == "2 items go tomorrow · \(bytes(3_000))")
+    #expect(row(report)?.status == "2 items to clear tomorrow · \(bytes(3_000))")
     #expect(row(report)?.state == .atRest)
   }
 
   @Test func countsDownToTodaysCleanUp() {
-    #expect(row(report(1, dueNow: [item("a")]))?.status == "1 item goes in 1 hr · \(bytes(1_000))")
+    #expect(
+      row(report(1, dueNow: [item("a")]))?.status == "1 item to clear in 1 hr · \(bytes(1_000))")
   }
 
-  @Test func saysWhenNothingGoesYet() {
-    #expect(row(report(1, items: [item("a")]))?.status == "Nothing goes yet")
+  @Test func saysWhenNothingClearsYet() {
+    #expect(row(report(1, items: [item("a")]))?.status == "Nothing to clear yet")
   }
 
-  @Test func countsWhatGoesAtRestart() {
+  @Test func countsWhatClearsAtRestart() {
     let report = report(1, TemporarySettings(rule: .emptyOnRestart), items: [item("a")])
-    #expect(row(report)?.status == "1 item goes at restart · \(bytes(1_000))")
+    #expect(row(report)?.status == "1 item to clear at restart · \(bytes(1_000))")
   }
 
   @Test(arguments: [
@@ -89,7 +90,7 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
   @Test func isPausedOnceTheLicenceEnds() {
     let ended = row(report(1, dueNow: [item("a")]), licence: .ended(paidThrough: now))
     #expect(ended?.state == .paused(.licence(.renew)))
-    #expect(ended?.status == "Nothing goes while paused")
+    #expect(ended?.status == "Nothing is cleared while paused")
     #expect(row(report(1), licence: .trialEnded)?.state == .paused(.licence(.buy)))
   }
 
@@ -112,6 +113,37 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
 
   @Test func isGoneOnceTakenOff() {
     #expect(row(report(1, wearsTemporary: false)) == nil)
+  }
+}
+
+@Suite struct PausedPillReason {
+  @Test(
+    arguments: [
+      (BuffState.atRest, nil),
+      (.working, nil),
+      (.paused(.licence(.buy)), .paused(.licence(.buy))),
+      (.paused(.driveUnplugged("T7")), .paused(.driveUnplugged("T7"))),
+      (.needsYou(.locate), .folderMissing),
+      (.needsYou(.giveAccess), .accessLost),
+    ] as [(BuffState, PillReason?)])
+  func followsTheRowsState(state: BuffState, reason: PillReason?) {
+    #expect(state.pillReason == reason)
+  }
+
+  @Test func wearsTheMissingAndNoAccessFolderRows() {
+    #expect(row(report(1, problem: .missing))?.state.pillReason == .folderMissing)
+    #expect(row(report(1, problem: .noAccess))?.state.pillReason == .accessLost)
+    #expect(row(report(1))?.state.pillReason == nil)
+  }
+
+  @Test func saysWhyInTheTooltip() {
+    #expect(PillReason.folderMissing.explanation == "DirBuff can't find this folder")
+    #expect(
+      PillReason.accessLost.explanation
+        == "macOS took away DirBuff's access to this folder")
+    #expect(
+      PillReason.paused(.driveUnplugged("T7")).explanation
+        == PauseReason.driveUnplugged("T7").explanation)
   }
 }
 

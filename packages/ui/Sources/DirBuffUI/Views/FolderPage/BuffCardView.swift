@@ -69,13 +69,13 @@ struct BuffCardView: View {
         }
       BuffName(card.buff, size: .card)
         .foregroundStyle(isNeedingYou ? Palette.amberText : Palette.ink)
-      if case .paused(let reason) = card.state {
+      if let reason = card.state.pillReason {
         PausedPill(reason: reason, onOpenLicence: actions.openLicenceSettings)
       }
       Spacer(minLength: 12)
       HStack(spacing: 8) {
         if card.canShowFiles {
-          Button("What Goes Next…") { pageActions.showFiles(folder.id) }
+          Button("What's Cleared Next…") { pageActions.showFiles(folder.id) }
         }
         // It asks first, so a quiet icon is enough.
         GhostIconButton("Take Off \(card.buff.name)", systemImage: "xmark") {

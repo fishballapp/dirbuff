@@ -41,7 +41,7 @@ private func notification(
       CleanUpFolder(path: "\(home)/Downloads", entries: [entry(1, size: 40_000)])
     ])
     #expect(note?.title == "Downloads")
-    #expect(note?.body == "1 item went to the Bin · 40 kB")
+    #expect(note?.body == "1 item moved to the Bin · 40 kB")
   }
 
   @Test func severalItemsBinned() {
@@ -52,7 +52,7 @@ private func notification(
       )
     ])
     #expect(note?.title == "Downloads")
-    #expect(note?.body == "5 items went to the Bin · \(bytes(2_300_000_000))")
+    #expect(note?.body == "5 items moved to the Bin · \(bytes(2_300_000_000))")
   }
 
   @Test func usesTheSystemsTrashName() {
@@ -60,7 +60,7 @@ private func notification(
       [CleanUpFolder(path: "\(home)/Downloads", entries: [entry(1, size: 1_000)])],
       binName: "Trash"
     )
-    #expect(note?.body == "1 item went to the Trash · \(bytes(1_000))")
+    #expect(note?.body == "1 item moved to the Trash · \(bytes(1_000))")
   }
 
   @Test func oneItemDeletedPermanently() {
@@ -86,7 +86,7 @@ private func notification(
         entries: [entry(1), entry(2), entry(3, .delete), entry(4, .delete), entry(5, .delete)]
       )
     ])
-    #expect(note?.body == "2 items went to the Bin, 3 items were deleted permanently · 11.5 GB")
+    #expect(note?.body == "2 items moved to the Bin, 3 items were deleted permanently · 11.5 GB")
   }
 
   @Test func twoFoldersNameBothInStoreOrder() {
@@ -95,7 +95,7 @@ private func notification(
       CleanUpFolder(path: "\(home)/Screenshots", entries: [entry(3, .delete)]),
     ])
     #expect(note?.title == "Downloads and Screenshots")
-    #expect(note?.body == "2 items went to the Bin, 1 item was deleted permanently · 6.9 GB")
+    #expect(note?.body == "2 items moved to the Bin, 1 item was deleted permanently · 6.9 GB")
   }
 
   @Test func threeOrMoreFoldersNameFirstTwoAndCountTheRest() {

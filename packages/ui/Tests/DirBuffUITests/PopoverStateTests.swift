@@ -10,7 +10,7 @@ private func folder(_ id: Int64, _ name: String, _ state: BuffState) -> FolderSt
     id: id, name: name, path: "\(home)/\(name)", location: "~/\(name)", mark: state.mark,
     buffs: [
       BuffRow(
-        buff: .temporary, state: state, status: "12 items go tomorrow · 1.3 GB",
+        buff: .temporary, state: state, status: "12 items to clear tomorrow · 1.3 GB",
         setting: "Older than 14 days, to the Bin")
     ])
 }

@@ -1,8 +1,8 @@
 import DirBuffCore
 import SwiftUI
 
-/// What goes next from a folder, pushed from its page's What Goes Next…: every file still to go,
-/// in groups by when. What already went is in History.
+/// What is cleared next from a folder, pushed from its page's What's Cleared Next…: every file
+/// still to be cleared, in groups by when. What was already cleared is in History.
 public struct FolderFilesPage: View {
   public var folder: MainFolder
   public var binName: String

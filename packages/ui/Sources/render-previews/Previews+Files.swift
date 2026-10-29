@@ -1,7 +1,7 @@
 import DirBuffUI
 import SwiftUI
 
-/// A folder's files: what goes next, grouped by when, and each way it has nothing to list.
+/// A folder's files: what is cleared next, grouped by when, and each way it has nothing to list.
 @MainActor
 func filesPreviews() -> [Preview] {
   let size = CGSize(width: 1240, height: 640)

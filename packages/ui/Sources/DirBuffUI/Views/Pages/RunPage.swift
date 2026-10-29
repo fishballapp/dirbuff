@@ -13,7 +13,7 @@ public struct RunActions {
 }
 
 /// One run's page, pushed over History: the large symbol, when it ran and what it removed, then
-/// one group per folder with where each file went. Every action in the list is a ghost icon button.
+/// one group per folder with where each file ended up. Every action in the list is a ghost icon button.
 public struct RunPage: View {
   public var run: RunState
   public var actions: RunActions
