@@ -83,6 +83,14 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
     #expect(state.subheadline == "Right-click a folder in Finder, then DirBuff: Add Buff")
   }
 
+  @Test func countsOnlyTheFoldersThatWearABuff() {
+    let scratch = FolderState(
+      id: 2, name: "Scratch", path: "\(home)/Scratch", location: "~/Scratch", mark: nil,
+      buffs: [])
+    #expect(popover([scratch]).headline == "No buffed folders yet")
+    #expect(popover([folder(1, "Downloads", .atRest), scratch]).headline == "The folder is fine")
+  }
+
   @Test(arguments: [
     (Licence.trialEnded, "Your trial has ended"),
     (Licence.ended(paidThrough: nil), "Your licence ended before this version came out"),

@@ -5,15 +5,18 @@ import SwiftUI
 public struct HistoryPage: View {
   public var folderID: Int64?
   public var history: HistoryState
+  public var onOpenRun: (Int64) -> Void
   public var onClearHistory: () -> Void
 
   public init(
     folderID: Int64?,
     history: HistoryState,
+    onOpenRun: @escaping (Int64) -> Void = { _ in },
     onClearHistory: @escaping () -> Void = {}
   ) {
     self.folderID = folderID
     self.history = history
+    self.onOpenRun = onOpenRun
     self.onClearHistory = onClearHistory
   }
 
@@ -42,13 +45,15 @@ public struct HistoryPage: View {
                 .frame(height: 1)
                 .padding(.leading, 58)
             }
-            NavigationLink(value: MainRoute.run(run.id)) {
+            Button {
+              onOpenRun(run.id)
+            } label: {
               HistoryRunRowView(run: run)
             }
             .buttonStyle(.plain)
           }
         }
-        .historyCard()
+        .liftedCard()
 
         HStack(spacing: 14) {
           Text("Keeps the last 100 MB of runs.")

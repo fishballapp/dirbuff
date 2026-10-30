@@ -51,7 +51,8 @@ extension AppModel {
     let name = URL(fileURLWithPath: folder.path).lastPathComponent
     let alert = NSAlert()
     alert.messageText = "Remove \(name) from DirBuff?"
-    alert.informativeText = "DirBuff forgets it and its settings. Nothing in the folder is touched."
+    alert.informativeText =
+      "DirBuff forgets it, its settings and its History. Nothing in the folder is touched."
     alert.addButton(withTitle: "Remove")
     alert.addButton(withTitle: "Cancel")
     NSApp.activate(ignoringOtherApps: true)

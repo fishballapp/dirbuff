@@ -15,6 +15,10 @@ public struct Folder: Sendable, Equatable {
   public internal(set) var wearsTemporary: Bool
   /// DirBuff stopped the folder's Temporary when the trial or licence ended; buying offers it back.
   public internal(set) var turnedOffByLicence: Bool
+
+  /// Whether it wears a buff, one the licence paused included. A folder that wears none is never
+  /// read or run.
+  public var wearsABuff: Bool { wearsTemporary || turnedOffByLicence }
   /// Since when macOS has refused DirBuff access to the folder; nil while it can read it.
   public internal(set) var accessLostAt: Date?
   /// Since when the folder has been missing: deleted, moved to another disk, or moved to the Bin.

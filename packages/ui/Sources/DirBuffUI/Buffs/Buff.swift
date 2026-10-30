@@ -14,13 +14,15 @@ public enum Buff: CaseIterable, Sendable, Hashable {
     }
   }
 
-  /// One line of what it does, in + Buff.
+  /// What it does, on the Buffs page.
   public var summary: String {
     switch self {
-    case .temporary: "Clears old files automatically"
-    case .backup: "Every version, to Google Drive"
-    case .organise: "Files into subfolders"
-    case .search: "Find files by what’s in them"
+    case .temporary:
+      "Clears files when they’re old, the folder is too big, disk space is low or the Mac restarts. Each clean-up appears in History."
+    case .backup:
+      "Backs up files to your Google Drive, with version history to restore them."
+    case .organise: "Sorts files into subfolders by kind and date."
+    case .search: "Find a file by what’s in it, not only its name."
     }
   }
 

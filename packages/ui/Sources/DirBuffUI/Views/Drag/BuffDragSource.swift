@@ -3,13 +3,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension UTType {
-  /// A buff on the drag pasteboard, for drops on the app's own tiles. Its value is the buff's name.
+  /// A buff on the drag pasteboard, for drops on the app's own folders. Its value is the buff's
+  /// name.
   static let dirbuffBuff = UTType(exportedAs: "app.fishball.dirbuff.buff")
 }
 
 extension View {
-  /// Makes the view a buff that drags onto a tile, or out onto a folder in Finder, as a lifted
-  /// piece. A click that doesn't drag calls `onClick`; `onHover` follows the pointer.
+  /// Makes the view a buff that drags onto a folder (a tile, a sidebar row, a folder's page), or out
+  /// onto a folder in Finder, as a lifted piece. A click that doesn't drag calls `onClick`; `onHover` follows the pointer.
   func buffDragSource(
     _ buff: Buff,
     onClick: @escaping () -> Void = {},
@@ -20,7 +21,7 @@ extension View {
 }
 
 /// SwiftUI's own dragging never tells the source where a file landed, so a buff drags from an
-/// AppKit view laid over its row or piece.
+/// AppKit view laid over its card or piece.
 private struct BuffDragSource: NSViewRepresentable {
   var buff: Buff
   var onClick: () -> Void
@@ -60,7 +61,7 @@ private final class BuffDragView: NSView, NSDraggingSource {
     fatalError("init(coder:) is not used")
   }
 
-  // The Buffs panel never takes the focus, so its first click has to start the drag.
+  // A first click in a window that isn't key starts the drag too.
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
   override func updateTrackingAreas() {
@@ -136,7 +137,7 @@ private final class BuffDragView: NSView, NSDraggingSource {
 }
 
 /// The drag's one pasteboard item: a file promise for Finder, and the buff's own type for the
-/// app's tiles.
+/// app's folders.
 private final class BuffPasteboardItem: NSFilePromiseProvider {
   private let buffName: String
   // The provider holds its delegate weakly.

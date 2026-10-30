@@ -11,7 +11,7 @@ func filesPreviews() -> [Preview] {
       AnyView(
         MainView(
           state: state, navigation: .constant(MainNavigation(opening: .files(1))),
-          destination: Samples.filesDestination(state))),
+          page: Samples.filesDestination(state))),
       CGSize(width: size.width, height: height)
     )
   }

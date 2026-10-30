@@ -2,23 +2,23 @@ import AppKit
 import SwiftUI
 
 /// A folder's Finder icon with its 💪 mark at the lower left: 64 pt on a shelf tile and folder
-/// page, and 32 pt in the switcher.
+/// page, and 28 pt in the sidebar.
 public struct MarkedFolderIcon: View {
   public enum Size: Sendable {
     case tile
-    case switcher
+    case sidebar
 
     var iconPoints: CGFloat {
       switch self {
       case .tile: 64
-      case .switcher: 32
+      case .sidebar: 28
       }
     }
 
     var markPoints: CGFloat {
       switch self {
       case .tile: 30
-      case .switcher: 18
+      case .sidebar: 15
       }
     }
 
@@ -27,7 +27,7 @@ public struct MarkedFolderIcon: View {
     var markOffset: CGSize {
       switch self {
       case .tile: CGSize(width: -5, height: -2)
-      case .switcher: CGSize(width: -5, height: 1)
+      case .sidebar: CGSize(width: -4, height: 1)
       }
     }
   }

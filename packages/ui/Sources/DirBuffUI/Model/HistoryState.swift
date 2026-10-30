@@ -2,8 +2,8 @@ import DirBuffCore
 import DirBuffKit
 import Foundation
 
-/// A folder as History names it. A folder plain for good still has runs, so this comes from every
-/// folder DirBuff knows, not only the shelf's.
+/// A folder as History names it, from every folder DirBuff knows, whatever it wears now: a folder
+/// whose buff came off still has its runs.
 public struct HistoryFolder: Sendable, Equatable, Identifiable {
   public var id: Int64
   public var name: String

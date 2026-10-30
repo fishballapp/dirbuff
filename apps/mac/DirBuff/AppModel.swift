@@ -81,7 +81,7 @@ final class AppModel {
     Licence(licenceRecord, now: now, release: releaseDay)
   }
 
-  /// Every folder as the shelf, popover, switcher and Finder show it.
+  /// Every folder as the shelf, sidebar, popover and Finder show it.
   func folders(now: Date) -> [FolderState] {
     FolderState.all(
       reports, licence: licence(now: now), working: working, progress: runProgress, now: now)
@@ -164,9 +164,9 @@ final class AppModel {
   /// One unreadable folder (an unplugged drive) mustn't hide the others. Records whether macOS
   /// let DirBuff in, so a folder that needs the user can say since when.
   nonisolated private static func read(_ id: Int64, _ engine: Engine)
-    -> Result<Engine.FolderStatus, FolderProblem>
+    -> Result<Engine.FolderStatus?, FolderProblem>
   {
-    let reading: Result<Engine.FolderStatus, FolderProblem>
+    let reading: Result<Engine.FolderStatus?, FolderProblem>
     do {
       reading = .success(try engine.status(folderID: id))
     } catch {
@@ -209,22 +209,28 @@ final class AppModel {
     }
   }
 
-  func setTemporary(_ folder: Folder, _ isOn: Bool) async {
+  /// Puts Temporary on the folder or takes it off; returns whether that happened.
+  @discardableResult
+  func setTemporary(_ folder: Folder, _ isOn: Bool) async -> Bool {
     let engine = engine
+    let isDone: Bool
     do {
       try await Task.detached { try engine.setTemporary(folder, isOn) }.value
+      isDone = true
     } catch {
       show(
         error,
         doing: isOn
           ? "make \(URL(fileURLWithPath: folder.path).lastPathComponent) Temporary"
           : "make the folder plain again")
+      isDone = false
     }
     await refresh()
     // Ask when the benefit is clear: right after the first folder is made Temporary.
-    if isOn, reports.count(where: { $0.folder.wearsTemporary }) == 1 {
+    if isOn, isDone, reports.count(where: { $0.folder.wearsTemporary }) == 1 {
       requestNotificationPermission()
     }
+    return isDone
   }
 
   func remove(_ folder: Folder) async {
@@ -296,7 +302,7 @@ final class AppModel {
     alert("Couldn't \(action)", Self.explain(error))
   }
 
-  private func alert(_ title: String, _ message: String) {
+  func alert(_ title: String, _ message: String) {
     let alert = NSAlert()
     alert.messageText = title
     alert.informativeText = message
@@ -540,7 +546,8 @@ final class AppModel {
     }
     var runs: [Engine.RunResult] = []
     openRunID = runID
-    for id in reports.compactMap(\.folder.id) {
+    // A folder that wears nothing has nothing to run; one the licence paused keeps its run times.
+    for id in reports.map(\.folder).filter(\.wearsABuff).compactMap(\.id) {
       // The licence can end or be deactivated while earlier folders run.
       guard self.licence.mayClean else { break }
       working.insert(id)

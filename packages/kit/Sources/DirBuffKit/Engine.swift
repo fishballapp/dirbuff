@@ -23,7 +23,7 @@ public struct Engine: Sendable {
     case goneFromBin(String)
     /// Something new sits where the item was; undo never overwrites it.
     case originalPathTaken(String)
-    /// A folder DirBuff never clears (`protectedRoots`), so it can't be added.
+    /// A folder DirBuff never clears (`protectedRoots`), so Temporary can't go on it.
     case protectedFolder
     /// The folder was deleted, moved to another disk, or moved to the Bin. Nothing acts on it until
     /// the user locates it.
@@ -101,12 +101,9 @@ public struct Engine: Sendable {
     public var failures: [(item: Item, error: any Error)]
   }
 
-  /// Adds a folder to DirBuff with default settings, not Temporary. If already added, returns the
-  /// existing record.
+  /// Adds a folder to DirBuff with default settings, wearing nothing. A protected folder can be
+  /// added too; Temporary refuses it. If already added, returns the existing record.
   public func add(_ folder: URL, now: Date = Date()) throws -> Folder {
-    if System.isProtected(folder) {
-      throw Failure.protectedFolder
-    }
     let canonical = try canonicalPath(of: folder)
     if let existing = try store.folder(path: canonical) {
       return existing
@@ -192,9 +189,12 @@ public struct Engine: Sendable {
     try store.save(folder)
   }
 
-  /// A folder's status. Removes no items.
-  public func status(folderID: Int64, now: Date = Date()) throws -> FolderStatus {
+  /// A folder's status, or nil for one that wears no buff: that one is only located, never read,
+  /// so adding a big folder (the home folder, a drive) walks nothing. Throws when the folder can't
+  /// be found or reached. Removes no items.
+  public func status(folderID: Int64, now: Date = Date()) throws -> FolderStatus? {
     let (folder, url) = try locate(folderID: folderID)
+    guard folder.wearsABuff else { return nil }
     return try status(
       of: url, wearsTemporary: folder.wearsTemporary, settings: folder.settings,
       lastRunAt: folder.lastRunAt, now: now)

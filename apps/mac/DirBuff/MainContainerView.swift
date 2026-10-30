@@ -23,27 +23,27 @@ struct MainContainerView: View {
       state: state,
       navigation: $windowState.navigation,
       actions: actions,
-      destination: { route in destination(route, state: state, now: now) }
+      folderPage: { AnyView(folderPage($0, state: state, now: now)) },
+      history: { AnyView(historyPage(folderID: nil, now: now)) },
+      page: { page in
+        switch page {
+        case .files(let id): AnyView(filesPage(id, state: state, now: now))
+        case .folderHistory(let id): AnyView(historyPage(folderID: id, now: now))
+        case .run(let id): AnyView(runPage(id, now: now))
+        }
+      }
     )
-  }
-
-  private func destination(_ route: MainRoute, state: MainState, now: Date) -> AnyView {
-    switch route {
-    case .folder(let id): AnyView(folderPage(id, state: state, now: now))
-    case .files(let id): AnyView(filesPage(id, state: state, now: now))
-    case .history(let folderID): AnyView(historyPage(folderID: folderID, now: now))
-    case .run(let id): AnyView(runPage(id, now: now))
-    }
   }
 
   /// Every shelf action, wired to the app; pages built in other files use it too.
   var actions: ShelfActions {
     let appModel = appModel
     var actions = ShelfActions()
+    actions.addFolder = addFolder
     actions.chooseFolderForBuff = chooseFolderForBuff
     actions.addBuff = { id, buff in
-      guard buff == .temporary, let folder = appModel.folder(id: id) else { return }
-      Task { await appModel.setTemporary(folder, true) }
+      guard buff == .temporary, let folder = appModel.folder(id: id) else { return false }
+      return await appModel.setTemporary(folder, true)
     }
     actions.undoAddBuff = { id, buff in Task { await appModel.undoAddBuff(buff, on: id) } }
     actions.takeOff = { id, buff in Task { await appModel.confirmTakeOff(buff, on: id) } }
@@ -61,12 +61,23 @@ struct MainContainerView: View {
     return actions
   }
 
+  /// Adds the folder the user chooses, wearing nothing, and opens its page; one already added
+  /// just opens.
+  private func addFolder() {
+    guard let url = NSOpenPanel.chooseFolderToAdd() else { return }
+    Task {
+      guard let id = await appModel.addFolder(url)?.id else { return }
+      windowState.navigation = MainNavigation(.folder(id))
+    }
+  }
+
   private func chooseFolderForBuff(_ buff: Buff) {
     guard buff == .temporary else { return }
     guard let url = NSOpenPanel.chooseFolderToMakeTemporary() else { return }
     Task {
       await appModel.addBuff(.temporary, toFolderAt: url)
-      windowState.navigation = MainNavigation()
+      guard let id = appModel.report(for: url)?.folder.id else { return }
+      windowState.navigation = MainNavigation(.folder(id))
     }
   }
 }

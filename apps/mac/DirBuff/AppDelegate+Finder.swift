@@ -30,7 +30,7 @@ extension AppDelegate {
           guard await appModel.addFolder(folderURL) != nil else { return }
         }
         if action == .whatsClearedNext, let id = appModel.report(for: folderURL)?.folder.id {
-          windows.openMain(route: .files(id))
+          windows.openMain(at: MainNavigation(opening: .files(id)))
         } else {
           windows.openMain(selecting: folderURL)
         }

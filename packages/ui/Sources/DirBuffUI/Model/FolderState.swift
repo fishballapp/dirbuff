@@ -2,7 +2,7 @@ import DirBuffCore
 import DirBuffKit
 import Foundation
 
-/// One folder as every surface shows it: the shelf's tile, the popover's row, the switcher, the
+/// One folder as every surface shows it: the shelf's tile, the sidebar's row, the popover, the
 /// Finder mark. Built from reports by `FolderState.all`.
 public struct FolderState: Sendable, Equatable, Identifiable {
   public var id: Int64
@@ -20,6 +20,9 @@ public struct FolderState: Sendable, Equatable, Identifiable {
   public var accessLostAt: Date? = nil
   /// How far a clean-up running in it has got, from 0 to 1; nil while none runs.
   public var progress: Double? = nil
+  /// Why DirBuff can't reach it, whatever it wears: a folder that wears nothing can be missing or
+  /// on an unplugged drive too.
+  public var problem: FolderProblem? = nil
 }
 
 /// A buff on a folder: its symbol and name, what it's doing in numbers, and its setting in words.
@@ -108,8 +111,8 @@ public enum Fix: Sendable, Equatable {
 }
 
 extension FolderState {
-  /// Every folder that wears a buff or has one that can still be put back, in the reports' order.
-  /// A folder whose last buff is gone leaves once the chance to put it back has passed.
+  /// Every folder added to DirBuff, in the reports' order, wearing a buff or not. A folder stays
+  /// until it is removed from DirBuff, after its last buff is taken off too.
   ///
   /// - Parameters:
   ///   - working: The folders a clean-up is running in.
@@ -125,12 +128,12 @@ extension FolderState {
     home: String = NSHomeDirectory()
   ) -> [FolderState] {
     reports.compactMap { report -> FolderState? in
-      guard let id = report.folder.id,
-        let temporary = temporaryRow(
+      guard let id = report.folder.id else { return nil }
+      let buffs = [
+        temporaryRow(
           report, licence: licence, isWorking: working.contains(id), now: now,
           calendar: calendar, binName: binName)
-      else { return nil }
-      let buffs = [temporary]
+      ].compactMap(\.self)
       let isMissing = report.problem == .missing
       return FolderState(
         id: id,
@@ -143,12 +146,13 @@ extension FolderState {
         buffs: buffs,
         accessLostAt: report.folder.accessLostAt,
         progress: working.contains(id)
-          ? progress.flatMap { $0.folderID == id ? $0.fraction : nil } ?? 0 : nil)
+          ? progress.flatMap { $0.folderID == id ? $0.fraction : nil } ?? 0 : nil,
+        problem: report.problem)
     }
   }
 }
 
-/// Temporary's row, or nil when the folder doesn't wear it and it can't be put back.
+/// Temporary's row, or nil when the folder doesn't wear it, and no licence took it off.
 private func temporaryRow(
   _ report: FolderReport,
   licence: Licence,
@@ -185,7 +189,10 @@ private func temporaryRow(
       } ?? "Missing")
     missing.statusFolder = report.name
     return missing
-  case .success(let status):
+  case .success(nil):
+    // Put on since the folder was last read; the next read counts what it holds.
+    return row(.atRest, "Nothing to clear yet")
+  case .success(let status?):
     if isWorking { return row(.working, "Clearing now") }
     return row(
       .atRest, temporaryStatus(status, settings: folder.settings, now: now, calendar: calendar))
@@ -213,7 +220,7 @@ private func missingDate(_ date: Date, calendar: Calendar) -> String {
 }
 
 /// The drive's name for a path under /Volumes.
-private func volumeName(_ path: String) -> String? {
+func volumeName(_ path: String) -> String? {
   let parts = path.split(separator: "/")
   guard parts.count >= 2, parts[0] == "Volumes" else { return nil }
   return String(parts[1])

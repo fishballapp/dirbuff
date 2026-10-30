@@ -70,9 +70,6 @@ enum Samples {
     item("Recordings", "standup-2026-08-20.m4a", daysOld: 55, size: 38_000_000)
   ]
   static let archiveSettings = TemporarySettings(maxAgeDays: 90)
-  static let archiveItems = [
-    item("Archive", "old-project.zip", daysOld: 100, size: 50_000_000)
-  ]
 
   static let reports: [FolderReport] = [
     FolderReport(
@@ -86,7 +83,8 @@ enum Samples {
       reading: .success(status("Recordings", recordingsItems, recordingsSettings))),
     FolderReport(
       folder: folder(4, "Archive", archiveSettings, wearsTemporary: false),
-      reading: .success(status("Archive", archiveItems, archiveSettings, wearsTemporary: false))),
+      // It wears no buff, so it's found but never read.
+      reading: .success(nil)),
   ]
 
   private static let calendar = {

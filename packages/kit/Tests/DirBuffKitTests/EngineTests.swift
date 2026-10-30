@@ -161,7 +161,8 @@ import Testing
   @Test func statusRemovesNothing() throws {
     let old = try scratch.file("old", bytes: 10_000)
     let folder = try addTemporary(scratch.url, settings: deleting)
-    let status = try engine.status(folderID: try #require(folder.id), now: later)
+    let folderID = try #require(folder.id)
+    let status = try #require(try engine.status(folderID: folderID, now: later))
     #expect(status.wearsTemporary)
     #expect(status.dueNow.map(\.item.url.lastPathComponent) == ["old"])
     #expect(status.upcoming.map(\.item.url.lastPathComponent) == ["old"])
@@ -354,10 +355,50 @@ import Testing
     #expect(try engine.store.journal(folderID: folderID).isEmpty)
   }
 
-  @Test func refusesToAddAProtectedFolder() throws {
-    #expect(throws: Engine.Failure.protectedFolder) {
-      try engine.add(FileManager.default.homeDirectoryForCurrentUser)
+  @Test func aFolderWearingNothingIsFoundButNeverRead() throws {
+    let plain = try scratch.folder("Plain")
+    let id = try #require(try engine.add(plain).id)
+    // A folder DirBuff can't list would throw if it were read.
+    try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: plain.path)
+    defer {
+      try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: plain.path)
     }
+    #expect(try engine.status(folderID: id) == nil)
+
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: plain.path)
+    try FileManager.default.removeItem(at: plain)
+    #expect(throws: Engine.Failure.folderMissing) { try engine.status(folderID: id) }
+  }
+
+  @Test func aFolderTheLicencePausedIsStillRead() throws {
+    _ = try scratch.file("old", bytes: 10_000)
+    let folder = try addTemporary(scratch.url, settings: deleting)
+    try engine.turnOffByLicence(folder)
+    let folderID = try #require(folder.id)
+    let status = try #require(try engine.status(folderID: folderID, now: later))
+    #expect(status.size >= 10_000)
+    #expect(status.dueNow.isEmpty)
+  }
+
+  @Test func aFolderLeftWearingNothingStaysUntilRemoved() throws {
+    let takenOffByHand = try addTemporary(scratch.url, settings: deleting)
+    try engine.setTemporary(takenOffByHand, false)
+    let endedByLicence = try addTemporary(try scratch.folder("Exports"))
+    try engine.turnOffByLicence(endedByLicence)
+    try engine.store.forgetFoldersTurnedOffByLicence()
+
+    let kept = try engine.store.folders()
+    #expect(kept.map(\.id) == [takenOffByHand.id, endedByLicence.id])
+    #expect(kept.allSatisfy { !$0.wearsTemporary && !$0.turnedOffByLicence })
+  }
+
+  @Test func addsAProtectedFolderButNeverMakesItTemporary() throws {
+    let folder = try engine.add(FileManager.default.homeDirectoryForCurrentUser)
+    #expect(!folder.wearsTemporary)
+    #expect(throws: Engine.Failure.protectedFolder) {
+      try engine.setTemporary(folder, true)
+    }
+    #expect(try engine.store.folder(id: try #require(folder.id))?.wearsTemporary == false)
   }
 
   @Test func aFolderFromBeforeThatWasTaggedWearsTemporaryAndLosesItsTag() throws {
@@ -366,7 +407,7 @@ import Testing
     let engine = try upgradedEngine([folder])
     let id = try #require(engine.store.folders().first?.id)
 
-    #expect(try engine.status(folderID: id).wearsTemporary)
+    #expect(try engine.status(folderID: id)?.wearsTemporary == true)
     #expect(try engine.store.folder(id: id)?.wearsTemporary == true)
     #expect(try finderTags(of: folder) == ["Red"])
     #expect(try !engine.store.hasLegacyTag(folderID: id))
@@ -377,7 +418,7 @@ import Testing
     let engine = try upgradedEngine([folder])
     let id = try #require(engine.store.folders().first?.id)
 
-    #expect(try !engine.status(folderID: id).wearsTemporary)
+    #expect(try engine.status(folderID: id) == nil)
     #expect(try engine.store.folder(id: id)?.wearsTemporary == false)
     #expect(try !engine.store.hasLegacyTag(folderID: id))
   }

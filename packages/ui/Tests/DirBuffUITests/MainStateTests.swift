@@ -77,48 +77,17 @@ private func mainState(
       ])
   }
 
-  @Test func countsFoldersNeedsYouTemporaryAndLocations() {
+  @Test func keepsAFolderThatWearsNothing() {
     let state = mainState([
       report(1, name: "Downloads"),
       report(2, name: "Projects", problem: .noAccess),
-      report(3, name: "Screenshots", wearsTemporary: false),
-      report(4, name: "Exports", path: "/Volumes/T7 Shuttle/Exports"),
-      report(5, name: "Backups", path: "/Volumes/Archive Disk/Backups"),
-      report(6, name: "Plain", wearsTemporary: false),
+      report(3, name: "Scratch", wearsTemporary: false),
     ])
-    // Plain folders, Screenshots taken off among them, aren't on the shelf.
-    #expect(state.shelfFolders.count == 4)
+    #expect(state.shelfFolders.map(\.name) == ["Projects", "Downloads", "Scratch"])
+    let scratch = state.shelfFolders[2]
+    #expect(scratch.buffs.isEmpty)
+    #expect(scratch.mark == nil)
     #expect(state.needsYouCount == 1)
-    #expect(state.buffCount(.temporary) == 4)
-    #expect(state.sidebarBuffs == [.temporary])
-    #expect(
-      state.locations == [
-        ShelfLocation(volumePath: "/", name: "Macintosh HD", isExternal: false, count: 2),
-        ShelfLocation(
-          volumePath: "/Volumes/Archive Disk", name: "Archive Disk", isExternal: true, count: 1),
-        ShelfLocation(
-          volumePath: "/Volumes/T7 Shuttle", name: "T7 Shuttle", isExternal: true, count: 1),
-      ])
-  }
-
-  @Test func filtersBySidebarSectionAndLocation() {
-    let state = mainState([
-      report(1, name: "Downloads"),
-      report(2, name: "Projects", problem: .noAccess),
-      report(3, name: "Screenshots", wearsTemporary: false),
-      report(4, name: "Exports", path: "/Volumes/T7 Shuttle/Exports"),
-    ])
-    #expect(state.shelfFolders(matching: .needsYou).map(\.name) == ["Projects"])
-    #expect(
-      state.shelfFolders(matching: .buff(.temporary)).map(\.name) == [
-        "Projects", "Downloads", "Exports",
-      ])
-    #expect(
-      state.shelfFolders(matching: .location("/")).map(\.name) == ["Projects", "Downloads"])
-    #expect(
-      state.shelfFolders(matching: .location("/Volumes/T7 Shuttle")).map(\.name) == ["Exports"])
-    // Unknown or unmounted location falls back to All Folders.
-    #expect(state.shelfFolders(matching: .location("/Volumes/Gone")).count == 3)
   }
 
   @Test func filtersByFolderNamePreservingOrder() {
@@ -128,49 +97,42 @@ private func mainState(
       report(3, name: "Screenshots", problem: .noAccess),
     ])
     #expect(
-      state.shelfFolders(matching: .allFolders, query: "  screen ").map(\.name) == [
-        "Screenshots", "Screen Captures",
-      ])
-    #expect(state.shelfFolders(matching: .needsYou, query: "down").isEmpty)
+      state.shelfFolders(matching: "  screen ").map(\.name) == ["Screenshots", "Screen Captures"])
+    #expect(state.shelfFolders(matching: "").count == 3)
   }
 
-  @Test func hidesNeedsYouAndPausesSubtitleWhenPausedByLicence() {
+  @Test func pausesTheSubtitleWhenPausedByLicence() {
     let endedReports = [
       report(1, name: "Downloads", wearsTemporary: false, turnedOffByLicence: true),
       report(2, name: "Projects", problem: .noAccess),
       report(3, name: "Screenshots", wearsTemporary: false, turnedOffByLicence: true),
     ]
     let trialEnded = mainState(endedReports, licence: .trialEnded)
-    #expect(!trialEnded.showsNeedsYouInSidebar)
     #expect(trialEnded.needsYouCount == 0)
-    #expect(trialEnded.buffCount(.temporary) == 3)
-    #expect(trialEnded.resolvedFilter(.needsYou) == .allFolders)
-    #expect(trialEnded.toolbarSubtitle(for: .allFolders) == "3 folders · all paused")
+    #expect(trialEnded.shelfSubtitle == "3 folders · all paused")
 
     let licenceEnded = mainState(
       endedReports, licence: .ended(paidThrough: now.addingTimeInterval(-oneDay)))
-    #expect(licenceEnded.toolbarSubtitle(for: .allFolders) == "3 folders · all paused")
+    #expect(licenceEnded.shelfSubtitle == "3 folders · all paused")
 
     let offlinePaused = mainState([report(1, name: "Downloads")], licence: .paused)
-    #expect(offlinePaused.toolbarSubtitle(for: .allFolders) == "1 folder · paused")
+    #expect(offlinePaused.shelfSubtitle == "1 folder · paused")
   }
 
-  @Test func formatsToolbarCopy() {
+  @Test func formatsTheSubtitle() {
     let state = mainState([
       report(1, name: "Downloads"),
       report(2, name: "Projects", problem: .noAccess),
       report(3, name: "Exports", path: "/Volumes/T7 Shuttle/Exports"),
     ])
-    #expect(state.toolbarTitle(for: .allFolders) == "Folders")
-    #expect(state.toolbarTitle(for: .location("/Volumes/T7 Shuttle")) == "T7 Shuttle")
-    #expect(state.toolbarSubtitle(for: .allFolders) == "3 folders · 1 needs you")
-    #expect(state.toolbarSubtitle(for: .location("/Volumes/T7 Shuttle")) == "1 folder")
+    #expect(state.shelfSubtitle == "3 folders · 1 needs you")
 
     let twoNeedYou = mainState([
       report(1, name: "Alpha", problem: .noAccess),
       report(2, name: "Beta", problem: .noAccess),
     ])
-    #expect(twoNeedYou.toolbarSubtitle(for: .allFolders) == "2 folders · 2 need you")
+    #expect(twoNeedYou.shelfSubtitle == "2 folders · 2 need you")
+    #expect(mainState([]).shelfSubtitle == "No folders")
   }
 
   @Test func buildsAddBuffMenuForWornPlainAndProtectedFolders() {

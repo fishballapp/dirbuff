@@ -79,7 +79,7 @@ extension Samples {
   }
 
   private static func filesState(
-    _ reading: Result<Engine.FolderStatus, FolderProblem>,
+    _ reading: Result<Engine.FolderStatus?, FolderProblem>,
     settings: TemporarySettings = filesSettings,
     licence: Licence = .licensed,
     folder: Folder? = nil
@@ -140,9 +140,9 @@ extension Samples {
   }
 
   /// Draws the files page for folder 1 from `state`, as the app's `MainContainerView` does.
-  static func filesDestination(_ state: MainState) -> (MainRoute) -> AnyView {
-    { route in
-      guard case .files(let id) = route, let folder = state.folders.first(where: { $0.id == id })
+  static func filesDestination(_ state: MainState) -> (MainPage) -> AnyView {
+    { page in
+      guard case .files(let id) = page, let folder = state.folders.first(where: { $0.id == id })
       else { return AnyView(EmptyView()) }
       return AnyView(
         FolderFilesPage(

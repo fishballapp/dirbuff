@@ -1,17 +1,19 @@
 import DirBuffKit
 import Foundation
 
-/// A folder and what reading it found, or why it couldn't be read.
+/// A folder and what reading it found, or why it couldn't be found or read. A folder that wears no
+/// buff is found but not read: its reading succeeds with no status.
 public struct FolderReport: Sendable {
   public var folder: Folder
-  public var reading: Result<Engine.FolderStatus, FolderProblem>
+  public var reading: Result<Engine.FolderStatus?, FolderProblem>
 
-  public init(folder: Folder, reading: Result<Engine.FolderStatus, FolderProblem>) {
+  public init(folder: Folder, reading: Result<Engine.FolderStatus?, FolderProblem>) {
     self.folder = folder
     self.reading = reading
   }
 
-  public var status: Engine.FolderStatus? { try? reading.get() }
+  /// What reading it found; nil when it wasn't read or couldn't be.
+  public var status: Engine.FolderStatus? { (try? reading.get()) ?? nil }
 
   /// Why reading it failed; nil when it was read.
   public var problem: FolderProblem? {

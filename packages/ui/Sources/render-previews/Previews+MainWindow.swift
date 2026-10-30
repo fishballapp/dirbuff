@@ -4,117 +4,82 @@ import DirBuffUI
 import Foundation
 import SwiftUI
 
-/// The main window's shelf and tile states: the six-folder fixture at 1240 × 800, each tile state,
-/// a narrow two-column window, the filtered states, the empty shelf, and a pushed folder page.
+/// The main window: All Folders with the six-folder fixture at 1240 × 800 (a needs-you folder and
+/// one that wears nothing among them), each tile state, a narrow window, the filtered and empty
+/// shelf, a folder's page, the Buffs page, and a buff dragged onto sidebar rows and tiles.
 @MainActor
 func mainWindowPreviews() -> [Preview] {
   let fullSize = CGSize(width: 1240, height: 800)
   let narrowSize = CGSize(width: 880, height: 720)
+  func window(
+    _ state: MainState, _ navigation: MainNavigation = MainNavigation(), query: String = ""
+  ) -> AnyView {
+    AnyView(
+      MainView(
+        state: state, navigation: .constant(navigation), initialSearchQuery: query,
+        folderPage: Samples.folderPageDestination(
+          state, reports: Samples.shelfReports(), now: Samples.shelfMoment,
+          home: Samples.shelfHome)))
+  }
+  /// Temporary in the air over `folderID`, from the Buffs page.
+  func dragging(over folderID: Int64?, on place: SidebarPlace = .buffs) -> AnyView {
+    AnyView(
+      window(Samples.dragShelf, MainNavigation(place))
+        .environment(
+          \.addBuffHost, AddBuffHost(draggedBuff: .temporary, dropFolderID: folderID)))
+  }
   return [
-    (
-      "main-overview",
-      AnyView(
-        MainView(
-          state: Samples.shelf(),
-          navigation: .constant(MainNavigation())
-        )),
-      fullSize
-    ),
-    (
-      "main-shelf-working",
-      AnyView(
-        MainView(
-          state: Samples.shelf(working: [1]),
-          navigation: .constant(MainNavigation())
-        )),
-      fullSize
-    ),
-    (
-      "main-overview-trial-ended",
-      AnyView(
-        MainView(
-          state: Samples.shelfPaused(licence: .trialEnded),
-          navigation: .constant(MainNavigation())
-        )),
-      fullSize
-    ),
+    ("main-overview", window(Samples.shelf()), fullSize),
+    ("main-shelf-working", window(Samples.shelf(working: [1])), fullSize),
+    ("main-overview-trial-ended", window(Samples.shelfPaused(licence: .trialEnded)), fullSize),
     (
       "main-overview-licence-ended",
-      AnyView(
-        MainView(
-          state: Samples.shelfPaused(
-            licence: .ended(paidThrough: Samples.shelfMoment.addingTimeInterval(-30 * 86_400))),
-          navigation: .constant(MainNavigation())
-        )),
+      window(
+        Samples.shelfPaused(
+          licence: .ended(paidThrough: Samples.shelfMoment.addingTimeInterval(-30 * 86_400)))),
       fullSize
     ),
+    ("main-shelf-unplugged", window(Samples.shelfUnplugged), fullSize),
+    ("main-shelf-missing", window(Samples.shelfMissing), fullSize),
+    ("main-shelf-no-buffs-away", window(Samples.shelfNoBuffsAway), fullSize),
     (
-      "main-shelf-unplugged",
+      "main-folder-no-buffs-missing",
+      window(Samples.shelfNoBuffsAway, MainNavigation(.folder(5))), fullSize
+    ),
+    ("main-shelf-narrow", window(Samples.shelf()), narrowSize),
+    ("main-shelf-filtered", window(Samples.shelf(), query: "Screen"), fullSize),
+    ("main-shelf-filtered-empty", window(Samples.shelf(), query: "Invoices"), fullSize),
+    ("main-shelf-empty", window(Samples.shelfEmpty), fullSize),
+    ("main-folder-on", window(Samples.shelf(), MainNavigation(.folder(1))), fullSize),
+    ("main-buffs", window(Samples.shelfUnplugged, MainNavigation(.buffs)), fullSize),
+    (
+      "main-buffs-trial-ended",
+      window(Samples.shelfPaused(licence: .trialEnded), MainNavigation(.buffs)), fullSize
+    ),
+    ("main-drag-row-lit", dragging(over: 5), fullSize),
+    ("main-drag-row-refused", dragging(over: 1), fullSize),
+    ("main-drag-protected", dragging(over: nil), fullSize),
+    ("main-drag-tile-lit", dragging(over: 5, on: .allFolders), fullSize),
+    (
+      "buff-pieces",
       AnyView(
-        MainView(
-          state: Samples.shelfUnplugged,
-          navigation: .constant(MainNavigation())
-        )),
-      fullSize
+        HStack(spacing: 12) {
+          ForEach(Buff.allCases, id: \.self) { BuffPiece($0).fixedSize() }
+        }
+        .padding(24)
+        .background(Palette.paper)),
+      nil
     ),
     (
-      "main-shelf-missing",
+      "buff-added-card",
       AnyView(
-        MainView(
-          state: Samples.shelfMissing,
-          navigation: .constant(MainNavigation())
-        )),
-      fullSize
-    ),
-    (
-      "main-shelf-narrow",
-      AnyView(
-        MainView(
-          state: Samples.shelf(),
-          navigation: .constant(MainNavigation())
-        )),
-      narrowSize
-    ),
-    (
-      "main-shelf-filtered",
-      AnyView(
-        MainView(
-          state: Samples.shelf(),
-          navigation: .constant(MainNavigation()),
-          initialSearchQuery: "Screen"
-        )),
-      fullSize
-    ),
-    (
-      "main-shelf-filtered-empty",
-      AnyView(
-        MainView(
-          state: Samples.shelf(),
-          navigation: .constant(MainNavigation()),
-          initialSearchQuery: "Invoices"
-        )),
-      fullSize
-    ),
-    (
-      "main-shelf-empty",
-      AnyView(
-        MainView(
-          state: Samples.shelfEmpty,
-          navigation: .constant(MainNavigation())
-        )),
-      fullSize
-    ),
-    (
-      "main-folder-on",
-      AnyView(
-        MainView(
-          state: Samples.shelf(),
-          navigation: .constant(MainNavigation(opening: .folder(1))),
-          destination: Samples.folderPageDestination(
-            Samples.shelf(), reports: Samples.shelfReports(), now: Samples.shelfMoment,
-            home: Samples.shelfHome)
-        )),
-      fullSize
+        AddedBuffCard(
+          folderName: "Scratch", folderPath: "\(Samples.shelfHome)/Scratch",
+          binName: Samples.binName, onChangeMaxAge: { _ in }, onUndo: {}, onDone: {}
+        )
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial)),
+      CGSize(width: 268, height: 132)
     ),
   ]
 }
@@ -122,11 +87,11 @@ func mainWindowPreviews() -> [Preview] {
 extension Samples {
   /// Real home directory so existing standard folders (`~/Downloads`) draw their real Finder icons
   /// while `MainState` still formats locations as `~/…`.
-  fileprivate static let shelfHome = NSHomeDirectory()
+  static let shelfHome = NSHomeDirectory()
   /// Sun 25 Oct 2026, 13:37 UTC — 23 minutes before the 14:00 clean-up.
-  fileprivate static let shelfMoment = now.addingTimeInterval(10 * 86_400 + 5 * 3_600 + 37 * 60)
+  static let shelfMoment = now.addingTimeInterval(10 * 86_400 + 5 * 3_600 + 37 * 60)
 
-  fileprivate static let shelfCalendar: Calendar = {
+  static let shelfCalendar: Calendar = {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
     calendar.locale = Locale(identifier: "en_GB")
@@ -172,6 +137,8 @@ extension Samples {
     if let problem {
       return FolderReport(folder: folder, reading: .failure(problem))
     }
+    // A folder that wears no buff is found but never read.
+    guard folder.wearsABuff else { return FolderReport(folder: folder, reading: .success(nil)) }
     let snapshot = FolderSnapshot(
       wearsTemporary: wearsTemporary,
       isProtectedRoot: false,
@@ -217,7 +184,7 @@ extension Samples {
     }
   }
 
-  fileprivate static func shelfReports(paused: Bool = false) -> [FolderReport] {
+  static func shelfReports(paused: Bool = false) -> [FolderReport] {
     [
       shelfReport(
         id: 1,
@@ -263,17 +230,17 @@ extension Samples {
         wearsTemporary: !paused,
         turnedOffByLicence: paused
       ),
+      // Added with + Folder, wearing nothing yet.
       shelfReport(
         id: 5,
         path: "\(shelfHome)/Scratch",
-        settings: TemporarySettings(rule: .size, sizeLimit: 10_000_000_000, disposal: .delete),
+        settings: TemporarySettings(),
         items: [
           shelfFile(
-            in: "\(shelfHome)/Scratch", name: "cache.bin", daysOld: 2, size: 8_100_000_000
+            in: "\(shelfHome)/Scratch", name: "cache.bin", daysOld: 2, size: 2_100_000_000
           )
         ],
-        wearsTemporary: !paused,
-        turnedOffByLicence: paused
+        wearsTemporary: false
       ),
       shelfReport(
         id: 6,
@@ -286,7 +253,7 @@ extension Samples {
     ]
   }
 
-  fileprivate static func shelf(
+  static func shelf(
     licence: Licence = .trial(daysLeft: 9),
     working: Set<Int64> = []
   ) -> MainState {
@@ -308,7 +275,7 @@ extension Samples {
     )
   }
 
-  fileprivate static func shelfPaused(licence: Licence) -> MainState {
+  static func shelfPaused(licence: Licence) -> MainState {
     MainState(
       reports: shelfReports(paused: true),
       licence: licence,
@@ -320,16 +287,21 @@ extension Samples {
     )
   }
 
-  fileprivate static var shelfUnplugged: MainState {
-    var reports = shelfReports()
+  /// `reports` with Exports on a drive that isn't connected.
+  private static func shelfUnplugged(reports: [FolderReport]) -> [FolderReport] {
+    var reports = reports
     reports[2] = shelfReport(
       id: 3,
       path: "/Volumes/T7 Shuttle/Exports",
       settings: TemporarySettings(rule: .size, sizeLimit: 50_000_000_000),
       problem: .unreachable
     )
-    return MainState(
-      reports: reports,
+    return reports
+  }
+
+  static var shelfUnplugged: MainState {
+    MainState(
+      reports: shelfUnplugged(reports: shelfReports()),
       licence: .trial(daysLeft: 9),
       now: shelfMoment,
       calendar: shelfCalendar,
@@ -339,7 +311,7 @@ extension Samples {
     )
   }
 
-  fileprivate static var shelfMissing: MainState {
+  static var shelfMissing: MainState {
     var reports = shelfReports()
     reports[2] = shelfReport(
       id: 3,
@@ -359,7 +331,47 @@ extension Samples {
     )
   }
 
-  fileprivate static var shelfEmpty: MainState {
+  /// The shelf with Exports unplugged and the user's Library added, which is protected, for
+  /// dragging Temporary over.
+  static var dragShelf: MainState {
+    var reports = shelfUnplugged(reports: shelfReports())
+    reports.append(
+      shelfReport(
+        id: 7, path: "\(shelfHome)/Library", settings: TemporarySettings(),
+        wearsTemporary: false))
+    return MainState(
+      reports: reports,
+      licence: .trial(daysLeft: 9),
+      now: shelfMoment,
+      calendar: shelfCalendar,
+      binName: binName,
+      home: shelfHome,
+      startupVolumeName: "Macintosh HD"
+    )
+  }
+
+  /// Scratch, which wears nothing, deleted, and Footage, which wears nothing, on an unplugged drive.
+  static var shelfNoBuffsAway: MainState {
+    var reports = shelfReports()
+    reports[4] = shelfReport(
+      id: 5, path: "\(shelfHome)/Scratch", settings: TemporarySettings(), wearsTemporary: false,
+      problem: .missing)
+    reports.append(
+      shelfReport(
+        id: 8, path: "/Volumes/T7 Shuttle/Footage", settings: TemporarySettings(),
+        wearsTemporary: false, problem: .unreachable))
+    return MainState(
+      reports: reports,
+      licence: .trial(daysLeft: 9),
+      now: shelfMoment,
+      calendar: shelfCalendar,
+      binName: binName,
+      home: shelfHome,
+      startupVolumeName: "Macintosh HD"
+    )
+  }
+
+  static var shelfEmpty: MainState {
     MainState(
       reports: [],
       licence: .trial(daysLeft: 9),

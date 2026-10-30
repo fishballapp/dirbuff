@@ -60,15 +60,6 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
     #expect(state?.folder.mark == nil)
   }
 
-  @Test func switchesBetweenTheShelfsFoldersNeedsYouFirst() {
-    let state = page(
-      [
-        report(1, name: "Alpha"), report(2, name: "Bravo"),
-        report(3, name: "Charlie", problem: .noAccess),
-      ], id: 2)
-    #expect(state?.switcher.map(\.name) == ["Charlie", "Alpha", "Bravo"])
-  }
-
   @Test func offersOnlyTheBuffsTheFolderDoesntWear() {
     let state = page([report(1)])
     #expect(state?.addBuffItems.contains { $0.buff == .temporary } == false)

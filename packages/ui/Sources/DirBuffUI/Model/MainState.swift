@@ -2,31 +2,6 @@ import DirBuffCore
 import DirBuffKit
 import Foundation
 
-/// Which folders the sidebar shows on the shelf.
-public enum ShelfFilter: Hashable, Sendable {
-  case allFolders
-  case needsYou
-  case buff(Buff)
-  /// "/" for the startup disk, or "/Volumes/<Name>" for another volume.
-  case location(String)
-}
-
-/// A volume with at least one folder on the shelf, listed under Locations in the sidebar.
-public struct ShelfLocation: Sendable, Equatable, Hashable, Identifiable {
-  public var id: String { volumePath }
-  public var volumePath: String
-  public var name: String
-  public var isExternal: Bool
-  public var count: Int
-
-  public init(volumePath: String, name: String, isExternal: Bool, count: Int) {
-    self.volumePath = volumePath
-    self.name = name
-    self.isExternal = isExternal
-    self.count = count
-  }
-}
-
 /// One item in a folder's "Add a Buff to …" menu: only buffs the folder doesn't wear yet.
 public struct AddBuffItem: Sendable, Equatable, Identifiable {
   public var id: Buff { buff }
@@ -42,12 +17,30 @@ public struct AddBuffItem: Sendable, Equatable, Identifiable {
 }
 
 extension FolderState {
-  /// Whether any buff on the folder needs the user to fix something. A licence pause marks the
-  /// folder needs you too, but its fix is the licence's, so the tile stays as it is.
+  /// Whether the user must fix something: a buff on the folder needs them, or a folder that wears
+  /// nothing has gone missing. A licence pause marks the folder needs you too, but its fix is the
+  /// licence's, so the tile stays as it is.
   public var isNeedingYou: Bool {
-    buffs.contains {
+    let isBuffNeedingYou = buffs.contains {
       if case .needsYou = $0.state { return true }
       return false
+    }
+    return isBuffNeedingYou || (buffs.isEmpty && isMissing)
+  }
+
+  /// Whether DirBuff can't find it: deleted, moved to another disk, or moved to the Bin.
+  public var isMissing: Bool { problem == .missing }
+
+  /// Whether it's on a drive that isn't connected.
+  public var isUnplugged: Bool { problem == .unreachable }
+
+  /// Why no buff can go on it now, whatever it wears: "DirBuff can't find Scratch", "T7 Shuttle
+  /// isn't connected"; nil while it's within reach.
+  public var unreachableReason: String? {
+    switch problem {
+    case .missing: "DirBuff can't find \(name)"
+    case .unreachable: "\(volumeName(path) ?? "Its drive") isn't connected"
+    case .noAccess, nil: nil
     }
   }
 
@@ -57,11 +50,11 @@ extension FolderState {
   }
 }
 
-/// What the main window shows: the shelf of folder tiles, its sidebar counts and filters, and the
-/// folder pages pushed over it.
+/// What the main window shows: the sidebar's folders, the shelf of folder tiles, the Buffs page,
+/// and the folder pages.
 public struct MainState: Sendable, Equatable {
   public var folders: [MainFolder]
-  /// Every buffed folder (and any whose buff can still be put back), needs-you first then by name.
+  /// Every folder added to DirBuff, needs-you first then by name: the shelf's order.
   public var shelfFolders: [FolderState]
   public var licenceLine: LicenceLine?
   /// Why no folder can be made Temporary right now; nil while it can.
@@ -72,106 +65,24 @@ public struct MainState: Sendable, Equatable {
   public var startupVolumeName: String
   public var protectedPaths: Set<String>
 
-  /// Needs You leaves the sidebar while every buff is paused.
-  public var showsNeedsYouInSidebar: Bool { mayClean }
-
   public var needsYouCount: Int { shelfFolders.count(where: \.isNeedingYou) }
 
-  /// Shipped buffs listed in the sidebar; Soon buffs stay out until a folder can wear them.
-  public var sidebarBuffs: [Buff] { Buff.allCases.filter(\.isAvailable) }
-
-  public func buffCount(_ buff: Buff) -> Int {
-    shelfFolders.count { $0.wears(buff) }
-  }
-
-  /// One row per volume that holds at least one shelf folder: startup disk first, then by name.
-  public var locations: [ShelfLocation] {
-    var startupCount = 0
-    var externalCounts: [String: Int] = [:]
-    for folder in shelfFolders {
-      if let external = externalVolumeName(of: folder.path) {
-        externalCounts[external, default: 0] += 1
-      } else {
-        startupCount += 1
-      }
-    }
-    var result: [ShelfLocation] = []
-    if startupCount > 0 {
-      result.append(
-        ShelfLocation(
-          volumePath: "/", name: startupVolumeName, isExternal: false, count: startupCount))
-    }
-    let externals = externalCounts.keys.sorted {
-      $0.localizedStandardCompare($1) == .orderedAscending
-    }
-    for name in externals {
-      guard let count = externalCounts[name] else { continue }
-      result.append(
-        ShelfLocation(
-          volumePath: "/Volumes/\(name)", name: name, isExternal: true, count: count))
-    }
-    return result
-  }
-
-  /// Falls back to All Folders when the chosen sidebar row is gone (an unplugged volume, or Needs
-  /// You after the trial ends).
-  public func resolvedFilter(_ filter: ShelfFilter) -> ShelfFilter {
-    switch filter {
-    case .allFolders:
-      return .allFolders
-    case .needsYou:
-      return showsNeedsYouInSidebar ? .needsYou : .allFolders
-    case .buff(let buff):
-      return sidebarBuffs.contains(buff) ? .buff(buff) : .allFolders
-    case .location(let volumePath):
-      return locations.contains(where: { $0.volumePath == volumePath })
-        ? .location(volumePath) : .allFolders
-    }
-  }
-
-  /// The tiles to draw for `filter` and the name filter `query`, keeping shelf order.
-  public func shelfFolders(
-    matching filter: ShelfFilter = .allFolders,
-    query: String = ""
-  ) -> [FolderState] {
-    let byFilter: [FolderState] =
-      switch resolvedFilter(filter) {
-      case .allFolders:
-        shelfFolders
-      case .needsYou:
-        shelfFolders.filter(\.isNeedingYou)
-      case .buff(let buff):
-        shelfFolders.filter { $0.wears(buff) }
-      case .location(let volumePath):
-        shelfFolders.filter { volumeIdentifier(of: $0.path) == volumePath }
-      }
+  /// The tiles whose folder name holds `query`, in shelf order.
+  public func shelfFolders(matching query: String) -> [FolderState] {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return byFilter }
-    return byFilter.filter { $0.name.localizedStandardContains(trimmed) }
+    guard !trimmed.isEmpty else { return shelfFolders }
+    return shelfFolders.filter { $0.name.localizedStandardContains(trimmed) }
   }
 
-  public func toolbarTitle(for filter: ShelfFilter) -> String {
-    switch resolvedFilter(filter) {
-    case .allFolders:
-      "Folders"
-    case .needsYou:
-      "Needs You"
-    case .buff(let buff):
-      buff.name
-    case .location(let volumePath):
-      locations.first(where: { $0.volumePath == volumePath })?.name ?? "Folders"
+  /// All Folders' subtitle: "6 folders · 1 needs you", "6 folders · all paused", or "6 folders".
+  /// Paused only while some folder wears a buff the licence paused.
+  public var shelfSubtitle: String {
+    guard !shelfFolders.isEmpty else { return "No folders" }
+    let total = folderCountWords(shelfFolders.count)
+    if !mayClean && shelfFolders.contains(where: { !$0.buffs.isEmpty }) {
+      return shelfFolders.count == 1 ? "\(total) · paused" : "\(total) · all paused"
     }
-  }
-
-  /// "6 folders · 1 needs you", "6 folders · all paused", or "6 folders".
-  public func toolbarSubtitle(for filter: ShelfFilter) -> String {
-    let inScope = shelfFolders(matching: filter)
-    guard !inScope.isEmpty else { return "No folders" }
-    let total = folderCountWords(inScope.count)
-    if !mayClean {
-      return inScope.count == 1 ? "\(total) · paused" : "\(total) · all paused"
-    }
-    let needing = inScope.count(where: \.isNeedingYou)
+    let needing = needsYouCount
     if needing == 0 { return total }
     if needing == 1 { return "\(total) · 1 needs you" }
     return "\(total) · \(needing) need you"
@@ -190,6 +101,9 @@ public struct MainState: Sendable, Equatable {
       }
       if !mayClean {
         return AddBuffItem(buff: buff, isEnabled: false)
+      }
+      if let reason = folder.unreachableReason {
+        return AddBuffItem(buff: buff, isEnabled: false, subtitle: reason)
       }
       if isProtected(path: folder.path) {
         return AddBuffItem(
@@ -236,7 +150,7 @@ extension MainState {
       ))
     self.folders = reports.compactMap { report in
       guard let id = report.folder.id else { return nil }
-      let isReadable = report.status != nil
+      let isReadable = report.problem == nil
       let isTemporary = report.status?.wearsTemporary == true
       let preview: FolderPreview = {
         guard let status = report.status else {
@@ -289,17 +203,7 @@ private func folderCountWords(_ count: Int) -> String {
   count == 1 ? "1 folder" : "\(count) folders"
 }
 
-private func externalVolumeName(of path: String) -> String? {
-  let parts = path.split(separator: "/")
-  guard parts.count >= 2, parts[0] == "Volumes" else { return nil }
-  return String(parts[1])
-}
-
 private func isExternalVolumeRoot(_ path: String) -> Bool {
   let parts = path.split(separator: "/")
   return parts.count == 2 && parts[0] == "Volumes"
-}
-
-private func volumeIdentifier(of path: String) -> String {
-  externalVolumeName(of: path).map { "/Volumes/\($0)" } ?? "/"
 }

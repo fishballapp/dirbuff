@@ -42,7 +42,9 @@ func report(
       turnedOffByLicence: turnedOffByLicence, accessLostAt: accessLostAt,
       missingSince: missingSince, createdAt: now,
       lastRunAt: now),
+    // A folder that wears no buff is found but never read.
     reading: problem.map { .failure($0) }
+      ?? (!wearsTemporary && !turnedOffByLicence ? .success(nil) : nil)
       ?? .success(
         Engine.FolderStatus(
           url: URL(fileURLWithPath: path), wearsTemporary: wearsTemporary,

@@ -59,7 +59,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     case CleanUpNotification.Action.putBack.rawValue:
       await appModel.putBackFromHistory(entryIDs: putBackEntryIDs)
     case CleanUpNotification.Action.show.rawValue, UNNotificationDefaultActionIdentifier:
-      windows.openMain(route: runID.map { .run($0) } ?? .history(folderID: nil))
+      windows.openMain(
+        at: runID.map { MainNavigation(opening: .run($0)) } ?? MainNavigation(.history))
     default:
       break
     }

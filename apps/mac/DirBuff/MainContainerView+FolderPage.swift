@@ -2,7 +2,7 @@ import DirBuffUI
 import SwiftUI
 
 extension MainContainerView {
-  /// A folder's page.
+  /// A folder's page, its sidebar row's.
   @ViewBuilder
   func folderPage(_ id: Int64, state: MainState, now: Date) -> some View {
     if let page = FolderPageState(
@@ -25,16 +25,8 @@ extension MainContainerView {
       else { return }
       Task { await appModel.save(settings, for: folder) }
     }
-    pageActions.openFolder = { id in
-      // The switcher swaps this page for the other folder's, so back still goes to the shelf.
-      if case .folder = windowState.navigation.path.last {
-        windowState.navigation.path[windowState.navigation.path.count - 1] = .folder(id)
-      } else {
-        windowState.navigation.path.append(.folder(id))
-      }
-    }
-    pageActions.showFiles = { id in windowState.navigation.path.append(.files(id)) }
-    pageActions.showAllFolders = { windowState.navigation = MainNavigation() }
+    pageActions.showFiles = { id in windowState.navigation.open(.files(id)) }
+    pageActions.showHistory = { id in windowState.navigation.open(.folderHistory(id)) }
     return pageActions
   }
 }

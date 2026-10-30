@@ -34,7 +34,7 @@ struct FoundationSheet: View {
       ForEach(Buff.allCases, id: \.self) { buff in
         HStack(alignment: .center, spacing: 16) {
           ForEach(
-            [BuffSymbol.Size.addBuff, .card, .row, .menu, .switcher, .sidebar], id: \.self
+            [BuffSymbol.Size.buffsPage, .card, .row, .menu, .sidebar], id: \.self
           ) { size in
             BuffSymbol(buff, size: size)
           }

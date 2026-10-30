@@ -29,9 +29,9 @@ public struct BuffName: View {
   public enum Size: Sendable {
     /// On a tile's buff row: 10.5 pt, 0.12 em.
     case row
-    /// On a buff piece and in + Buff: 13 pt, 0.1 em.
+    /// On a buff piece: 13 pt, 0.1 em.
     case piece
-    /// Heading a buff card: 14 pt, 0.12 em.
+    /// Heading a buff card, on a folder page and the Buffs page: 14 pt, 0.12 em.
     case card
 
     var points: CGFloat {

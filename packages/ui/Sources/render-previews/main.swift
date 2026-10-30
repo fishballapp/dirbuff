@@ -196,8 +196,8 @@ func renderSite(into directory: URL) {
       "site-main",
       AnyView(
         MainView(
-          state: Samples.site, navigation: .constant(MainNavigation(opening: .folder(1))),
-          destination: Samples.folderPageDestination(
+          state: Samples.site, navigation: .constant(MainNavigation(.folder(1))),
+          folderPage: Samples.folderPageDestination(
             Samples.site, reports: Samples.siteReports, now: Samples.shownAt))),
       CGSize(width: 760, height: 760)
     ),
@@ -205,7 +205,7 @@ func renderSite(into directory: URL) {
       "site-folder-phone",
       AnyView(
         Samples.folderPageDestination(
-          Samples.site, reports: Samples.siteReports, now: Samples.shownAt)(.folder(1))),
+          Samples.site, reports: Samples.siteReports, now: Samples.shownAt)(1)),
       CGSize(width: 390, height: 780)
     ),
   ]
@@ -229,7 +229,7 @@ func main() {
       ("foundation", AnyView(FoundationSheet()), nil)
       // Each surface's states are in its own file.
     ] + menuBarPreviews() + mainWindowPreviews() + finderPreviews() + folderPagePreviews()
-    + filesPreviews() + historyPreviews() + addBuffPreviews() + welcomePreviews()
+    + filesPreviews() + historyPreviews() + welcomePreviews()
     + settingsPreviews()
 
   renderAll(states, into: targetDir)

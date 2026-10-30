@@ -164,11 +164,13 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
   }
 
   @Test func isGoneWithTheLastBuff() {
-    #expect(folders([report(1, wearsTemporary: false)]).isEmpty)
+    #expect(folders([report(1, wearsTemporary: false)]).first?.mark == nil)
   }
 
-  @Test func leavesOutFoldersThatWearNothing() {
-    #expect(folders([report(1, wearsTemporary: false)]).isEmpty)
+  @Test func keepsAFolderThatWearsNothing() {
+    let plain = folders([report(1, wearsTemporary: false)])
+    #expect(plain.map(\.id) == [1])
+    #expect(plain.first?.buffs.isEmpty == true)
   }
 }
 

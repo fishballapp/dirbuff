@@ -13,7 +13,7 @@ extension MainContainerView {
         isPaused: !state.mayClean,
         onShowInFinder: appModel.showInFinder,
         onFix: { appModel.perform($0, on: id) },
-        onShowHistory: { windowState.navigation.path.append(.history(folderID: id)) }
+        onShowHistory: { windowState.navigation.open(.folderHistory(id)) }
       )
     }
   }

@@ -3,8 +3,8 @@ import DirBuffKit
 import DirBuffUI
 import SwiftUI
 
-/// A folder's page, in each state of its buffs, pushed over the shelf in the 1240 pt window, and
-/// the folder switcher its title opens.
+/// A folder's page, in each state of its buffs, in the 1240 pt window with its sidebar row
+/// selected; and a folder that wears nothing, with its buffs to put on.
 @MainActor
 func folderPagePreviews() -> [Preview] {
   let full = CGSize(width: 1240, height: 800)
@@ -66,7 +66,7 @@ func folderPagePreviews() -> [Preview] {
       short
     ),
     (
-      "folder-page-plain",
+      "folder-page-no-buffs",
       page(
         6,
         Samples.pageReports(extra: [
@@ -77,12 +77,10 @@ func folderPagePreviews() -> [Preview] {
       CGSize(width: 1240, height: 360)
     ),
     ("folder-page-narrow", page(3, reports), CGSize(width: 860, height: 800)),
-    ("folder-switcher", switcher(reports, current: 3), nil),
-    ("folder-switcher-long", switcher(longShelf(), current: 3), nil),
   ]
 }
 
-/// The page for folder `id`, pushed over the shelf as the app shows it.
+/// The page for folder `id`, its sidebar row selected, as the app shows it.
 @MainActor
 private func page(
   _ id: Int64,
@@ -101,18 +99,10 @@ private func page(
   return AnyView(
     MainView(
       state: shelf,
-      navigation: .constant(MainNavigation(opening: .folder(id))),
-      destination: { _ in
+      navigation: .constant(MainNavigation(.folder(id))),
+      folderPage: { _ in
         AnyView(FolderPage(state: state, binName: Samples.binName, toast: toast))
       }))
-}
-
-@MainActor
-private func switcher(_ reports: [FolderReport], current: Int64) -> AnyView {
-  AnyView(
-    FolderSwitcher(
-      folders: Samples.pageState(current, reports: reports).switcher, currentID: current,
-      onOpen: { _ in }))
 }
 
 /// Every folder paused at the trial's end.
@@ -122,19 +112,4 @@ private func pausedReports() -> [FolderReport] {
       id: report.folder.id ?? 0, path: report.folder.path, settings: report.folder.settings,
       items: report.status?.items ?? [], wearsTemporary: false, turnedOffByLicence: true)
   }
-}
-
-/// Twenty folders, so the switcher scrolls and has its filter.
-private func longShelf() -> [FolderReport] {
-  let names = [
-    "Archive", "Client Work", "Desktop Junk", "Family Photos", "Invoices", "Music Stems",
-    "Old Mac", "Photo Imports", "Podcast", "Receipts", "Scans", "Sketches", "Taxes 2026",
-    "Videos", "Zoom Recordings", "Renders",
-  ]
-  return Samples.pageReports()
-    + names.enumerated().map { index, name in
-      Samples.pageReport(
-        id: Int64(10 + index), path: "\(Samples.home)/\(name)",
-        settings: TemporarySettings(maxAgeDays: 30))
-    }
 }

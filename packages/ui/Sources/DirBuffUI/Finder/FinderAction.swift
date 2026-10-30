@@ -5,7 +5,7 @@ import Foundation
 public enum FinderAction: String, Sendable, Equatable, CaseIterable {
   /// Adds the folder if needed and puts Temporary on with its default settings.
   case addTemporary = "add-temporary"
-  /// Takes Temporary off; the folder offers Put Back until tomorrow.
+  /// Takes Temporary off, forgetting its settings; the folder stays, wearing nothing.
   case takeTemporaryOff = "take-temporary-off"
   /// Opens the folder in DirBuff to change its buff settings.
   case change = "change"

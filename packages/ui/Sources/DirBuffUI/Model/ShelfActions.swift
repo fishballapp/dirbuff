@@ -1,11 +1,14 @@
 import Foundation
 
-/// Everything the shelf and its tiles can do, wired to the app by `MainContainerView`. Each starts
-/// as a no-op, so previews and tests set only what they use.
+/// Everything the main window's folders and buffs can do, wired to the app by
+/// `MainContainerView`. Each starts as a no-op, so previews and tests set only what they use.
 public struct ShelfActions {
-  /// + Buff's Choose Folder…: picks a folder to add the buff to.
+  /// + Folder and the sidebar's +: picks a folder to add, wearing nothing, and opens its page.
+  public var addFolder: () -> Void = {}
+  /// Add to Folder › Other Folder…: picks a folder to add the buff to.
   public var chooseFolderForBuff: (Buff) -> Void = { _ in }
-  public var addBuff: (_ folderID: Int64, Buff) -> Void = { _, _ in }
+  /// Puts a buff on a folder; returns whether it went on.
+  public var addBuff: @MainActor (_ folderID: Int64, Buff) async -> Bool = { _, _ in false }
   /// Takes a buff straight back off, right after it was added: no alert, nothing to put back.
   public var undoAddBuff: (_ folderID: Int64, Buff) -> Void = { _, _ in }
   /// Takes a buff off, asking first: its settings will be forgotten.
@@ -23,4 +26,13 @@ public struct ShelfActions {
   public var checkLicence: () -> Void = {}
 
   public init() {}
+}
+
+extension ShelfActions {
+  /// Puts `buff` on the folder without waiting to hear whether it went on: a menu or a click that
+  /// shows nothing after.
+  @MainActor
+  func add(_ buff: Buff, to folderID: Int64) {
+    Task { _ = await addBuff(folderID, buff) }
+  }
 }

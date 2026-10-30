@@ -24,7 +24,8 @@ on the hour, by the clock, and at no other time.
   (`.app`, `.photoslibrary`) is one item. Hidden items are left alone.
 - Items are moved to the Bin, so you can put them back (Finder's Put Back works too), or deleted
   permanently, per folder.
-- Your home folder, its Library, system folders and the top of a disk can't be added: clearing them would break the Mac.
+- Temporary never goes on your home folder, its Library, system folders or the top of a disk:
+  clearing them would break the Mac.
 - DirBuff lists a folder's items and their dates. It never reads a file's contents.
 
 ## How it is built

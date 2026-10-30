@@ -92,3 +92,54 @@ public struct AddedBuffCard: View {
       })
   }
 }
+
+extension View {
+  /// Anchors the card after a buff was dropped on `folder` here, until Undo or Done. Closing it any
+  /// other way keeps the buff.
+  func addedBuffCard(for folder: FolderState, onUndo: @escaping (Buff) -> Void) -> some View {
+    modifier(AddedBuffCardPopover(folder: folder, onUndo: onUndo))
+  }
+}
+
+private struct AddedBuffCardPopover: ViewModifier {
+  var folder: FolderState
+  var onUndo: (Buff) -> Void
+
+  @Environment(\.addBuffHost) private var host
+
+  private var isShown: Binding<Bool> {
+    Binding(
+      get: { host.added?.folderID == folder.id },
+      set: { isShown in
+        if !isShown, host.added?.folderID == folder.id { host.added = nil }
+      })
+  }
+
+  func body(content: Content) -> some View {
+    content.popover(isPresented: isShown, arrowEdge: .bottom) {
+      if let added = host.added {
+        AddedBuffCard(
+          folderName: folder.name,
+          folderPath: folder.path,
+          binName: SystemBin.name,
+          onChangeMaxAge: { host.setMaxAge(folder.id, $0) },
+          onUndo: {
+            host.added = nil
+            onUndo(added.buff)
+          },
+          onDone: { host.added = nil })
+      }
+    }
+  }
+}
+
+extension Disposal {
+  /// What becomes of cleared things, as the card after a drop says it: "Moved to the Bin",
+  /// "Deleted permanently".
+  public func addedLine(binName: String) -> String {
+    switch self {
+    case .bin: "Moved to the \(binName)"
+    case .delete: "Deleted permanently"
+    }
+  }
+}

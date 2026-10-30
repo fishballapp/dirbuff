@@ -3,60 +3,35 @@ import DirBuffCore
 import DirBuffKit
 import SwiftUI
 
-/// DirBuff's main window: a 228 pt sidebar of folder filters, History and volumes, and a
-/// `NavigationStack` with the shelf of folder tiles (or History's runs) at its root and pages
-/// pushed over it. Each page is built by the app through `destination`, in its own file.
+/// DirBuff's main window: a 228 pt sidebar of All Folders, Buffs, History and a row per folder, and
+/// a `NavigationStack` with the selected row's page at its root and pages pushed over it. History,
+/// a folder's page and the pushed pages are built by the app, each in its own file.
 public struct MainView: View {
   public var state: MainState
   @Binding public var navigation: MainNavigation
   public var actions: ShelfActions
-  public var destination: (MainRoute) -> AnyView
+  public var folderPage: (Int64) -> AnyView
+  public var history: () -> AnyView
+  public var page: (MainPage) -> AnyView
 
-  @State private var filter: ShelfFilter
   @State private var searchQuery: String
-  /// The folder last opened, selected on the shelf when it comes back: + Buff's click adds to it.
-  @State private var selectedFolderID: Int64?
 
   public init(
     state: MainState,
     navigation: Binding<MainNavigation>,
     actions: ShelfActions = ShelfActions(),
-    initialFilter: ShelfFilter = .allFolders,
     initialSearchQuery: String = "",
-    initialSelectedFolderID: Int64? = nil,
-    destination: @escaping (MainRoute) -> AnyView = { _ in AnyView(EmptyView()) }
+    folderPage: @escaping (Int64) -> AnyView = { _ in AnyView(EmptyView()) },
+    history: @escaping () -> AnyView = { AnyView(EmptyView()) },
+    page: @escaping (MainPage) -> AnyView = { _ in AnyView(EmptyView()) }
   ) {
     self.state = state
     self._navigation = navigation
     self.actions = actions
-    self.destination = destination
-    self._filter = State(initialValue: initialFilter)
+    self.folderPage = folderPage
+    self.history = history
+    self.page = page
     self._searchQuery = State(initialValue: initialSearchQuery)
-    self._selectedFolderID = State(initialValue: initialSelectedFolderID)
-  }
-
-  private var activeFilter: ShelfFilter {
-    state.resolvedFilter(filter)
-  }
-
-  /// The sidebar's row: a shelf filter, or History. Choosing one pops every page. No row is
-  /// selected while a page is pushed, so choosing the one the page came from goes back to it too.
-  private var sidebarSelection: Binding<SidebarItem?> {
-    Binding(
-      get: {
-        guard navigation.path.isEmpty else { return nil }
-        return navigation.root == .history ? .history : .filter(activeFilter)
-      },
-      set: { next in
-        switch next {
-        case .history: navigation = MainNavigation(root: .history)
-        case .filter(let next):
-          filter = next
-          navigation = MainNavigation(root: .shelf)
-        case nil: break
-        }
-      }
-    )
   }
 
   public var body: some View {
@@ -66,7 +41,8 @@ public struct MainView: View {
     } detail: {
       NavigationStack(path: $navigation.path) {
         root
-          .navigationDestination(for: MainRoute.self, destination: destination)
+          .id(navigation.place)
+          .navigationDestination(for: MainPage.self, destination: page)
       }
     }
     .navigationSplitViewStyle(.balanced)
@@ -74,80 +50,55 @@ public struct MainView: View {
       let kept = navigation.keeping(folders: Set(ids))
       if kept != navigation { navigation = kept }
     }
-    // However a folder's page opened (a tile, the switcher, Finder, a notification).
-    .onChange(of: navigation.path, initial: true) {
-      if let opened = navigation.path.compactMap(\.folderID).last {
-        selectedFolderID = opened
-      }
-    }
   }
 
   @ViewBuilder
   private var root: some View {
-    switch navigation.root {
-    case .shelf: shelfPane
-    case .history: destination(.history(folderID: nil))
+    switch navigation.place {
+    case .allFolders: shelfPane
+    case .buffs:
+      BuffsPage(
+        state: state.buffsPage(), actions: actions,
+        onOpenFolder: { navigation = MainNavigation(.folder($0)) })
+    case .history: history()
+    case .folder(let id): folderPage(id)
     }
   }
 
   // MARK: - Sidebar
 
   private var sidebar: some View {
-    List(selection: sidebarSelection) {
-      Section("Folders") {
-        sidebarRow(
-          title: "All Folders",
-          count: state.shelfFolders.count,
-          tag: .allFolders
-        ) {
-          Image(systemName: "folder")
-            .foregroundStyle(Palette.accentBlue)
-        }
-
-        if state.showsNeedsYouInSidebar {
-          sidebarRow(
-            title: "Needs You",
-            count: state.needsYouCount,
-            tag: .needsYou
-          ) {
-            Image(systemName: "exclamationmark.circle")
-              .foregroundStyle(Palette.amber)
-          }
-        }
-
-        ForEach(state.sidebarBuffs, id: \.self) { buff in
-          sidebarRow(
-            title: buff.name,
-            count: state.buffCount(buff),
-            tag: .buff(buff)
-          ) {
-            BuffSymbol(buff, size: .sidebar)
-              .foregroundStyle(Palette.accentBlue)
-          }
-        }
-
-        HStack(spacing: 8) {
-          Image(systemName: "clock.arrow.circlepath")
-            .foregroundStyle(Palette.accentBlue)
-            .frame(width: 18, height: 16, alignment: .center)
-            .accessibilityHidden(true)
-          Text("History")
-        }
-        .tag(SidebarItem.history)
+    List(selection: $navigation.selection) {
+      Section {
+        placeRow("All Folders", systemImage: "folder", count: state.shelfFolders.count)
+          .tag(SidebarPlace.allFolders)
+        placeRow("Buffs", systemImage: "dumbbell")
+          .tag(SidebarPlace.buffs)
+        placeRow("History", systemImage: "clock.arrow.circlepath")
+          .tag(SidebarPlace.history)
       }
 
-      if !state.locations.isEmpty {
-        Section("Locations") {
-          ForEach(state.locations) { location in
-            sidebarRow(
-              title: location.name,
-              count: location.count,
-              tag: .location(location.volumePath)
-            ) {
-              Image(systemName: location.isExternal ? "externaldrive" : "internaldrive")
-                .foregroundStyle(Palette.accentBlue)
-            }
+      Section {
+        ForEach(state.sidebarFolders) { row in
+          SidebarFolderRow(
+            row: row,
+            addBuffItems: state.addBuffItems(for: row.folder),
+            mayClean: state.mayClean,
+            onAddBuff: { actions.add($0, to: row.id) }
+          )
+          .tag(SidebarPlace.folder(row.id))
+        }
+      } header: {
+        HStack {
+          Text("Folders")
+          Spacer(minLength: 4)
+          Button(action: actions.addFolder) {
+            Image(systemName: "plus")
+              .font(.system(size: 12, weight: .medium))
           }
+          .buttonStyle(.borderless)
+          .help("Add Folder…")
+          .accessibilityLabel("Add Folder…")
         }
       }
     }
@@ -158,25 +109,22 @@ public struct MainView: View {
     }
   }
 
-  private func sidebarRow<Icon: View>(
-    title: String,
-    count: Int,
-    tag: ShelfFilter,
-    @ViewBuilder icon: () -> Icon
-  ) -> some View {
+  private func placeRow(_ title: String, systemImage: String, count: Int? = nil) -> some View {
     HStack(spacing: 8) {
-      icon()
+      Image(systemName: systemImage)
+        .foregroundStyle(Palette.accentBlue)
         .frame(width: 18, height: 16, alignment: .center)
         .accessibilityHidden(true)
       Text(title)
         .lineLimit(1)
       Spacer(minLength: 4)
-      Text("\(count)")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .monospacedDigit()
+      if let count {
+        Text("\(count)")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+      }
     }
-    .tag(SidebarItem.filter(tag))
   }
 
   /// The licence line and its action side by side while they fit, with Enter Licence Key… beneath.
@@ -239,10 +187,10 @@ public struct MainView: View {
     }
   }
 
-  // MARK: - Shelf
+  // MARK: - All Folders
 
   private var visibleFolders: [FolderState] {
-    state.shelfFolders(matching: activeFilter, query: searchQuery)
+    state.shelfFolders(matching: searchQuery)
   }
 
   private var shelfPane: some View {
@@ -257,14 +205,15 @@ public struct MainView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Palette.paper)
-    .navigationTitle(state.toolbarTitle(for: activeFilter))
-    .navigationSubtitle(state.toolbarSubtitle(for: activeFilter))
+    .navigationTitle("All Folders")
+    .navigationSubtitle(state.shelfSubtitle)
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
-        AddBuffButton(
-          target: state.shelfFolders.first { $0.id == selectedFolderID }.map(state.addBuffTarget),
-          isEnabled: state.mayClean,
-          actions: actions)
+        Button(action: actions.addFolder) {
+          Label("Folder", systemImage: "plus")
+            .labelStyle(.titleAndIcon)
+        }
+        .help("Add Folder…")
       }
 
       ToolbarItem(placement: .primaryAction) {
@@ -288,9 +237,8 @@ public struct MainView: View {
             folder: folder,
             addBuffItems: state.addBuffItems(for: folder),
             canAddBuff: state.mayClean,
-            isSelected: folder.id == selectedFolderID,
             actions: actions,
-            onOpen: { navigation.path = [.folder(folder.id)] }
+            onOpen: { navigation = MainNavigation(.folder(folder.id)) }
           )
         }
       }
@@ -300,18 +248,12 @@ public struct MainView: View {
 
   private var emptyShelf: some View {
     VStack(spacing: 12) {
-      Text(
-        "Add a buff with + Buff, or right-click a folder in Finder and choose DirBuff: Add Buff"
-      )
-      .foregroundStyle(Palette.inkSecondary)
-      .multilineTextAlignment(.center)
-      .frame(maxWidth: 420)
+      Text("Add a folder, or right-click one in Finder and choose DirBuff: Add Buff.")
+        .foregroundStyle(Palette.inkSecondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 480)
 
-      if state.mayClean {
-        Button("Choose Folder…") {
-          actions.chooseFolderForBuff(.temporary)
-        }
-      }
+      Button("Add Folder…", action: actions.addFolder)
     }
     .padding(32)
   }
@@ -319,32 +261,16 @@ public struct MainView: View {
   private var emptyFilterResult: some View {
     let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     return VStack(spacing: 10) {
-      if !trimmed.isEmpty {
-        Text("No folders matching “\(trimmed)”")
-          .font(.headline)
-          .foregroundStyle(Palette.ink)
-        Button("Clear Filter") {
-          searchQuery = ""
-        }
-        .controlSize(.small)
-      } else if activeFilter == .needsYou {
-        Text("Nothing needs you")
-          .font(.headline)
-          .foregroundStyle(Palette.inkSecondary)
-      } else {
-        Text("No folders")
-          .font(.headline)
-          .foregroundStyle(Palette.inkSecondary)
+      Text("No folders matching “\(trimmed)”")
+        .font(.headline)
+        .foregroundStyle(Palette.ink)
+      Button("Clear Filter") {
+        searchQuery = ""
       }
+      .controlSize(.small)
     }
     .padding(32)
   }
-}
-
-/// A row in the sidebar.
-private enum SidebarItem: Hashable {
-  case filter(ShelfFilter)
-  case history
 }
 
 extension LicenceLine.Action {
@@ -355,13 +281,5 @@ extension LicenceLine.Action {
     case .renew: "Renew…"
     case .checkNow: title
     }
-  }
-}
-
-extension MainRoute {
-  /// The folder whose page this is.
-  fileprivate var folderID: Int64? {
-    if case .folder(let id) = self { return id }
-    return nil
   }
 }

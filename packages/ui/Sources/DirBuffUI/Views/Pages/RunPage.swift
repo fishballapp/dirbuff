@@ -28,7 +28,7 @@ public struct RunPage: View {
       VStack(alignment: .leading, spacing: 20) {
         header
         RunFilesTable(groups: run.groups, actions: actions)
-          .historyCard()
+          .liftedCard()
       }
       .padding(.top, 28)
       .padding(.horizontal, 40)

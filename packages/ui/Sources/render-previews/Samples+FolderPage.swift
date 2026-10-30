@@ -41,6 +41,8 @@ extension Samples {
       accessLostAt: accessLostAt, missingSince: missingSince,
       createdAt: moment.addingTimeInterval(-60 * 86_400), lastRunAt: lastRunAt)
     if let problem { return FolderReport(folder: folder, reading: .failure(problem)) }
+    // A folder that wears no buff is found but never read.
+    guard folder.wearsABuff else { return FolderReport(folder: folder, reading: .success(nil)) }
     let snapshot = FolderSnapshot(
       wearsTemporary: wearsTemporary, isProtectedRoot: false, items: items)
     let status = Engine.FolderStatus(
@@ -121,13 +123,12 @@ extension Samples {
     ] + reports.dropFirst()
   }
 
-  /// Draws a pushed folder page from `state` and its `reports`, as the app's `MainContainerView`
-  /// does.
+  /// Draws a folder's page from `state` and its `reports`, as the app's `MainContainerView` does.
   static func folderPageDestination(
     _ state: MainState, reports: [FolderReport], now: Date, home: String = NSHomeDirectory()
-  ) -> (MainRoute) -> AnyView {
-    { route in
-      guard case .folder(let id) = route,
+  ) -> (Int64) -> AnyView {
+    { id in
+      guard
         let page = FolderPageState(
           folderID: id, reports: reports, shelf: state, now: now, calendar: pageCalendar,
           binName: binName, home: home)

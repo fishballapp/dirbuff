@@ -66,7 +66,7 @@ public struct Mark: View {
 }
 
 /// The needs-you badge: a filled Amber disc with a white "!", no border. 16 pt wherever DirBuff
-/// draws it small: a buff row's symbol, a switcher row's end, the popover's callout.
+/// draws it small: a buff row's symbol, a sidebar row's end, the popover's callout.
 public struct NeedsYouBadge: View {
   let size: CGFloat
 

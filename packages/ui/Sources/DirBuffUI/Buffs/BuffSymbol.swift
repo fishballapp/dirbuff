@@ -1,16 +1,15 @@
 import SwiftUI
 
 /// A buff's plain line symbol: one stroke weight, round caps and joins, no fill, nothing inside.
-/// Tinted by `foregroundStyle`: Ink at rest, Accent Blue in + Buff and on pieces, Quiet when paused
-/// or Soon. Drawn on a 72 × 50 grid and scaled to `width`.
+/// Tinted by `foregroundStyle`: Ink at rest, Accent Blue on the Buffs page and on pieces, Quiet
+/// when paused or Soon. Drawn on a 72 × 50 grid and scaled to `width`.
 public struct BuffSymbol: View {
   /// The sizes the design uses, by width; the height follows the grid.
   public enum Size: CGFloat, Sendable {
-    case addBuff = 40
+    case buffsPage = 40
     case card = 32
     case row = 28
     case menu = 23
-    case switcher = 21
     case sidebar = 18
   }
 

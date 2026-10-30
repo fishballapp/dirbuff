@@ -28,16 +28,16 @@ final class WindowCoordinator {
   /// Opens the main window, at the folder's page when `url` is a folder DirBuff knows.
   func openMain(selecting url: URL? = nil) {
     if let url, let report = appModel.report(for: url), let id = report.folder.id {
-      openMain(route: .folder(id))
+      openMain(at: MainNavigation(.folder(id)))
     } else {
-      openMain(route: nil)
+      openMain(at: nil)
     }
   }
 
-  /// Opens the main window at `route`, or where it was left.
-  func openMain(route: MainRoute?) {
-    if let route {
-      mainWindowState.navigation = MainNavigation(opening: route)
+  /// Opens the main window at `navigation`, or where it was left.
+  func openMain(at navigation: MainNavigation?) {
+    if let navigation {
+      mainWindowState.navigation = navigation
     }
     showWindow(
       key: "main",

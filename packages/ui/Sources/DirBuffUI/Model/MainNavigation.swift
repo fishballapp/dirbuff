@@ -1,53 +1,79 @@
 import Foundation
 
-/// Where DirBuff's main window is: a root the sidebar chooses, and the pages pushed over it.
+/// Where DirBuff's main window is: the sidebar row it shows, and the pages pushed over it.
 public struct MainNavigation: Hashable, Sendable {
-  public var root: MainRoot
-  public var path: [MainRoute]
+  public var place: SidebarPlace
+  public var path: [MainPage]
 
-  public init(root: MainRoot = .shelf, path: [MainRoute] = []) {
-    self.root = root
+  public init(_ place: SidebarPlace = .allFolders, path: [MainPage] = []) {
+    self.place = place
     self.path = path
   }
 
-  /// The shelf's root with `route` pushed on it, or History's when the route belongs to History. A
-  /// folder's files sit over its page, so going back leads there.
-  public init(opening route: MainRoute) {
-    switch route {
-    case .history(folderID: nil): self.init(root: .history)
-    case .run: self.init(root: .history, path: [route])
-    case .files(let id): self.init(root: .shelf, path: [.folder(id), route])
-    case .folder, .history: self.init(root: .shelf, path: [route])
+  /// A page opened from outside the window (Finder's handoff, a notification), pushed over the
+  /// sidebar row it belongs to: a folder's files and History over its page, a run over History.
+  public init(opening page: MainPage) {
+    switch page {
+    case .files(let id), .folderHistory(let id): self.init(.folder(id), path: [page])
+    case .run: self.init(.history, path: [page])
     }
   }
 
-  /// The pages left once the folders in `ids` are all that exist: a removed folder's pages go, and
-  /// everything pushed over them.
+  /// The sidebar's selection, which is always the row shown, pages pushed over it or not. Choosing
+  /// another row goes to it with nothing pushed. The list writes back the row it already shows (when
+  /// it appears, say), which must not drop the pages over it, so that changes nothing.
+  public var selection: SidebarPlace? {
+    get { place }
+    set {
+      guard let newValue, newValue != place else { return }
+      self = MainNavigation(newValue)
+    }
+  }
+
+  /// Pushes `page` over what is shown.
+  public mutating func open(_ page: MainPage) {
+    path.append(page)
+  }
+
+  /// What is left once the folders in `ids` are all that exist: a removed folder's page goes back
+  /// to All Folders, and a removed folder's pushed pages go, with everything pushed over them.
   public func keeping(folders ids: Set<Int64>) -> MainNavigation {
-    let gone = path.firstIndex {
-      switch $0 {
-      case .folder(let id), .files(let id), .history(folderID: let id?): !ids.contains(id)
-      case .history(folderID: nil), .run: false
-      }
-    }
-    return MainNavigation(root: root, path: gone.map { Array(path[..<$0]) } ?? path)
+    if let id = place.folderID, !ids.contains(id) { return MainNavigation() }
+    let gone = path.firstIndex { $0.folderID.map { !ids.contains($0) } ?? false }
+    return MainNavigation(place, path: gone.map { Array(path[..<$0]) } ?? path)
   }
 }
 
-/// What the sidebar opens: the shelf of folders (with its filter) or History's list of runs.
-public enum MainRoot: Hashable, Sendable {
-  case shelf
+/// A row in the sidebar, and the page it shows.
+public enum SidebarPlace: Hashable, Sendable {
+  /// The shelf of every folder's tile.
+  case allFolders
+  /// Every buff, to drag onto a folder.
+  case buffs
+  /// Every run, newest first.
   case history
-}
-
-/// A page pushed over the root.
-public enum MainRoute: Hashable, Sendable {
   /// A folder's page: its buffs as cards.
   case folder(Int64)
+
+  var folderID: Int64? {
+    if case .folder(let id) = self { return id }
+    return nil
+  }
+}
+
+/// A page pushed over a sidebar row, with a back button.
+public enum MainPage: Hashable, Sendable {
   /// What is cleared next from a folder.
   case files(Int64)
-  /// History's runs; with a folder, only the runs that touched it.
-  case history(folderID: Int64?)
+  /// The runs that touched a folder.
+  case folderHistory(Int64)
   /// One run's page, where what it removed can be put back.
   case run(Int64)
+
+  var folderID: Int64? {
+    switch self {
+    case .files(let id), .folderHistory(let id): id
+    case .run: nil
+    }
+  }
 }

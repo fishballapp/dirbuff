@@ -262,7 +262,7 @@ private struct OtherFolderTile: View {
   }
 }
 
-/// Takes a Temporary piece dropped on a tile, from here, + Buff or the Buffs panel.
+/// Takes a Temporary piece dropped on a tile, from here or the main window's Buffs page.
 private struct TemporaryDrop: ViewModifier {
   @Binding var isTargeted: Bool
   let onDrop: () -> Void

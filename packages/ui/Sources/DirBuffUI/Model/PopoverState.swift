@@ -85,7 +85,8 @@ extension PopoverState {
     now: Date,
     calendar: Calendar = .current
   ) {
-    let listed = folders
+    // A folder wearing nothing has nothing to say here.
+    let listed = folders.filter { !$0.buffs.isEmpty }
     let needsYou = listed.compactMap { callout($0, now: now, calendar: calendar) }
     let clearing = listed.filter { $0.buffs.contains { $0.state == .working } }
     let paused = listed.filter { $0.buffs.contains { $0.state.isPaused } }

@@ -31,7 +31,7 @@ public struct MainFolder: Sendable, Equatable, Identifiable {
   }
 }
 
-/// A folder's page: its head, one card per buff it wears, and the folder switcher in its title.
+/// A folder's page: its head, and one card per buff it wears, or the buffs it could wear.
 public struct FolderPageState: Sendable, Equatable {
   /// The folder as the shelf shows it: its name, mark and buff rows.
   public var folder: FolderState
@@ -40,17 +40,13 @@ public struct FolderPageState: Sendable, Equatable {
   public var subtitle: String
   /// One card per buff it wears, in `Buff` order.
   public var cards: [BuffCard]
-  /// Every folder on the shelf, needs-you first then by name, for the title's switcher.
-  public var switcher: [FolderState]
   /// The buffs + Buff can add to it.
   public var addBuffItems: [AddBuffItem]
   /// Whether + Buff can add anything: not while every buff is paused.
   public var canAddBuff: Bool
 
-  /// Whether the folder was deleted, moved to another disk, or moved to the Bin.
-  public var isMissing: Bool {
-    cards.contains { $0.state == .needsYou(.locate) }
-  }
+  /// Whether the folder was deleted, moved to another disk, or moved to the Bin, whatever it wears.
+  public var isMissing: Bool { folder.isMissing }
 }
 
 /// A buff's card on the folder page: a large status line, one sentence of what happens next, an
@@ -112,12 +108,10 @@ public struct Gauge: Sendable, Equatable {
 public struct FolderPageActions {
   /// Saves the folder's Temporary settings; the change takes effect at once.
   public var changeSettings: (_ folderID: Int64, TemporarySettings) -> Void = { _, _ in }
-  /// Switches the page to another folder, from the title's switcher.
-  public var openFolder: (_ folderID: Int64) -> Void = { _ in }
   /// What's Cleared Next…: pushes the folder's files.
   public var showFiles: (_ folderID: Int64) -> Void = { _ in }
-  /// ⌘[: back to every folder.
-  public var showAllFolders: () -> Void = {}
+  /// The History icon: pushes the runs that touched the folder.
+  public var showHistory: (_ folderID: Int64) -> Void = { _ in }
 
   public init() {}
 }
@@ -138,13 +132,9 @@ extension FolderPageState {
     binName: String = SystemBin.name,
     home: String = NSHomeDirectory()
   ) {
-    guard let report = reports.first(where: { $0.folder.id == folderID }) else { return nil }
-    // A plain folder opened from Finder has no tile, so it wears nothing here either.
-    let folder =
-      shelf.shelfFolders.first { $0.id == folderID }
-      ?? FolderState(
-        id: folderID, name: report.name, path: report.folder.path, location: "", mark: nil,
-        buffs: [])
+    guard let report = reports.first(where: { $0.folder.id == folderID }),
+      let folder = shelf.shelfFolders.first(where: { $0.id == folderID })
+    else { return nil }
     let words = CardWords(
       folderName: folder.name, volume: volumeName(report.folder.path) ?? shelf.startupVolumeName,
       now: now, calendar: calendar, binName: binName)
@@ -157,7 +147,6 @@ extension FolderPageState {
         row, report: report,
         progress: progress.flatMap { $0.folderID == folderID ? $0 : nil })
     }
-    self.switcher = shelf.shelfFolders
     self.addBuffItems = shelf.addBuffItems(for: folder)
     self.canAddBuff = shelf.mayClean
   }
@@ -336,11 +325,4 @@ private func pageLocation(_ report: FolderReport, home: String) -> String {
   guard count > 0 else { return "\(place) · Empty" }
   return [place, bytes(status.size), count == 1 ? "1 item" : "\(count.formatted()) items"]
     .joined(separator: " · ")
-}
-
-/// The drive's name for a path under /Volumes.
-private func volumeName(_ path: String) -> String? {
-  let parts = path.split(separator: "/")
-  guard parts.count >= 2, parts[0] == "Volumes" else { return nil }
-  return String(parts[1])
 }

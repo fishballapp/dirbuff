@@ -3,9 +3,11 @@ import DirBuffUI
 import SwiftUI
 
 extension MainContainerView {
-  /// History's runs, or only one folder's.
+  /// History's runs, or only one folder's. A run opens over it.
   func historyPage(folderID: Int64?, now: Date) -> some View {
-    HistoryContainerView(appModel: appModel, folderID: folderID, now: now)
+    HistoryContainerView(
+      appModel: appModel, folderID: folderID, now: now,
+      onOpenRun: { windowState.navigation.open(.run($0)) })
   }
 
   /// One run's page.
@@ -35,6 +37,7 @@ private struct HistoryContainerView: View {
   var appModel: AppModel
   var folderID: Int64?
   var now: Date
+  var onOpenRun: (Int64) -> Void
 
   @State private var history: HistoryState?
 
@@ -44,6 +47,7 @@ private struct HistoryContainerView: View {
         HistoryPage(
           folderID: folderID,
           history: history,
+          onOpenRun: onOpenRun,
           onClearHistory: appModel.clearHistoryAsking)
       } else {
         Palette.paper.navigationTitle("History")

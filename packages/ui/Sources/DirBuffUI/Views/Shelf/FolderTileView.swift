@@ -1,15 +1,12 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// One folder on the shelf: its 64 pt Finder icon and mark in a Well band on top, and one row
-/// beneath for each buff it wears.
+/// beneath for each buff it wears, or an invitation to put one on.
 struct FolderTileView: View {
   var folder: FolderState
   var addBuffItems: [AddBuffItem]
   var canAddBuff: Bool
-  /// The folder last opened: + Buff's click adds to it.
-  var isSelected = false
   var actions: ShelfActions
   var onOpen: () -> Void
 
@@ -34,6 +31,9 @@ struct FolderTileView: View {
       folderBand
         // Its drop capsule straddles the rows below.
         .zIndex(1)
+      if folder.buffs.isEmpty {
+        noBuffs
+      }
       ForEach(Array(folder.buffs.enumerated()), id: \.element.id) { index, row in
         if index > 0 {
           Palette.rule
@@ -66,21 +66,20 @@ struct FolderTileView: View {
           .padding(.top, 70)
       }
     }
-    .onDrop(
-      of: [.dirbuffBuff],
-      delegate: TileDropDelegate(
-        folderID: folder.id,
-        host: host,
-        verdict: dropVerdict,
-        onAdd: { actions.addBuff(folder.id, $0) })
-    )
+    .buffDrop(on: folder.id, verdict: dropVerdict) { buff in
+      Task {
+        // The card says what the buff does there, so it shows only once the buff is on.
+        guard await actions.addBuff(folder.id, buff) else { return }
+        host.added = AddBuffHost.Added(buff: buff, folderID: folder.id)
+      }
+    }
     .onHover { isHovered = $0 }
     .contextMenu {
       Menu("Add Buff") {
         FolderAddBuffMenuContent(
           folderName: folder.name,
           items: addBuffItems,
-          onAddBuff: { actions.addBuff(folder.id, $0) }
+          onAddBuff: { actions.add($0, to: folder.id) }
         )
       }
       .disabled(!canAddBuff)
@@ -89,15 +88,6 @@ struct FolderTileView: View {
         actions.showInFinder(folder.id)
       }
     }
-  }
-
-  /// The card after a buff was dropped here. Closing it any way but Undo keeps the buff.
-  private var isShowingAddedCard: Binding<Bool> {
-    Binding(
-      get: { host.added?.folderID == folder.id },
-      set: { isShown in
-        if !isShown, host.added?.folderID == folder.id { host.added = nil }
-      })
   }
 
   /// The tile under a buff it would take lights: a Blue Tint halo inside an Accent Blue ring.
@@ -117,8 +107,9 @@ struct FolderTileView: View {
   private var dropCapsule: some View {
     if isDropTarget {
       switch dropVerdict {
-      case .add(let line): dropCapsule(line, fill: Palette.accentBlue)
-      case .refused(let reason): dropCapsule(reason, fill: Self.refusedGrey)
+      case .add(let line): DropCapsule(text: line, isAccepting: true).padding(.horizontal, 8)
+      case .refused(let reason):
+        DropCapsule(text: reason, isAccepting: false).padding(.horizontal, 8)
       case .protected, nil: EmptyView()
       }
     }
@@ -135,30 +126,13 @@ struct FolderTileView: View {
       .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
   }
 
-  /// The grey of a drop that won't take, the same in light and dark, so white reads on it.
-  private static let refusedGrey = Color(red: 0x5A / 255, green: 0x5A / 255, blue: 0x55 / 255)
-
-  private func dropCapsule(_ text: String, fill: Color) -> some View {
-    Text(text)
-      .font(.subheadline.weight(.semibold))
-      .foregroundStyle(.white)
-      .lineLimit(1)
-      .padding(.horizontal, 9)
-      .padding(.vertical, 4)
-      .background(fill, in: .capsule)
-      .shadow(color: .black.opacity(0.28), radius: 5, y: 3)
-      .padding(.horizontal, 8)
-  }
-
   private var borderColor: Color {
-    if isSelected { return Palette.accentBlue }
     if folder.isNeedingYou { return Palette.amberEdge }
     return Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.14)
   }
 
   private var borderWidth: CGFloat {
-    if isSelected { return 2.5 }
-    return folder.isNeedingYou ? 1 : 0.5
+    folder.isNeedingYou ? 1 : 0.5
   }
 
   private var folderBand: some View {
@@ -166,20 +140,7 @@ struct FolderTileView: View {
       VStack(spacing: 0) {
         MarkedFolderIcon(path: folder.path, mark: folder.mark, size: .tile)
           .animation(isReduceMotionOn ? nil : .easeOut(duration: 0.36), value: folder.mark)
-          .popover(isPresented: isShowingAddedCard, arrowEdge: .bottom) {
-            if let added = host.added {
-              AddedBuffCard(
-                folderName: folder.name,
-                folderPath: folder.path,
-                binName: SystemBin.name,
-                onChangeMaxAge: { host.setMaxAge(folder.id, $0) },
-                onUndo: {
-                  host.added = nil
-                  actions.undoAddBuff(folder.id, added.buff)
-                },
-                onDone: { host.added = nil })
-            }
-          }
+          .addedBuffCard(for: folder) { actions.undoAddBuff(folder.id, $0) }
           .padding(.bottom, 10)
         Text(folder.name)
           .font(.headline)
@@ -210,24 +171,54 @@ struct FolderTileView: View {
         .alignmentGuide(.bottom) { $0[VerticalAlignment.center] }
     }
     .overlay(alignment: .topTrailing) {
-      if isHovered && canAddBuff {
-        Menu {
-          FolderAddBuffMenuContent(
-            folderName: folder.name,
-            items: addBuffItems,
-            onAddBuff: { actions.addBuff(folder.id, $0) }
-          )
-        } label: {
-          Label("Buff", systemImage: "plus")
-            .labelStyle(.titleAndIcon)
-            .font(.subheadline.weight(.medium))
-        }
-        .menuIndicator(.hidden)
-        .controlSize(.small)
-        .padding(10)
-        .accessibilityLabel("Add a buff to \(folder.name)")
+      if isHovered && canAddBuff && !folder.buffs.isEmpty {
+        addBuffMenu
+          .controlSize(.small)
+          .padding(10)
       }
     }
+  }
+
+  /// + Buff: a menu of the buffs the folder doesn't wear yet.
+  private var addBuffMenu: some View {
+    Menu {
+      FolderAddBuffMenuContent(
+        folderName: folder.name,
+        items: addBuffItems,
+        onAddBuff: { actions.add($0, to: folder.id) }
+      )
+    } label: {
+      Label("Buff", systemImage: "plus")
+        .labelStyle(.titleAndIcon)
+        .font(.subheadline.weight(.medium))
+    }
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .accessibilityLabel("Add a buff to \(folder.name)")
+  }
+
+  /// In place of the rows while the folder wears nothing.
+  @ViewBuilder
+  private var noBuffs: some View {
+    Group {
+      if folder.isMissing {
+        MissingFolderNotice(folder: folder, actions: actions)
+      } else if let reason = folder.unreachableReason {
+        Text("\(reason).")
+          .foregroundStyle(Palette.inkSecondary)
+      } else {
+        VStack(spacing: 10) {
+          Text("No buffs yet. Drag one here.")
+            .foregroundStyle(Palette.inkSecondary)
+          addBuffMenu
+            .disabled(!canAddBuff)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 18)
+    .padding(.horizontal, 16)
+    .background(folder.isMissing ? Palette.amberTint : .clear)
   }
 
   private func buffRow(_ row: BuffRow) -> some View {
@@ -376,38 +367,5 @@ extension BuffRow {
     case .paused: Palette.inkTertiary
     case .atRest, .working: Palette.ink
     }
-  }
-}
-
-/// Takes a buff dragged onto a tile, from + Buff, the Buffs panel or the welcome window.
-private struct TileDropDelegate: DropDelegate {
-  var folderID: Int64
-  var host: AddBuffHost
-  var verdict: BuffDropVerdict?
-  var onAdd: (Buff) -> Void
-
-  private var isAdding: Bool {
-    if case .add = verdict { return true }
-    return false
-  }
-
-  func dropEntered(info: DropInfo) {
-    host.dropFolderID = folderID
-  }
-
-  func dropExited(info: DropInfo) {
-    if host.dropFolderID == folderID { host.dropFolderID = nil }
-  }
-
-  func dropUpdated(info: DropInfo) -> DropProposal? {
-    DropProposal(operation: isAdding ? .copy : .forbidden)
-  }
-
-  func performDrop(info: DropInfo) -> Bool {
-    host.dropFolderID = nil
-    guard isAdding, let buff = host.draggedBuff else { return false }
-    onAdd(buff)
-    host.added = AddBuffHost.Added(buff: buff, folderID: folderID)
-    return true
   }
 }

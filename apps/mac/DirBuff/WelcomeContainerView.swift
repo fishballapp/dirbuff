@@ -28,7 +28,7 @@ struct WelcomeContainerView: View {
       onChoose: { folder in Task { await choose(folder) } },
       onChooseOther: { Task { await chooseOtherFolder() } },
       onUndo: { placement in Task { await undo(placement) } },
-      onChange: { coordinator.openMain(route: .folder($0.folderID)) },
+      onChange: { coordinator.openMain(at: MainNavigation(.folder($0.folderID))) },
       onOpenExtensionManagement: appModel.openFinderExtensionsSettings,
       onToggleOpenAtLogin: appModel.setOpenAtLogin,
       onOpenLoginItemsSettings: appModel.openLoginItemsSettings,

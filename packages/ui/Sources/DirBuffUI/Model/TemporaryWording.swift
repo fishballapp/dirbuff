@@ -59,3 +59,11 @@ extension Engine.FolderStatus {
 extension [Item] {
   var size: Int64 { reduce(0) { $0 + $1.size } }
 }
+
+extension TemporarySettings {
+  /// The Age rule's days a pop-up offers, on the folder page and the card after a drop: a week,
+  /// two, a month and three, with the days the folder has, in order.
+  public static func ageDayChoices(including days: Int?) -> [Int] {
+    Set([7, 14, 30, defaultMaxAgeDays] + (days.map { [$0] } ?? [])).sorted()
+  }
+}

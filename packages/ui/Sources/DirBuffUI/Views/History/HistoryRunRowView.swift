@@ -35,25 +35,3 @@ struct HistoryRunRowView: View {
     .onHover { isHovered = $0 }
   }
 }
-
-extension View {
-  /// A card on the window's ground, lifted like a tile: History's list and a run's files.
-  func historyCard() -> some View {
-    modifier(HistoryCard())
-  }
-}
-
-private struct HistoryCard: ViewModifier {
-  @Environment(\.colorScheme) private var colorScheme
-
-  func body(content: Content) -> some View {
-    content
-      .background(Palette.card)
-      .clipShape(.rect(cornerRadius: Metrics.tileRadius))
-      .overlay {
-        RoundedRectangle(cornerRadius: Metrics.tileRadius)
-          .strokeBorder(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.14), lineWidth: 0.5)
-      }
-      .shadow(color: .black.opacity(colorScheme == .dark ? 0.30 : 0.07), radius: 8, x: 0, y: 3)
-  }
-}

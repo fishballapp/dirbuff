@@ -1,17 +1,18 @@
 import DirBuffCore
 import SwiftUI
 
-/// A folder's page, pushed over the shelf: back (⌘[), the folder's name as a pop-up that opens the
-/// folder switcher, and + Buff in the toolbar; the folder's icon, name and size; then one card per
-/// buff it wears. A setting changes at once, and a toast offers Undo.
+/// A folder's page, its sidebar row's: + Buff in the toolbar; the folder's icon, name and size, with
+/// Show in Finder, its History and a menu that removes it; then one card per buff it wears, or the
+/// buffs to put on it. A setting changes at once, and a toast offers Undo.
 public struct FolderPage: View {
   public var state: FolderPageState
   public var binName: String
   public var actions: ShelfActions
   public var pageActions: FolderPageActions
 
-  @State private var isSwitcherOpen: Bool
   @State private var toast: SettingsToast?
+
+  @Environment(\.addBuffHost) private var host
 
   public init(
     state: FolderPageState,
@@ -24,7 +25,6 @@ public struct FolderPage: View {
     self.binName = binName
     self.actions = actions
     self.pageActions = pageActions
-    self._isSwitcherOpen = State(initialValue: false)
     self._toast = State(initialValue: toast)
   }
 
@@ -36,7 +36,16 @@ public struct FolderPage: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
         head
-        if state.cards.isEmpty {
+        if state.cards.isEmpty && state.isMissing {
+          MissingFolderNotice(folder: folder, actions: actions)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 30)
+            .background(Palette.amberTint, in: .rect(cornerRadius: Metrics.tileRadius))
+            .overlay {
+              RoundedRectangle(cornerRadius: Metrics.tileRadius)
+                .strokeBorder(Palette.amberEdge, lineWidth: 1)
+            }
+        } else if state.cards.isEmpty {
           noBuffs
         } else {
           ForEach(state.cards) { card in
@@ -73,63 +82,27 @@ public struct FolderPage: View {
     }
     .onChange(of: folder.id) {
       toast = nil
-      isSwitcherOpen = false
     }
     .onChange(of: wearsTemporary) {
       // Take Off forgets the settings, so there is nothing left for Undo to put back.
       if !wearsTemporary { toast = nil }
     }
-    .modifier(SwitcherTitle(name: folder.name))
+    .navigationTitle(folder.name)
     .toolbar {
-      ToolbarItem(placement: .navigation) {
-        switcherButton
-      }
       ToolbarItem(placement: .primaryAction) {
         addBuffButton
       }
     }
-    .background {
-      // ⌘[ goes back to every folder, as the switcher's foot says.
-      Button("All Folders", action: pageActions.showAllFolders)
-        .keyboardShortcut("[", modifiers: .command)
-        .opacity(0)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
   }
 
   // MARK: - Toolbar
-
-  private var switcherButton: some View {
-    Button {
-      isSwitcherOpen.toggle()
-    } label: {
-      HStack(spacing: 7) {
-        Text(folder.name)
-          .font(.title3.bold())
-          .foregroundStyle(Palette.ink)
-          .lineLimit(1)
-        Image(systemName: "chevron.down")
-          .font(.system(size: 9, weight: .bold))
-          .foregroundStyle(Palette.inkSecondary)
-      }
-      .padding(.horizontal, 4)
-    }
-    .accessibilityLabel("Switch folder, now \(folder.name)")
-    .popover(isPresented: $isSwitcherOpen, arrowEdge: .bottom) {
-      FolderSwitcher(folders: state.switcher, currentID: folder.id) { id in
-        isSwitcherOpen = false
-        if id != folder.id { pageActions.openFolder(id) }
-      }
-    }
-  }
 
   private var addBuffButton: some View {
     Menu {
       FolderAddBuffMenuContent(
         folderName: folder.name,
         items: state.addBuffItems,
-        onAddBuff: { actions.addBuff(folder.id, $0) }
+        onAddBuff: { actions.add($0, to: folder.id) }
       )
     } label: {
       Label("Buff", systemImage: "plus")
@@ -158,26 +131,79 @@ public struct FolderPage: View {
           .truncationMode(.middle)
       }
       Spacer(minLength: 12)
-      if !state.isMissing {
-        Button("Show in Finder") { actions.showInFinder(folder.id) }
+      HStack(spacing: 8) {
+        if !state.isMissing {
+          Button("Show in Finder") { actions.showInFinder(folder.id) }
+        }
+        GhostIconButton("History", systemImage: GhostIconButton.historySymbol) {
+          pageActions.showHistory(folder.id)
+        }
+        Menu {
+          Button("Remove from DirBuff…") { actions.removeFolder(folder.id) }
+        } label: {
+          Image(systemName: "ellipsis")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More")
+        .accessibilityLabel("More")
       }
     }
     .padding(.horizontal, 4)
     .padding(.bottom, 4)
   }
 
+  /// What the folder could wear, as pieces in a dashed zone: a click puts one on, and so does a
+  /// buff dragged in.
   private var noBuffs: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 6) {
-        FolderPill(folder.name, path: folder.path)
-        Text("wears no buffs")
-      }
-      .font(.headline)
-      .foregroundStyle(Palette.ink)
-      Text("Add one with + Buff.")
-        .foregroundStyle(Palette.inkSecondary)
+    let verdict = host.draggedBuff.map {
+      BuffDropVerdict.of($0, on: folder, items: state.addBuffItems, mayClean: state.canAddBuff)
     }
-    .padding(.horizontal, 4)
+    let isLit = host.dropFolderID == folder.id && verdict?.isAdding == true
+    let zone = RoundedRectangle(cornerRadius: Metrics.tileRadius)
+    return VStack(alignment: .leading, spacing: 14) {
+      VStack(spacing: 4) {
+        HStack(spacing: 6) {
+          FolderPill(folder.name, path: folder.path)
+          Text("wears no buffs yet")
+        }
+        .font(.headline)
+        .foregroundStyle(Palette.ink)
+        // Nothing goes on a folder on an unplugged drive, so its zone says why instead.
+        Text(folder.unreachableReason.map { "\($0)." } ?? "Click or drag a buff to add it.")
+          .foregroundStyle(Palette.inkSecondary)
+        HStack(spacing: 10) {
+          ForEach(Buff.allCases, id: \.self) { buff in
+            let item = state.addBuffItems.first { $0.buff == buff }
+            BuffPiece(buff, isEnabled: state.canAddBuff && item?.isEnabled == true) {
+              actions.add(buff, to: folder.id)
+            }
+            .fixedSize()
+            .help(item?.subtitle ?? "")
+          }
+        }
+        .padding(.top, 14)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 30)
+      .padding(.horizontal, 20)
+      .background(isLit ? Palette.blueTint : .clear, in: zone)
+      .overlay {
+        if isLit {
+          zone.strokeBorder(Palette.accentBlue, lineWidth: 1.5)
+        } else {
+          zone.strokeBorder(Palette.ruleStrong, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+        }
+      }
+      .buffDrop(on: folder.id, verdict: verdict) { actions.add($0, to: folder.id) }
+
+      Text("DirBuff leaves \(folder.name) alone until you add a buff.")
+        .font(.subheadline)
+        .foregroundStyle(Palette.inkTertiary)
+        .frame(maxWidth: 560, alignment: .leading)
+        .padding(.horizontal, 4)
+    }
   }
 
   // MARK: - Changing a setting
@@ -207,23 +233,6 @@ public struct FolderPage: View {
       let first = headline.first
     else { return toast.change }
     return "\(toast.change) · \(first.lowercased())\(headline.dropFirst())"
-  }
-}
-
-/// Names the window after the folder while the switcher's pop-up stands in for the toolbar's
-/// title. Before macOS 15 the toolbar can't drop its title, so the window goes untitled instead of
-/// naming the folder twice.
-private struct SwitcherTitle: ViewModifier {
-  var name: String
-
-  func body(content: Content) -> some View {
-    if #available(macOS 15, *) {
-      content
-        .navigationTitle(name)
-        .toolbar(removing: .title)
-    } else {
-      content.navigationTitle("")
-    }
   }
 }
 
