@@ -5,7 +5,6 @@ import SwiftUI
 /// menu first, as a menu item does, then does its work.
 struct MenuBarContainerView: View {
   var appModel: AppModel
-  var windows: WindowCoordinator
   var closeMenu: () -> Void
 
   var body: some View {
@@ -15,14 +14,6 @@ struct MenuBarContainerView: View {
         onFix: { folderID, fix in
           closeMenu()
           appModel.perform(fix, on: folderID)
-        },
-        onOpen: {
-          closeMenu()
-          windows.openMain()
-        },
-        onSettings: {
-          closeMenu()
-          windows.openSettings()
         },
         onBuy: {
           closeMenu()

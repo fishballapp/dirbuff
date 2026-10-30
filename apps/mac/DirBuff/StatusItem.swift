@@ -3,7 +3,8 @@ import DirBuffUI
 import SwiftUI
 
 /// DirBuff's menu-bar item. Its menu holds the popover's SwiftUI layout as one item, not a
-/// `MenuBarExtra` window: macOS keeps an auto-hidden menu bar shown while a menu is open.
+/// `MenuBarExtra` window: macOS keeps an auto-hidden menu bar shown while a menu is open. Open
+/// DirBuff, Settings… and Quit DirBuff are plain menu items under it.
 @MainActor
 final class StatusItem: NSObject {
   private let appModel: AppModel
@@ -15,7 +16,7 @@ final class StatusItem: NSObject {
 
   private lazy var popover = PopoverHostingView(
     rootView: MenuBarContainerView(
-      appModel: appModel, windows: windows,
+      appModel: appModel,
       closeMenu: { [weak self] in self?.menu.cancelTracking() }))
 
   init(appModel: AppModel, windows: WindowCoordinator) {
@@ -30,9 +31,16 @@ final class StatusItem: NSObject {
     hosted.isEnabled = false
     menu.addItem(hosted)
     menu.addItem(.separator())
-    let quit = NSMenuItem(title: "Quit DirBuff", action: #selector(quit), keyEquivalent: "q")
-    quit.target = self
-    menu.addItem(quit)
+    addItem("Open DirBuff", action: #selector(openMain))
+    addItem("Settings…", action: #selector(openSettings), keyEquivalent: ",")
+    menu.addItem(.separator())
+    addItem("Quit DirBuff", action: #selector(quit), keyEquivalent: "q")
+  }
+
+  private func addItem(_ title: String, action: Selector, keyEquivalent: String = "") {
+    let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+    item.target = self
+    menu.addItem(item)
   }
 
   /// Shows the item while "Show in menu bar" is on, and keeps its glyph in step with the folders.
@@ -68,6 +76,14 @@ final class StatusItem: NSObject {
       Task { @MainActor in self?.observeGlyph() }
     }
     statusItem?.button?.image = MenuBarGlyph.image(glyph)
+  }
+
+  @objc private func openMain() {
+    windows.openMain()
+  }
+
+  @objc private func openSettings() {
+    windows.openSettings()
   }
 
   @objc private func quit() {

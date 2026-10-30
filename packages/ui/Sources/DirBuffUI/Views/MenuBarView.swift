@@ -3,27 +3,22 @@ import SwiftUI
 
 /// The menu-bar popover: the status sentence with the clean-up schedule, a callout for each folder
 /// that needs the user (or the clean-up running now), and the licence at the foot. The
-/// app hosts it in one item of a status menu, so an auto-hidden menu bar stays shown while it's open.
+/// app hosts it in one item of a status menu, so an auto-hidden menu bar stays shown while it's open;
+/// Open DirBuff, Settings… and Quit are that menu's own items under it.
 public struct MenuBarView: View {
   public var state: PopoverState
   public var onFix: (_ folderID: Int64, Fix) -> Void
-  public var onOpen: () -> Void
-  public var onSettings: () -> Void
   public var onBuy: () -> Void
   public var onCheckLicence: () -> Void
 
   public init(
     state: PopoverState,
     onFix: @escaping (_ folderID: Int64, Fix) -> Void = { _, _ in },
-    onOpen: @escaping () -> Void = {},
-    onSettings: @escaping () -> Void = {},
     onBuy: @escaping () -> Void = {},
     onCheckLicence: @escaping () -> Void = {}
   ) {
     self.state = state
     self.onFix = onFix
-    self.onOpen = onOpen
-    self.onSettings = onSettings
     self.onBuy = onBuy
     self.onCheckLicence = onCheckLicence
   }
@@ -45,7 +40,9 @@ public struct MenuBarView: View {
         callout(item).padding(.top, 10)
       }
 
-      foot.padding(.top, 12)
+      if let foot = state.foot {
+        footRow(foot).padding(.top, 12)
+      }
     }
     .padding(14)
     .frame(width: 340, alignment: .leading)
@@ -122,30 +119,19 @@ public struct MenuBarView: View {
     .padding(.horizontal, -14)
   }
 
-  /// The licence line and the button that acts on it, on one row with the app's own buttons.
-  private var foot: some View {
+  /// The licence line and the button that acts on it.
+  private func footRow(_ foot: PopoverFoot) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       Divider()
       HStack(spacing: 8) {
-        if let foot = state.foot {
-          HStack(spacing: 0) {
-            Text(foot.lead).fontWeight(.semibold)
-            Text(foot.rest).foregroundStyle(.secondary)
-          }
-          .font(.callout)
-          .lineLimit(1)
+        HStack(spacing: 0) {
+          Text(foot.lead).fontWeight(.semibold)
+          Text(foot.rest).foregroundStyle(.secondary)
         }
+        .font(.callout)
+        .lineLimit(1)
         Spacer(minLength: 0)
-        if let foot = state.foot {
-          footButton(foot)
-        }
-        Button("Open DirBuff", action: onOpen).controlSize(.small)
-        Button(action: onSettings) {
-          Image(systemName: "gearshape")
-        }
-        .buttonStyle(.borderless)
-        .help("Settings…")
-        .accessibilityLabel("Settings…")
+        footButton(foot)
       }
       .padding(.top, 8)
     }

@@ -99,6 +99,8 @@ public struct MainView: View {
           .buttonStyle(.borderless)
           .help("Add Folder…")
           .accessibilityLabel("Add Folder…")
+          // In line with the rows' trailing counts and badges, not the sidebar's edge.
+          .padding(.trailing, 10)
         }
       }
     }
