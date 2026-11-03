@@ -150,7 +150,7 @@ private func makeSnapshot(
     for buff in Buff.allCases {
       let image = BuffSymbol.menuImage(for: buff)
       #expect(image.size == NSSize(width: 23, height: 16))
-      #expect(image.isTemplate)
+      #expect(!image.isTemplate)
     }
   }
 }
@@ -215,7 +215,6 @@ private func makeSnapshot(
           action: nil,
           isEnabled: false
         ),
-        .separator,
         FinderMenuItem(
           title: "Organise",
           subtitle: "Soon",
@@ -273,10 +272,13 @@ private func makeSnapshot(
         .sectionHeader("Downloads wears"),
         FinderMenuItem(
           title: "Temporary \u{00b7} Older than 14 days, to the Bin",
-          subtitle: "2 items to clear tomorrow \u{00b7} \(bytes(1_300_000_000))",
           buff: .temporary,
           action: .openFolder,
           isEnabled: true
+        ),
+        FinderMenuItem(
+          title: "2 items to clear tomorrow \u{00b7} \(bytes(1_300_000_000))",
+          isEnabled: false
         ),
         FinderMenuItem(title: "Change\u{2026}", action: .change),
         FinderMenuItem(title: "What's Cleared Next\u{2026}", action: .whatsClearedNext),
@@ -326,11 +328,11 @@ private func makeSnapshot(
       menu.items[1]
         == FinderMenuItem(
           title: "Temporary \u{00b7} Nothing cleared for 3 days",
-          subtitle: "macOS took away access",
           buff: .temporary,
           action: .openFolder,
           isEnabled: true
         ))
+    #expect(menu.items[2] == FinderMenuItem(title: "macOS took away access", isEnabled: false))
   }
 
   @Test func plainFolderOffersAddBuffInFinder() throws {

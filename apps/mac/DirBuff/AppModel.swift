@@ -138,6 +138,24 @@ final class AppModel {
     }
   }
 
+  /// The welcome window's Turn On. macOS asks only once, so after a refusal this opens the place
+  /// to change it.
+  func turnOnNotifications() {
+    Task {
+      let settings = await UNUserNotificationCenter.current().notificationSettings()
+      guard settings.authorizationStatus == .denied else {
+        requestNotificationPermission()
+        return
+      }
+      if let url = URL(
+        string:
+          "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "")"
+      ) {
+        NSWorkspace.shared.open(url)
+      }
+    }
+  }
+
   // MARK: - Folders
 
   func refresh() async {

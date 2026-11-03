@@ -36,10 +36,11 @@ extension Mark {
 }
 
 extension BuffSymbol {
-  /// Renders the 23 × 16 pt menu template image for `buff` at 2×.
+  /// Renders the 23 × 16 pt menu image for `buff` at 2×. Mid grey, not a template: Finder draws an
+  /// extension's menu images as they are, so this has to read on its light and dark menus alike.
   @MainActor
   public static func menuImage(for buff: Buff) -> NSImage {
-    let view = BuffSymbol(buff, size: .menu).foregroundStyle(.black)
+    let view = BuffSymbol(buff, size: .menu).foregroundStyle(Color(white: 0.5))
     let renderer = ImageRenderer(content: view)
     renderer.scale = 2
     let height = (BuffOutline.gridHeight * BuffSymbol.Size.menu.rawValue / BuffOutline.gridWidth)
@@ -47,7 +48,6 @@ extension BuffSymbol {
     let size = NSSize(width: BuffSymbol.Size.menu.rawValue, height: height)
     let image = renderer.nsImage ?? NSImage(size: size)
     image.size = size
-    image.isTemplate = true
     return image
   }
 }

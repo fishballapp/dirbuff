@@ -32,7 +32,7 @@ struct WelcomeContainerView: View {
       onOpenExtensionManagement: appModel.openFinderExtensionsSettings,
       onToggleOpenAtLogin: appModel.setOpenAtLogin,
       onOpenLoginItemsSettings: appModel.openLoginItemsSettings,
-      onRequestNotifications: appModel.requestNotificationPermission,
+      onRequestNotifications: appModel.turnOnNotifications,
       onEnterKey: coordinator.openKeyEntry,
       onClose: coordinator.closeWelcome
     )

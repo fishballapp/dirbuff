@@ -167,6 +167,8 @@ public struct MainView: View {
       .padding(.horizontal, 20)
       .padding(.vertical, 12)
     }
+    // Rows scrolled under the foot don't show through it.
+    .background(.bar)
   }
 
   private func licenceDetail(_ line: LicenceLine) -> String? {

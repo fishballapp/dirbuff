@@ -24,7 +24,6 @@ public struct FinderMenu: Sendable, Equatable {
       items: [
         temporaryAddItem(folderName: folderName, isProtected: isProtected, binName: binName),
         soonItem(.backup),
-        .separator,
         soonItem(.organise),
         soonItem(.search),
       ]
@@ -42,12 +41,13 @@ public struct FinderMenu: Sendable, Equatable {
       items.append(
         FinderMenuItem(
           title: "\(entry.buff.name) \u{00b7} \(entry.setting)",
-          subtitle: entry.nextEvent,
           buff: entry.buff,
           action: .openFolder,
           isEnabled: true
         )
       )
+      // Its own row: Finder cuts a long title in the middle, which would lose part of the setting.
+      items.append(FinderMenuItem(title: entry.nextEvent, isEnabled: false))
       if entry.buff == .temporary {
         items.append(FinderMenuItem(title: "Change\u{2026}", action: .change))
         items.append(

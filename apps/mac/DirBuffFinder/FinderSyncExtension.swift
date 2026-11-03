@@ -12,8 +12,14 @@ final class FinderSyncExtension: FIFinderSync {
   private let shared = FinderFolders.defaults
   private var snapshotObservation: NSKeyValueObservation?
   private var volumeTopObservation: NSKeyValueObservation?
+  /// Drawn once, here on the main thread: Finder asks for a menu on its own queue, where SwiftUI's
+  /// renderer can't run.
+  private let buffMenuImages: [Buff: NSImage]
 
   override init() {
+    buffMenuImages = MainActor.assumeIsolated {
+      Dictionary(uniqueKeysWithValues: Buff.allCases.map { ($0, BuffSymbol.menuImage(for: $0)) })
+    }
     super.init()
     extLogger.info("DirBuff FinderSyncExtension initializing")
 
@@ -100,24 +106,18 @@ final class FinderSyncExtension: FIFinderSync {
         header.isEnabled = false
         submenu.addItem(header)
       case .item:
+        // Finder drops an extension's `NSMenuItem.subtitle`, so the words go in the title.
         let item = NSMenuItem(
-          title: entry.title,
+          title: entry.subtitle.map { "\(entry.title) \u{2014} \($0)" } ?? entry.title,
           action: entry.action.map(Self.selector(for:)),
           keyEquivalent: ""
         )
-        if #available(macOS 14.4, *) {
-          item.subtitle = entry.subtitle
-        } else if let subtitle = entry.subtitle {
-          item.title = "\(entry.title) \u{2014} \(subtitle)"
-        }
         item.isEnabled = entry.isEnabled
         if entry.action != nil {
           item.target = self
         }
         if let buff = entry.buff {
-          item.image = MainActor.assumeIsolated {
-            BuffSymbol.menuImage(for: buff)
-          }
+          item.image = buffMenuImages[buff]
         }
         submenu.addItem(item)
       }
