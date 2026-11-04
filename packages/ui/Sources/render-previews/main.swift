@@ -179,8 +179,10 @@ func renderAll(
 }
 
 /// The images the site shows (apps/site/scripts/render-images.sh): the main window on a
-/// Temporary Downloads folder, and its folder panel at phone width. The sizes are fixed. They draw
-/// as the active app's key window, so the app takes focus: only on the agents' Mac, a VM.
+/// Temporary Downloads folder, and that folder's Temporary card on its own for phones, where the
+/// whole page has no room: 420 pt is the least that holds the card's "What's Cleared Next…" button.
+/// The sizes are fixed. They draw as the active app's key window, so the app takes focus: only on
+/// the agents' Mac, a VM.
 @MainActor
 func renderSite(into directory: URL) {
   guard isVirtualMachine() else {
@@ -199,15 +201,9 @@ func renderSite(into directory: URL) {
           state: Samples.site, navigation: .constant(MainNavigation(.folder(1))),
           folderPage: Samples.folderPageDestination(
             Samples.site, reports: Samples.siteReports, now: Samples.shownAt))),
-      CGSize(width: 760, height: 760)
+      CGSize(width: 920, height: 400)
     ),
-    (
-      "site-folder-phone",
-      AnyView(
-        Samples.folderPageDestination(
-          Samples.site, reports: Samples.siteReports, now: Samples.shownAt)(1)),
-      CGSize(width: 390, height: 780)
-    ),
+    ("site-folder-phone", Samples.siteTemporaryCard, CGSize(width: 420, height: 302)),
   ]
   guard renderAll(states, into: directory, isKey: true) else {
     fail("not every site image rendered, so none should be used.")

@@ -101,7 +101,7 @@ enum Samples {
   static let ended = Licence.ended(paidThrough: paidThrough)
 
   /// The site's main window: one Temporary Downloads folder clearing what's older than 90 days,
-  /// and three items due in the coming week.
+  /// and three items due in the coming week (`site`, in `Samples+FolderPage`).
   static let siteDownloadsSettings = TemporarySettings(maxAgeDays: 90)
   static let siteDownloadsItems = [
     item("Downloads", "Xcode_Helper.dmg", daysOld: 89.2, size: 7_300_000),
@@ -110,14 +110,4 @@ enum Samples {
     item("Downloads", "design-brief-v1.pdf", daysOld: 12, size: 3_100_000),
     item("Downloads", "boarding-pass.pdf", daysOld: 2, size: 90_000),
   ]
-
-  /// The site's main window: Downloads with the site's rules, then the other sample folders.
-  static let site = MainState(
-    reports: [
-      FolderReport(
-        folder: folder(1, "Downloads", siteDownloadsSettings),
-        reading: .success(status("Downloads", siteDownloadsItems, siteDownloadsSettings)))
-    ] + reports.dropFirst(),
-    licence: .licensed, now: shownAt, calendar: calendar, binName: binName)
-
 }

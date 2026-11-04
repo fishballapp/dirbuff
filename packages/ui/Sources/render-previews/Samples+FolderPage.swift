@@ -114,13 +114,50 @@ extension Samples {
     ] + extra
   }
 
-  /// The site's folders, as `site` reads them.
+  /// The site's folders: Downloads clearing what's older than 90 days, then a folder kept under a
+  /// size, one clearing by age and one that wears nothing. They sit in the real home, so the
+  /// standard folders draw their own Finder icons and the paths read `~/…`.
   static var siteReports: [FolderReport] {
     [
       pageReport(
-        id: 1, path: "/Users/sample/Downloads", settings: siteDownloadsSettings,
-        items: siteDownloadsItems, lastRunAt: now, at: shownAt)
-    ] + reports.dropFirst()
+        id: 1, path: "\(pageHome)/Downloads", settings: siteDownloadsSettings,
+        items: siteDownloadsItems, lastRunAt: now, at: shownAt),
+      pageReport(
+        id: 2, path: "\(pageHome)/Scratch", settings: scratchSettings, items: scratchItems,
+        lastRunAt: now, at: shownAt),
+      pageReport(
+        id: 3, path: "\(pageHome)/Recordings", settings: recordingsSettings,
+        items: recordingsItems, lastRunAt: now, at: shownAt),
+      pageReport(
+        id: 4, path: "\(pageHome)/Archive", settings: TemporarySettings(),
+        wearsTemporary: false, at: shownAt),
+    ]
+  }
+
+  /// The site's main window: the folders above, in a licensed app.
+  static var site: MainState {
+    MainState(
+      reports: siteReports, licence: .licensed, now: shownAt, calendar: pageCalendar,
+      binName: binName, home: pageHome, startupVolumeName: "Macintosh HD")
+  }
+
+  /// The Temporary card of the site's Downloads page, on the page's ground with room for its
+  /// shadow: the phone image, where the whole page's head has no room for its buttons.
+  static var siteTemporaryCard: AnyView {
+    guard
+      let page = FolderPageState(
+        folderID: 1, reports: siteReports, shelf: site, now: shownAt, calendar: pageCalendar,
+        binName: binName, home: pageHome),
+      let card = page.cards.first
+    else { fail("the site's Downloads folder has no Temporary card to draw.") }
+    return AnyView(
+      BuffCardView(
+        card: card, folder: page.folder, binName: binName, actions: ShelfActions(),
+        pageActions: FolderPageActions(), onChangeSettings: { _ in }
+      )
+      .padding(12)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      .background(Palette.paper))
   }
 
   /// Draws a folder's page from `state` and its `reports`, as the app's `MainContainerView` does.

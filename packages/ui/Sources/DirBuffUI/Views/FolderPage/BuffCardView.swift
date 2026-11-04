@@ -4,7 +4,7 @@ import SwiftUI
 /// One buff on a folder's page: the head (its symbol, its name and its buttons), the summary (a
 /// large status line, one sentence of what happens next, and a gauge), and its setting as a
 /// sentence below a Rule.
-struct BuffCardView: View {
+public struct BuffCardView: View {
   var card: BuffCard
   var folder: FolderState
   var binName: String
@@ -12,13 +12,29 @@ struct BuffCardView: View {
   var pageActions: FolderPageActions
   var onChangeSettings: (TemporarySettings) -> Void
 
+  public init(
+    card: BuffCard,
+    folder: FolderState,
+    binName: String,
+    actions: ShelfActions,
+    pageActions: FolderPageActions,
+    onChangeSettings: @escaping (TemporarySettings) -> Void
+  ) {
+    self.card = card
+    self.folder = folder
+    self.binName = binName
+    self.actions = actions
+    self.pageActions = pageActions
+    self.onChangeSettings = onChangeSettings
+  }
+
   @Environment(\.colorScheme) private var colorScheme
 
   /// Where the summary starts: past the symbol and the gap after it, so its lines start under the
   /// buff's name.
   private static let summaryInset: CGFloat = 66
 
-  var body: some View {
+  public var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: 0) {
         head
