@@ -70,7 +70,7 @@ extension MainState {
   }
 }
 
-private func lowercasingFirst(_ text: String) -> String {
+func lowercasingFirst(_ text: String) -> String {
   guard let first = text.first else { return text }
   return first.lowercased() + text.dropFirst()
 }

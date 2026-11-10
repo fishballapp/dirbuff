@@ -559,6 +559,11 @@ public struct SkippedFile: Sendable, Equatable {
   /// Inside the folder.
   public var path: String
   public var reason: String
+
+  public init(path: String, reason: String) {
+    self.path = path
+    self.reason = reason
+  }
 }
 
 /// A version of a file the backup holds: what one snapshot saved of it.

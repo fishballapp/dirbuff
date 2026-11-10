@@ -10,11 +10,17 @@ public struct FolderReport: Sendable {
   public var location: Result<URL, FolderProblem>
   /// One per buff it wears, in `Buff` order.
   public var buffs: [BuffReading]
+  /// Where Backup's Google Drive stands; the same for every folder, and read only by Backup.
+  public var drive: DriveState
 
-  public init(folder: Folder, location: Result<URL, FolderProblem>, buffs: [BuffReading]) {
+  public init(
+    folder: Folder, location: Result<URL, FolderProblem>, buffs: [BuffReading],
+    drive: DriveState = .ready
+  ) {
     self.folder = folder
     self.location = location
     self.buffs = buffs
+    self.drive = drive
   }
 
   /// Why the folder couldn't be found, or else why a buff couldn't read it; nil when all went well.
@@ -33,6 +39,19 @@ public struct FolderReport: Sendable {
     }.first
   }
 
+  /// Backup's wear, if the folder wears it.
+  public var backupWear: Wear<BackupSettings>? {
+    buffs.lazy.compactMap { if case .backup(let wear, _) = $0 { wear } else { nil } }.first
+  }
+
+  /// What reading Backup found; nil when the folder doesn't wear it, or it wasn't read or couldn't
+  /// be.
+  public var backupStatus: BackupStatus? {
+    buffs.lazy.compactMap {
+      if case .backup(_, .success(let status)) = $0 { status } else { nil }
+    }.first
+  }
+
   var name: String { URL(fileURLWithPath: folder.path).lastPathComponent }
 }
 
@@ -40,10 +59,12 @@ public struct FolderReport: Sendable {
 /// folder wasn't found. Closed over the shipped buffs; each adds its case.
 public enum BuffReading: Sendable {
   case temporary(Wear<TemporarySettings>, Result<TemporaryStatus, FolderProblem>?)
+  case backup(Wear<BackupSettings>, Result<BackupStatus, FolderProblem>?)
 
   public var buff: Buff {
     switch self {
     case .temporary: .temporary
+    case .backup: .backup
     }
   }
 
@@ -52,6 +73,8 @@ public enum BuffReading: Sendable {
     switch self {
     case .temporary(_, .failure(let problem)?): problem
     case .temporary: nil
+    case .backup(_, .failure(let problem)?): problem
+    case .backup: nil
     }
   }
 }

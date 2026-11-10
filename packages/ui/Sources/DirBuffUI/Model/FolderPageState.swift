@@ -62,11 +62,25 @@ public struct BuffCard: Sendable, Equatable, Identifiable {
   public var detail: FolderSentence?
   public var gauge: Gauge?
   /// What the setting's sentence edits.
-  public var settings: TemporarySettings
+  public var settings: CardSettings
   /// Under the setting, what it means: "Put Back any time from DirBuff or Finder."
   public var meaning: String
   /// Whether What's Cleared Next… can list the folder's files: only while it can be read.
   public var canShowFiles: Bool
+}
+
+/// The settings a buff's card holds, by buff.
+public enum CardSettings: Sendable, Equatable {
+  case temporary(TemporarySettings)
+  case backup(BackupSettings)
+
+  public var temporary: TemporarySettings? {
+    if case .temporary(let settings) = self { settings } else { nil }
+  }
+
+  public var backup: BackupSettings? {
+    if case .backup(let settings) = self { settings } else { nil }
+  }
 }
 
 /// Words that may name the folder as a pill, before or after them: "[Exports] holds 47 GB.",
@@ -122,11 +136,13 @@ extension FolderPageState {
   /// - Parameters:
   ///   - shelf: The main window's state, which holds every folder's tile and what + Buff offers.
   ///   - progress: How far the clean-up running now has got.
+  ///   - backupProgress: How far the backup running now has got.
   public init?(
     folderID: Int64,
     reports: [FolderReport],
     shelf: MainState,
     progress: RunProgress? = nil,
+    backupProgress: RunProgress? = nil,
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name,
@@ -145,8 +161,10 @@ extension FolderPageState {
     // Both list the folder's buffs in `Buff` order, a row for each reading.
     self.cards = zip(folder.buffs, report.buffs).map { row, reading in
       words.card(
-        row, reading,
-        progress: progress.flatMap { $0.folderID == folderID ? $0 : nil })
+        row, reading, drive: report.drive,
+        progress: (row.buff == .backup ? backupProgress : progress).flatMap {
+          $0.folderID == folderID ? $0 : nil
+        })
     }
     self.addBuffItems = shelf.addBuffItems(for: folder)
     self.canAddBuff = shelf.mayClean
@@ -175,7 +193,7 @@ public func settingChange(
 }
 
 /// Builds a buff's card in one folder's words.
-private struct CardWords {
+struct CardWords {
   var folderName: String
   /// The disk the folder is on, which deleting frees space on.
   var volume: String
@@ -183,10 +201,16 @@ private struct CardWords {
   var calendar: Calendar
   var binName: String
 
-  func card(_ row: BuffRow, _ reading: BuffReading, progress: RunProgress?) -> BuffCard {
+  func card(
+    _ row: BuffRow, _ reading: BuffReading, drive: DriveState, progress: RunProgress?
+  ) -> BuffCard {
     switch reading {
     case .temporary(let wear, let reading):
       temporaryCard(row, settings: wear.settings, status: try? reading?.get(), progress: progress)
+    case .backup(let wear, let reading):
+      backupCard(
+        row, settings: wear.settings, status: try? reading?.get(), drive: drive,
+        progress: progress)
     }
   }
 
@@ -195,7 +219,7 @@ private struct CardWords {
   ) -> BuffCard {
     var card = BuffCard(
       buff: row.buff, state: row.state, headline: FolderSentence(row.status), detail: nil,
-      gauge: nil, settings: settings, meaning: meaning(settings),
+      gauge: nil, settings: .temporary(settings), meaning: meaning(settings),
       canShowFiles: status != nil)
     switch row.state {
     case .atRest:
@@ -220,6 +244,9 @@ private struct CardWords {
       card.headline = FolderSentence(row.status, pill: .after)
       card.detail = FolderSentence(
         "\(row.setting). It may have been deleted or moved. Locate it to turn its buffs back on.")
+    case .needsYou:
+      // Fixes of other buffs.
+      break
     }
     return card
   }
@@ -314,7 +341,7 @@ extension PauseReason {
 }
 
 /// "47 of 50 GB", with the unit said once when both share it; "800 MB of 10 GB" when they don't.
-private func amountOf(_ part: Int64, _ whole: Int64) -> String {
+func amountOf(_ part: Int64, _ whole: Int64) -> String {
   let (partWords, wholeWords) = (bytes(part), bytes(whole))
   let partUnit = partWords.split(separator: " ").last
   let wholeUnit = wholeWords.split(separator: " ").last

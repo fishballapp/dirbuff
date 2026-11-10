@@ -16,7 +16,7 @@ struct PausedPill: View {
         .buttonStyle(.plain)
         .help(reason.explanation)
         .accessibilityHint(reason.explanation)
-    case .paused(.driveUnplugged), .folderMissing, .accessLost:
+    case .paused(.driveUnplugged), .paused(.waiting), .folderMissing, .accessLost:
       label
         .help(reason.explanation)
         .accessibilityHint(reason.explanation)
@@ -55,6 +55,7 @@ extension PauseReason {
     case .licence(.checkNow):
       "DirBuff couldn't check your licence. Try again to turn every buff back on."
     case .driveUnplugged(let drive): "\(drive) isn't connected"
+    case .waiting(let words): words
     }
   }
 }

@@ -36,6 +36,9 @@ public struct BuffRow: Sendable, Equatable, Identifiable {
   public var setting: String
   /// A folder the status names, drawn as a pill after it: "Can't find [Projects]".
   public var statusFolder: String? = nil
+  /// How far its own run has got, from 0 to 1, while it works. Temporary's is the folder's
+  /// `progress`; Backup's is here, since the two can run in one folder at once.
+  public var progress: Double? = nil
 }
 
 public enum BuffState: Sendable, Equatable {
@@ -53,7 +56,7 @@ public enum BuffState: Sendable, Equatable {
     case .atRest: .atRest
     case .working: .working
     case .paused(.licence): .needsYou
-    case .paused(.driveUnplugged): .atRest
+    case .paused(.driveUnplugged), .paused(.waiting): .atRest
     case .needsYou: .needsYou
     }
   }
@@ -69,11 +72,19 @@ extension BuffState {
   /// does nothing too, so it wears the pill beside its callout.
   public var pillReason: PillReason? {
     switch self {
-    case .atRest, .working: nil
+    case .atRest, .working, .paused(.waiting): nil
     case .paused(let reason): .paused(reason)
     case .needsYou(.locate): .folderMissing
     case .needsYou(.giveAccess): .accessLost
+    case .needsYou: nil
     }
+  }
+
+  /// Whether the row waits on something that clears by itself, which the row says in its status
+  /// where a Paused capsule would only repeat it.
+  public var isWaiting: Bool {
+    if case .paused(.waiting) = self { return true }
+    return false
   }
 }
 
@@ -93,6 +104,10 @@ public enum PauseReason: Sendable, Equatable {
   case licence(LicenceLine.Action)
   /// The folder's drive, named, isn't connected. Nothing for the user to do.
   case driveUnplugged(String)
+  /// Nothing is wrong and nothing is to be done: Backup waits for the internet, or for the user to
+  /// sign in to Google. The words are the row's status ("Waiting for the internet"), and the row
+  /// fades, with the folder's mark at rest.
+  case waiting(String)
 }
 
 /// The one thing that clears a needs-you.
@@ -101,11 +116,41 @@ public enum Fix: Sendable, Equatable {
   case giveAccess
   /// Asks where a missing folder went. Remove from DirBuff sits beside it.
   case locate
+  /// Backup: opens Google sign-in again.
+  case signInAgain
+  /// Backup: opens Google One's storage page, where the user frees or buys room.
+  case makeRoom
+  /// Backup: opens the files the last backup couldn't read, each with why and Leave Out.
+  case showFiles
+  /// Backup: runs a backup now instead of at the next hour.
+  case backUpNow
+  /// Backup: puts the backup back from Google Drive's Bin.
+  case putBackFromDriveBin
+  /// Backup: makes a new backup where the old one was deleted, which loses its history.
+  case startAgain
+  /// Backup: opens what the weekly check found missing.
+  case showDetails
 
   public var title: String {
     switch self {
     case .giveAccess: "Give Access…"
     case .locate: "Locate…"
+    case .signInAgain: "Sign In Again…"
+    case .makeRoom: "Make Room…"
+    case .showFiles: "Show Files…"
+    case .backUpNow: "Back Up Now"
+    case .putBackFromDriveBin: "Put Back"
+    case .startAgain: "Start Again…"
+    case .showDetails: "Show Details…"
+    }
+  }
+
+  /// Whether every folder that wears the buff fails the same way, because the cause is the Google
+  /// account or the one backup in it: the popover names them in one callout.
+  public var isSharedByFolders: Bool {
+    switch self {
+    case .signInAgain, .makeRoom, .putBackFromDriveBin, .startAgain, .showDetails: true
+    case .giveAccess, .locate, .showFiles, .backUpNow: false
     }
   }
 }
@@ -116,12 +161,16 @@ extension FolderState {
   ///
   /// - Parameters:
   ///   - working: The folders a clean-up is running in.
-  ///   - progress: How far the folder running now has got.
+  ///   - progress: How far the clean-up running now has got.
+  ///   - backingUp: The folders a backup is running in.
+  ///   - backupProgress: How far the backup running now has got.
   public static func all(
     _ reports: [FolderReport],
     licence: Licence,
     working: Set<Int64> = [],
     progress: RunProgress? = nil,
+    backingUp: Set<Int64> = [],
+    backupProgress: RunProgress? = nil,
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name,
@@ -131,8 +180,10 @@ extension FolderState {
       guard let id = report.folder.id else { return nil }
       let buffs = report.buffs.map {
         $0.row(
-          in: report, licence: licence, isWorking: working.contains(id), now: now,
-          calendar: calendar, binName: binName)
+          in: report, licence: licence,
+          isWorking: ($0.buff == .backup ? backingUp : working).contains(id), now: now,
+          calendar: calendar, binName: binName,
+          backupProgress: backupProgress.flatMap { $0.folderID == id ? $0 : nil })
       }
       let isMissing = report.problem == .missing
       return FolderState(
@@ -161,13 +212,18 @@ extension BuffReading {
     isWorking: Bool,
     now: Date,
     calendar: Calendar,
-    binName: String
+    binName: String,
+    backupProgress: RunProgress? = nil
   ) -> BuffRow {
     switch self {
     case .temporary(let wear, let reading):
       temporaryRow(
         wear, reading, in: report, licence: licence, isWorking: isWorking, now: now,
         calendar: calendar, binName: binName)
+    case .backup(let wear, let reading):
+      backupRow(
+        wear, reading, in: report, licence: licence, isWorking: isWorking,
+        progress: backupProgress, now: now, calendar: calendar)
     }
   }
 }
@@ -231,7 +287,7 @@ private func folderLocation(_ path: String, holding size: Int64?, home: String) 
 }
 
 /// "Thu 22 Oct, 10:20".
-private func missingDate(_ date: Date, calendar: Calendar) -> String {
+func missingDate(_ date: Date, calendar: Calendar) -> String {
   let day = date.formatted(
     Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
       .weekday(.abbreviated).day().month(.abbreviated))

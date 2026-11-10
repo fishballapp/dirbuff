@@ -1,3 +1,4 @@
+import DirBuffUI
 import SwiftUI
 
 @main
@@ -8,6 +9,9 @@ struct DirBuffApp: App {
     // The adaptor's delegate already exists here, so the buffs can drop into Finder from launch.
     let app = _app.wrappedValue
     app.appModel.connectBuffDrops(openSettings: { app.windows.openSettings() })
+    app.appModel.connectFixes(
+      showFolderPage: { app.windows.openMain(at: MainNavigation(.folder($0))) },
+      showSettings: { app.windows.openSettings() })
   }
 
   /// The menu bar is an `NSStatusItem` the delegate owns, so the app has no window scene. The

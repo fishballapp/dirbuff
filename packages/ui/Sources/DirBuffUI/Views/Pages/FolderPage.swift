@@ -55,7 +55,9 @@ public struct FolderPage: View {
               binName: binName,
               actions: actions,
               pageActions: pageActions,
-              onChangeSettings: { change(to: $0, from: card.settings) }
+              onChangeSettings: {
+                if let previous = card.settings.temporary { change(to: $0, from: previous) }
+              }
             )
           }
         }

@@ -71,8 +71,9 @@ extension MainState {
 
 private func sidebarCondition(_ folder: FolderState) -> SidebarFolder.Condition {
   if folder.isNeedingYou { return .needsYou }
+  // A buff that waits for the internet or a sign-in leaves the folder's other buffs as they are.
   let pauses = folder.buffs.compactMap {
-    if case .paused(let reason) = $0.state { return reason }
+    if case .paused(let reason) = $0.state, !$0.state.isWaiting { return reason }
     return nil
   }
   if folder.isUnplugged || pauses.contains(where: \.isDriveUnplugged) { return .unplugged }

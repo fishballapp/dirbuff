@@ -234,13 +234,14 @@ struct FolderTileView: View {
                 .foregroundStyle(row.isNeedsYou ? Palette.amberText : Palette.inkTertiary)
                 .padding(.bottom, 6)
 
-              // A paused row says only its setting and Paused; the capsule says why.
-              if !row.state.isPaused {
+              // A paused row says only its setting and Paused; the capsule says why. A row that
+              // waits has no capsule, so it says why itself.
+              if !row.state.isPaused || row.state.isWaiting {
                 status(row)
               }
 
               if row.state == .working {
-                workingBar
+                workingBar(row.progress ?? folder.progress ?? 0)
                   .padding(.top, 8)
                   .padding(.bottom, 6)
               }
@@ -250,7 +251,9 @@ struct FolderTileView: View {
                 .foregroundStyle(row.isNeedsYou ? Palette.inkSecondary : Palette.inkTertiary)
                 .monospacedDigit()
                 .lineLimit(1)
-                .padding(.top, row.state == .working || row.state.isPaused ? 0 : 2)
+                .padding(
+                  .top,
+                  row.state == .working || (row.state.isPaused && !row.state.isWaiting) ? 0 : 2)
 
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -297,6 +300,8 @@ struct FolderTileView: View {
     .padding(.trailing, 14)
     .padding(.vertical, 14)
     .background(row.isNeedsYou ? Palette.amberTint : .clear)
+    // A buff waiting for something that clears by itself sits back.
+    .opacity(row.state.isWaiting ? 0.5 : 1)
     .contentShape(.rect)
     .onTapGesture(perform: onOpen)
   }
@@ -325,14 +330,14 @@ struct FolderTileView: View {
       }
   }
 
-  private var workingBar: some View {
+  private func workingBar(_ progress: Double) -> some View {
     GeometryReader { proxy in
       ZStack(alignment: .leading) {
         Capsule()
           .fill(Palette.ruleStrong)
         Capsule()
           .fill(Palette.accentBlue)
-          .frame(width: max(4, proxy.size.width * (folder.progress ?? 0)))
+          .frame(width: max(4, proxy.size.width * progress))
       }
     }
     .frame(height: 4)
@@ -348,6 +353,7 @@ extension BuffRow {
 
   fileprivate var usesQuietSymbol: Bool {
     switch state {
+    case .paused(.waiting): false
     case .paused: true
     case .atRest, .working, .needsYou: false
     }
@@ -356,6 +362,7 @@ extension BuffRow {
   fileprivate var statusWeight: Font.Weight {
     switch state {
     case .needsYou: .semibold
+    case .paused(.waiting): .medium
     case .paused: .regular
     case .atRest, .working: .medium
     }
@@ -364,6 +371,7 @@ extension BuffRow {
   fileprivate var statusColor: Color {
     switch state {
     case .needsYou: Palette.amberText
+    case .paused(.waiting): Palette.ink
     case .paused: Palette.inkTertiary
     case .atRest, .working: Palette.ink
     }

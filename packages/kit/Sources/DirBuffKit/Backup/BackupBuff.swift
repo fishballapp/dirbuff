@@ -536,6 +536,21 @@ public struct BackupStatus: Sendable, Equatable {
   /// What the user left out, besides `BackupDefaults`.
   public var leftOut: [LeaveOut]
   public var cloudOnlyCount: Int
+
+  public init(
+    lastRunAt: Date, lastSuccessAt: Date? = nil, lastError: String? = nil,
+    failingSince: Date? = nil, failedRunsInARow: Int = 0, skipped: [SkippedFile] = [],
+    leftOut: [LeaveOut] = [], cloudOnlyCount: Int = 0
+  ) {
+    self.lastRunAt = lastRunAt
+    self.lastSuccessAt = lastSuccessAt
+    self.lastError = lastError
+    self.failingSince = failingSince
+    self.failedRunsInARow = failedRunsInARow
+    self.skipped = skipped
+    self.leftOut = leftOut
+    self.cloudOnlyCount = cloudOnlyCount
+  }
 }
 
 extension RunProgress {

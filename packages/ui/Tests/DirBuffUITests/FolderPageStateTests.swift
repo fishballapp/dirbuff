@@ -154,7 +154,7 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
       [report(1, wearsTemporary: false, isPausedByLicence: true)], licence: .trialEnded)?
       .cards.first
     #expect(card?.detail == FolderSentence(PauseReason.licence(.buy).explanation))
-    #expect(card?.settings == TemporarySettings())
+    #expect(card?.settings == .temporary(TemporarySettings()))
   }
 }
 

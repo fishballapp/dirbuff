@@ -15,7 +15,16 @@ extension AppModel {
     switch fix {
     case .giveAccess: openFilesAndFoldersSettings()
     case .locate: Task { await locate(folderID: folderID) }
+    // Backup isn't wearable yet, so none of these shows. Ticket 8 gives each its own action.
+    case .backUpNow, .showFiles, .showDetails: showFolderPage(folderID)
+    case .signInAgain, .makeRoom, .startAgain, .putBackFromDriveBin: showSettings()
     }
+  }
+
+  /// Sets where the fixes that open a window lead.
+  func connectFixes(showFolderPage: @escaping (Int64) -> Void, showSettings: @escaping () -> Void) {
+    self.showFolderPage = showFolderPage
+    self.showSettings = showSettings
   }
 
   /// Privacy & Security's Files and Folders, where a folder's access is given back to DirBuff.

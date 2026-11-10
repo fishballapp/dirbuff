@@ -44,6 +44,10 @@ final class AppModel {
   let backup: BackupBuff
   /// Asked by the hourly check. Nothing, until the Google account exists.
   @ObservationIgnored var backupAccount: any BackupAccountCheck = NoBackupAccount()
+  /// Where the fixes that lead to a window go. Set once at launch by the app that owns the windows
+  /// (`connectFixes`).
+  @ObservationIgnored var showFolderPage: (Int64) -> Void = { _ in }
+  @ObservationIgnored var showSettings: () -> Void = {}
   /// Why Backup's owed runs are waiting, if they are.
   private(set) var backupHold: BackupHold?
   private let polar: PolarLicensing

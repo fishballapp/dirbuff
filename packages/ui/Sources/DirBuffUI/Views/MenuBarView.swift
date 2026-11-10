@@ -53,7 +53,7 @@ public struct MenuBarView: View {
   private func runSection(_ run: PopoverRun) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 6) {
-        Text("Clearing")
+        Text(run.buff == .backup ? "Backing up" : "Clearing")
         FolderPill(run.folderName, path: run.path)
       }
       .font(.headline)
@@ -94,12 +94,9 @@ public struct MenuBarView: View {
       NeedsYouBadge(size: 20)
         .padding(.top, 1)
       VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 5) {
-          Text(item.lead)
-          FolderPill(item.folderName, path: item.path)
-        }
-        .font(.headline)
-        .foregroundStyle(Palette.amberText)
+        headline(item)
+          .font(.headline)
+          .foregroundStyle(Palette.amberText)
         Text(item.reason)
           .font(.subheadline)
           .foregroundStyle(Palette.inkSecondary)
@@ -117,6 +114,26 @@ public struct MenuBarView: View {
     .overlay(alignment: .top) { Palette.amberEdge.frame(height: 1) }
     .overlay(alignment: .bottom) { Palette.amberEdge.frame(height: 1) }
     .padding(.horizontal, -14)
+  }
+
+  /// "Can't clear [Projects]", or for folders that share a cause, "Can't back up [Documents] and 2
+  /// more", which wraps rather than cut the folder's name.
+  @ViewBuilder
+  private func headline(_ item: NeedsYou) -> some View {
+    if item.otherFolders > 0 {
+      SentenceFlow(wordSpacing: 5, lineSpacing: 2) {
+        ForEach(Array(item.lead.split(separator: " ").enumerated()), id: \.offset) {
+          Text($0.element)
+        }
+        FolderPill(item.folderName, path: item.path)
+        Text("and \(item.otherFolders) more")
+      }
+    } else {
+      HStack(spacing: 5) {
+        Text(item.lead)
+        FolderPill(item.folderName, path: item.path)
+      }
+    }
   }
 
   /// The licence line and the button that acts on it.

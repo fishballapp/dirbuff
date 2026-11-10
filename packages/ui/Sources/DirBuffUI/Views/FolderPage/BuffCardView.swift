@@ -43,17 +43,11 @@ public struct BuffCardView: View {
       .background(isNeedingYou ? Palette.amberTint : .clear)
 
       Palette.rule.frame(height: 1)
-      TemporarySettingView(
-        settings: card.settings,
-        meaning: card.meaning,
-        folderName: folder.name,
-        binName: binName,
-        onChange: onChangeSettings
-      )
-      .padding(.leading, Self.summaryInset)
-      .padding(.trailing, 22)
-      .padding(.top, 14)
-      .padding(.bottom, 18)
+      settingView
+        .padding(.leading, Self.summaryInset)
+        .padding(.trailing, 22)
+        .padding(.top, 14)
+        .padding(.bottom, 18)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Palette.card)
@@ -66,6 +60,23 @@ public struct BuffCardView: View {
           lineWidth: isNeedingYou ? 1 : 0.5)
     }
     .shadow(color: .black.opacity(colorScheme == .dark ? 0.30 : 0.14), radius: 8, y: 4)
+  }
+
+  /// The setting as a sentence: Temporary's with its pop-ups, Backup's as words.
+  @ViewBuilder
+  private var settingView: some View {
+    switch card.settings {
+    case .temporary(let settings):
+      TemporarySettingView(
+        settings: settings,
+        meaning: card.meaning,
+        folderName: folder.name,
+        binName: binName,
+        onChange: onChangeSettings
+      )
+    case .backup(let settings):
+      BackupSettingView(settings: settings, meaning: card.meaning)
+    }
   }
 
   private var isNeedingYou: Bool {
@@ -167,6 +178,7 @@ public struct BuffCardView: View {
 
   private var usesQuietSymbol: Bool {
     switch card.state {
+    case .paused(.waiting): false
     case .paused: true
     case .atRest, .working, .needsYou: false
     }
