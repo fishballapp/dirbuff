@@ -49,6 +49,10 @@ fi
 
 echo "Version: $MARKETING_VERSION (Build $CURRENT_PROJECT_VERSION)"
 
+# 0. The pinned restic that goes in the app's Helpers folder (restic/pin.env)
+echo "--> Building restic..."
+"$SCRIPT_DIR/restic/build.sh"
+
 # 1. XcodeGen
 echo "--> Generating Xcode project..."
 xcodegen generate --spec "$SCRIPT_DIR/project.yml" --project "$SCRIPT_DIR"

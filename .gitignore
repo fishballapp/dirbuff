@@ -7,3 +7,4 @@ apps/mac/.derivedData/
 node_modules
 *.tsbuildinfo
 design/review/
+apps/mac/.restic/

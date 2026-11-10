@@ -15,6 +15,9 @@ echo "=========================================================="
 echo " Building DirBuff macOS App (Release)"
 echo "=========================================================="
 
+echo "0. Building the pinned restic..."
+"$SCRIPT_DIR/restic/build.sh"
+
 echo "1. Generating Xcode project with XcodeGen..."
 xcodegen generate --spec "$SCRIPT_DIR/project.yml" --project "$SCRIPT_DIR"
 
@@ -37,6 +40,7 @@ cp -R "$PRODUCTS_DIR/DirBuff.app" "$OUT_DIR/DirBuff.app"
 echo "4. Verifying codesign signature and entitlements..."
 codesign -dv --verbose=2 "$OUT_DIR/DirBuff.app"
 codesign --verify --deep --strict "$OUT_DIR/DirBuff.app"
+codesign -dv "$OUT_DIR/DirBuff.app/Contents/Helpers/restic" 2>&1 | grep -E "Identifier|flags|Timestamp"
 
 echo "=========================================================="
 echo " Build and signature verification successful!"

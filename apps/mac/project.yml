@@ -74,6 +74,29 @@ targets:
         # The script below writes the release date into Info.plist, so it may edit the built bundle.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
     postBuildScripts:
+      # The pinned restic (restic/pin.env), built by restic/build.sh before this runs. It goes in
+      # Contents/Helpers with its own signature (hardened runtime, a secure timestamp): the app's
+      # signature only seals a nested program, it doesn't sign it, and notarisation refuses an
+      # unsigned one. restic's licence goes in with it.
+      - name: Embed restic
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          built="${SRCROOT}/.restic"
+          if [[ ! -x "$built/restic" ]]; then
+            echo "error: restic isn't built. Run apps/mac/restic/build.sh first." >&2
+            exit 1
+          fi
+          helpers="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers"
+          notices="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ThirdPartyNotices"
+          mkdir -p "$helpers" "$notices"
+          cp "$built/restic" "$helpers/restic"
+          cp "$built/LICENSE" "$notices/restic.txt"
+          if [[ "${CODE_SIGNING_ALLOWED}" == YES && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
+            codesign --force --options runtime --timestamp \
+              --identifier app.fishball.dirbuff.restic \
+              --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$helpers/restic"
+          fi
       # The day this version came out: release.sh passes DIRBUFF_RELEASE_DATE; any
       # other build is dated the day it is built, in UTC like the appcast's dates.
       - name: Stamp the release date

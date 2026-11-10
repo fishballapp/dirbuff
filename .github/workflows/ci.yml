@@ -35,6 +35,9 @@ jobs:
         package: [core, kit, ui]
     steps:
       - uses: actions/checkout@v6
+      # kit's tests run the real restic the app ships.
+      - uses: ./.github/actions/restic
+        if: matrix.package == 'kit'
       - run: swift test --package-path packages/${{ matrix.package }}
 
   app:
@@ -44,6 +47,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/restic
       - run: command -v xcodegen || brew install xcodegen
       - run: xcodegen generate --spec project.yml --project .
         working-directory: apps/mac

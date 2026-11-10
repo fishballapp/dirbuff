@@ -75,6 +75,12 @@ jobs:
           fi
           node --experimental-strip-types apps/mac/release/publish.ts --check "${target[@]}" --notes-file "$RUNNER_TEMP/notes.md"
 
+      # release.sh builds restic (apps/mac/restic) from its pinned source, with no cache to trust.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+          cache: false
+
       - name: Ensure XcodeGen
         run: command -v xcodegen || brew install xcodegen
 

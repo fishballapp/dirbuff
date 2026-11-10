@@ -1,0 +1,19 @@
+name: restic
+description: >-
+  Builds the restic that ships inside the app (apps/mac/restic), keeping the build while its pin and
+  build script stay as they are. The release job doesn't use this: it builds restic afresh.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v7
+      with:
+        go-version: '1.25'
+        # The module cache is the build's own: the cache below holds the result.
+        cache: false
+    - uses: actions/cache@v6
+      with:
+        path: apps/mac/.restic
+        key: restic-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/mac/restic/pin.env', 'apps/mac/restic/build.sh') }}
+    - name: Build restic
+      shell: bash
+      run: apps/mac/restic/build.sh
