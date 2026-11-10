@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// One run of the restic binary: starts it, hands it the repository password, reads what it
 /// prints and ends it if it stalls.
@@ -9,6 +10,12 @@ struct ResticProcess {
   /// disk, an argument or an environment variable: any process of the same user can read the
   /// last two with `ps`.
   var password: String
+  /// A second password, for `key add` (`--new-password-file`). restic gets it through a named
+  /// pipe in a folder only this user can open, since `Process` passes a child no descriptors but
+  /// its standard ones: the bytes go from this process to restic's, and nothing is written to disk.
+  var newPassword: String?
+  /// Where restic runs; a backup of `.` makes the folder the snapshot's root.
+  var workingDirectory: URL?
   var source: ResticMessage.Source
   var qualityOfService: QualityOfService
   var limit: StallLimit
@@ -23,10 +30,19 @@ struct ResticProcess {
   }
 
   func run() async throws -> Completed {
+    let newPasswordPipe = try newPassword.map(NamedPipe.init)
+    defer { newPasswordPipe?.remove() }
     let process = Process()
     process.executableURL = executable
-    process.arguments = arguments
+    process.arguments =
+      arguments + (newPasswordPipe.map { ["--new-password-file", $0.url.path] } ?? [])
+    process.currentDirectoryURL = workingDirectory
     process.environment = Self.environment
+    if let workingDirectory {
+      // restic takes the folder's path from `PWD` when it names the same folder, and `PWD` is
+      // still the app's: so the path restic records, and matches excludes against, is this one.
+      process.environment?["PWD"] = workingDirectory.path
+    }
     process.qualityOfService = qualityOfService
     let input = Self.pipe()
     let output = Self.pipe()
@@ -36,7 +52,9 @@ struct ResticProcess {
     process.standardError = errors
 
     let (terminations, terminated) = AsyncStream.makeStream(of: Termination.self)
+    let hasEnded = OSAllocatedUnfairLock(initialState: false)
     process.terminationHandler = {
+      hasEnded.withLock { $0 = true }
       terminated.yield(Termination(status: $0.terminationStatus, reason: $0.terminationReason))
       terminated.finish()
     }
@@ -46,6 +64,7 @@ struct ResticProcess {
       throw ResticFailure.unusable("restic didn't start: \(error.localizedDescription)")
     }
     Self.give(password, to: input.fileHandleForWriting)
+    newPasswordPipe?.write(until: { hasEnded.withLock { $0 } })
 
     let supervision = Supervision(
       processID: process.processIdentifier, limit: limit, terminationGrace: terminationGrace)
@@ -262,5 +281,50 @@ private final class LineSplitter: @unchecked Sendable {
       pending = Data(pending[pending.index(after: newline)...])
     }
     return lines
+  }
+}
+
+/// A named pipe that carries one secret to the restic reading it. Its folder is new and open to
+/// this user only, and is removed once restic is done.
+private final class NamedPipe: Sendable {
+  let url: URL
+  private let secret: String
+
+  init(_ secret: String) throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "dirbuff-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(
+      at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    url = folder.appendingPathComponent("secret")
+    self.secret = secret
+    guard mkfifo(url.path, 0o600) == 0 else {
+      try? FileManager.default.removeItem(at: folder)
+      throw ResticFailure.unusable("Couldn't make a pipe for the new password (errno \(errno))")
+    }
+  }
+
+  /// Writes the secret once restic opens the pipe, from another thread: opening a pipe to write
+  /// waits for its reader, and gives up when `hasEnded` says restic stopped without opening it.
+  func write(until hasEnded: @escaping @Sendable () -> Bool) {
+    Thread.detachNewThread { [self] in
+      while true {
+        let descriptor = open(url.path, O_WRONLY | O_NONBLOCK)
+        if descriptor >= 0 {
+          _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
+          _ = Data(secret.utf8).withUnsafeBytes {
+            Darwin.write(descriptor, $0.baseAddress, $0.count)
+          }
+          close(descriptor)
+          return
+        }
+        // No reader yet (`ENXIO`) is the one failure worth waiting out.
+        guard errno == ENXIO, !hasEnded() else { return }
+        Thread.sleep(forTimeInterval: 0.01)
+      }
+    }
+  }
+
+  func remove() {
+    try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
   }
 }

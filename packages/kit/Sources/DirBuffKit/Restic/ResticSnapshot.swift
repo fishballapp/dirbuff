@@ -44,19 +44,27 @@ public struct ForgetGroup: Equatable, Sendable, Decodable {
   }
 }
 
-/// How many snapshots `forget` keeps. Each count keeps the newest snapshot of that many hours,
-/// days, weeks, months or years.
+/// Which snapshots `forget` keeps. A count keeps the newest snapshot of each of that many hours,
+/// days, weeks, months or years that have one; a `within` span keeps the newest of each hour, day,
+/// week, month or year that falls within that span of the newest snapshot, however many have none.
 public struct ForgetPolicy: Equatable, Sendable {
-  public var last: Int?
-  public var hourly: Int?
-  public var daily: Int?
-  public var weekly: Int?
-  public var monthly: Int?
-  public var yearly: Int?
+  public var last: Count?
+  public var hourly: Count?
+  public var daily: Count?
+  public var weekly: Count?
+  public var monthly: Count?
+  public var yearly: Count?
+  public var withinHourly: Span?
+  public var withinDaily: Span?
+  public var withinWeekly: Span?
+  public var withinMonthly: Span?
+  public var withinYearly: Span?
 
   public init(
-    last: Int? = nil, hourly: Int? = nil, daily: Int? = nil, weekly: Int? = nil,
-    monthly: Int? = nil, yearly: Int? = nil
+    last: Count? = nil, hourly: Count? = nil, daily: Count? = nil, weekly: Count? = nil,
+    monthly: Count? = nil, yearly: Count? = nil, withinHourly: Span? = nil,
+    withinDaily: Span? = nil, withinWeekly: Span? = nil, withinMonthly: Span? = nil,
+    withinYearly: Span? = nil
   ) {
     self.last = last
     self.hourly = hourly
@@ -64,12 +72,70 @@ public struct ForgetPolicy: Equatable, Sendable {
     self.weekly = weekly
     self.monthly = monthly
     self.yearly = yearly
+    self.withinHourly = withinHourly
+    self.withinDaily = withinDaily
+    self.withinWeekly = withinWeekly
+    self.withinMonthly = withinMonthly
+    self.withinYearly = withinYearly
+  }
+
+  public enum Count: Equatable, Sendable, ExpressibleByIntegerLiteral {
+    case of(Int)
+    case unlimited
+
+    public init(integerLiteral value: Int) { self = .of(value) }
+
+    var argument: String {
+      switch self {
+      case .of(let count): String(count)
+      case .unlimited: "unlimited"
+      }
+    }
+  }
+
+  /// A span of calendar time, as restic writes it: `2y5m7d3h`.
+  public struct Span: Equatable, Sendable {
+    public var years = 0
+    public var months = 0
+    public var days = 0
+    public var hours = 0
+
+    public static func years(_ years: Int) -> Span { Span(years: years) }
+    public static func months(_ months: Int) -> Span { Span(months: months) }
+    public static func days(_ days: Int) -> Span { Span(days: days) }
+    public static func hours(_ hours: Int) -> Span { Span(hours: hours) }
+
+    var argument: String {
+      [(years, "y"), (months, "m"), (days, "d"), (hours, "h")]
+        .filter { count, _ in count != 0 }
+        .map { count, unit in "\(count)\(unit)" }
+        .joined()
+    }
   }
 
   var arguments: [String] {
-    [
+    let counts: [(String, Count?)] = [
       ("--keep-last", last), ("--keep-hourly", hourly), ("--keep-daily", daily),
       ("--keep-weekly", weekly), ("--keep-monthly", monthly), ("--keep-yearly", yearly),
-    ].flatMap { flag, count in count.map { [flag, String($0)] } ?? [] }
+    ]
+    let spans: [(String, Span?)] = [
+      ("--keep-within-hourly", withinHourly), ("--keep-within-daily", withinDaily),
+      ("--keep-within-weekly", withinWeekly), ("--keep-within-monthly", withinMonthly),
+      ("--keep-within-yearly", withinYearly),
+    ]
+    return counts.flatMap { flag, count in count.map { [flag, $0.argument] } ?? [] }
+      + spans.flatMap { flag, span in span.map { [flag, $0.argument] } ?? [] }
+  }
+}
+
+/// A key that opens the repository.
+public struct ResticKey: Equatable, Sendable, Decodable {
+  public var id: String
+  /// Whether it's the key the command opened the repository with.
+  public var isCurrent: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case isCurrent = "current"
   }
 }

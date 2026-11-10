@@ -15,7 +15,7 @@ import Testing
     let started = ContinuousClock.now
 
     await #expect(throws: ResticFailure.stalled(limit)) {
-      try await restic.backup([scratch.url], stallLimit: limit)
+      try await restic.backup(scratch.url, stallLimit: limit)
     }
 
     #expect(ContinuousClock.now - started < .seconds(10))
@@ -46,7 +46,7 @@ import Testing
     let progress = ProgressLog()
 
     let result = try await restic.backup(
-      [scratch.url], stallLimit: .noProgress(for: .seconds(3)),
+      scratch.url, stallLimit: .noProgress(for: .seconds(3)),
       onProgress: { progress.add($0) })
 
     #expect(result.summary.snapshotId == "abc")

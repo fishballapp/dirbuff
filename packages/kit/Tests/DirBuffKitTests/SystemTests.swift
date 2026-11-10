@@ -1,5 +1,6 @@
 import DirBuffCore
 import Foundation
+import Security
 import Testing
 
 @testable import DirBuffKit
@@ -125,4 +126,24 @@ private func hdiutil(_ arguments: String...) throws {
 private struct HdiutilFailed: Error {
   var arguments: [String]
   var status: Int32
+}
+
+extension SystemTests {
+  @Test func theLoginKeychainKeepsAndReplacesTheBackupKey() throws {
+    let keychain = LoginKeychain(service: "app.fishball.dirbuff.tests", account: UUID().uuidString)
+    defer {
+      SecItemDelete(
+        [
+          kSecClass as String: kSecClassGenericPassword,
+          kSecAttrService as String: keychain.service,
+          kSecAttrAccount as String: keychain.account,
+        ] as CFDictionary)
+    }
+    #expect(try keychain.key() == nil)
+
+    try keychain.save("first")
+    try keychain.save("second")
+
+    #expect(try keychain.key() == "second")
+  }
 }

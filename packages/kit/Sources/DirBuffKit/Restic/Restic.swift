@@ -57,18 +57,29 @@ public struct Restic: Sendable {
     throw ResticFailure.unusable("restic didn't say it created the repository")
   }
 
-  /// Saves `paths` as one snapshot. A backup that couldn't read some files still saves the rest:
-  /// it returns, with `isComplete` false and the files in `unreadable`.
+  /// Saves the contents of `folder` as one snapshot, with the folder as its root: paths inside
+  /// it are the same wherever the folder is, so a move or rename changes nothing in the backup,
+  /// and a restore writes the contents straight into its target. A backup that couldn't read
+  /// some files still saves the rest: it returns, with `isComplete` false and the files in
+  /// `unreadable`.
+  ///
+  /// `patterns` are read as restic reads an exclude file: one per line, trimmed, `$NAME`
+  /// expanded and `$$` a literal `$`; a pattern with a `/` matches a whole path, one without a
+  /// name anywhere. They go through a file, so there can be any number of them.
   public func backup(
-    _ paths: [URL], tags: [String] = [], host: String? = nil, excluding patterns: [String] = [],
-    stallLimit: StallLimit = defaultStallLimit,
+    _ folder: URL, tags: [String] = [], host: String? = nil, excluding patterns: [String] = [],
+    excludingCaches: Bool = false, stallLimit: StallLimit = defaultStallLimit,
     onProgress: (@Sendable (BackupProgress) -> Void)? = nil
   ) async throws -> BackupResult {
+    let excludeFile = try ExcludeFile(patterns)
+    defer { excludeFile.remove() }
     let arguments: [String] =
-      ["backup"] + Self.selecting(tags: tags, host: host) + Self.repeated("--exclude", patterns)
-      + ["--"] + paths.map(\.path)
+      ["backup"] + Self.selecting(tags: tags, host: host)
+      + (excludeFile.url.map { ["--exclude-file", $0.path] } ?? [])
+      + (excludingCaches ? ["--exclude-caches"] : []) + ["--", "."]
     let completed = try await run(
       arguments, source: .backup, limit: stallLimit, accepting: [.incomplete],
+      workingDirectory: folder,
       onProgress: { message in
         if case .backupProgress(let progress) = message { onProgress?(progress) }
       })
@@ -92,20 +103,91 @@ public struct Restic: Sendable {
   }
 
   /// Removes the snapshots (of `tags` and `host`) that `policy` doesn't keep. Their data stays
-  /// in the repository until `prune`.
+  /// in the repository until `prune`. A series is the snapshots of one host and set of tags,
+  /// wherever they were taken from (restic's own default would start a new series when a folder
+  /// moves).
   public func forget(
     keeping policy: ForgetPolicy, tags: [String] = [], host: String? = nil,
     wallClockLimit: Duration = defaultWallClockLimit
   ) async throws -> [ForgetGroup] {
     let arguments: [String] =
-      ["forget"] + policy.arguments + Self.selecting(tags: tags, host: host)
-    return try await document([ForgetGroup].self, of: arguments, wallClockLimit: wallClockLimit)
+      ["forget", "--group-by", "host,tags"] + policy.arguments
+      + Self.selecting(tags: tags, host: host)
+    // With no snapshot to choose from, restic prints nothing at all, not `[]`.
+    return try await document(
+      [ForgetGroup].self, of: arguments, wallClockLimit: wallClockLimit, ifSilent: [])
   }
 
-  /// Deletes the data no snapshot uses. It prints nothing a program can follow, so only a
-  /// wall-clock limit can tell a hang.
-  public func prune(wallClockLimit: Duration) async throws {
-    _ = try await run(["prune"], source: .other, limit: .wallClock(wallClockLimit))
+  /// Removes these snapshots, whatever any policy would keep.
+  public func forget(
+    snapshotIDs: [String], wallClockLimit: Duration = defaultWallClockLimit
+  ) async throws {
+    guard !snapshotIDs.isEmpty else { return }
+    _ = try await run(
+      ["forget", "--"] + snapshotIDs, source: .other, limit: .wallClock(wallClockLimit))
+  }
+
+  /// Deletes the data no snapshot uses. It leaves a pack whose unused part is small, up to
+  /// `maxUnused` of the repository (`"10%"`), and repacks at most `maxRepackSize` (`"1G"`), so a
+  /// prune downloads little. It prints nothing a program can follow, so only a wall-clock limit
+  /// can tell a hang.
+  public func prune(
+    maxUnused: String? = nil, maxRepackSize: String? = nil, wallClockLimit: Duration
+  ) async throws {
+    let arguments =
+      ["prune"] + (maxUnused.map { ["--max-unused", $0] } ?? [])
+      + (maxRepackSize.map { ["--max-repack-size", $0] } ?? [])
+    _ = try await run(arguments, source: .other, limit: .wallClock(wallClockLimit))
+  }
+
+  /// What changed from one snapshot to the next, file by file. Paths are as the snapshots hold
+  /// them; a folder's end in `/`.
+  public func diff(
+    from source: String, to target: String, wallClockLimit: Duration = defaultWallClockLimit
+  ) async throws -> [DiffChange] {
+    let completed = try await run(
+      ["diff", source, target], source: .diff, limit: .wallClock(wallClockLimit))
+    return completed.messages.compactMap { message in
+      if case .diffChange(let change) = message { change } else { nil }
+    }
+  }
+
+  /// Removes the locks no command holds any more: those of a restic on this Mac that has gone
+  /// (killed, or the Mac lost power), and any over 30 minutes old. A lock a killed restic left
+  /// stops every command that needs the repository to itself (`prune`, `check`, `forget`) until
+  /// then.
+  public func unlock(wallClockLimit: Duration = defaultWallClockLimit) async throws {
+    _ = try await run(["unlock"], source: .other, limit: .wallClock(wallClockLimit))
+  }
+
+  // MARK: Keys
+
+  /// The keys that open the repository; `isCurrent` is the one `password` opened it with.
+  public func keys(wallClockLimit: Duration = defaultWallClockLimit) async throws -> [ResticKey] {
+    try await document([ResticKey].self, of: ["key", "list"], wallClockLimit: wallClockLimit)
+  }
+
+  /// Adds a key that opens the repository with `newPassword`, beside the one `password` opens,
+  /// and returns its ID. The new password reaches restic as the current one does, never through
+  /// a file on disk, an argument or a variable.
+  public func addKey(
+    newPassword: String, wallClockLimit: Duration = defaultWallClockLimit
+  ) async throws -> String {
+    let completed = try await run(
+      ["key", "add"], source: .other, limit: .wallClock(wallClockLimit),
+      newPassword: newPassword)
+    let saved = "saved new key with ID "
+    for case .other(let line) in completed.messages where line.hasPrefix(saved) {
+      return String(line.dropFirst(saved.count)).trimmingCharacters(in: .whitespaces)
+    }
+    throw ResticFailure.unusable("restic didn't say which key it added")
+  }
+
+  /// Removes a key. restic refuses to remove the one `password` opened the repository with.
+  public func removeKey(id: String, wallClockLimit: Duration = defaultWallClockLimit)
+    async throws
+  {
+    _ = try await run(["key", "remove", id], source: .other, limit: .wallClock(wallClockLimit))
   }
 
   /// Checks the repository's structure, and with `readDataSubset` (`"100M"`, `"5%"`, `"1/10"`)
@@ -152,9 +234,9 @@ public struct Restic: Sendable {
     values.flatMap { [option, $0] }
   }
 
-  /// A command that prints its result as one JSON document.
+  /// A command that prints its result as one JSON document, or `ifSilent` when it prints none.
   private func document<Value: Decodable>(
-    _ type: Value.Type, of arguments: [String], wallClockLimit: Duration
+    _ type: Value.Type, of arguments: [String], wallClockLimit: Duration, ifSilent: Value? = nil
   ) async throws -> Value {
     let completed = try await run(arguments, source: .other, limit: .wallClock(wallClockLimit))
     for case .other(let line) in completed.messages where line.hasPrefix("[") {
@@ -164,20 +246,23 @@ public struct Restic: Sendable {
         throw ResticFailure.unusable("restic's answer couldn't be read: \(error)")
       }
     }
-    throw ResticFailure.unusable("restic printed no answer")
+    guard let ifSilent else { throw ResticFailure.unusable("restic printed no answer") }
+    return ifSilent
   }
 
   /// Runs one command and returns what it printed, or throws unless it exited in success or one
   /// of the exits in `accepting`.
   private func run(
     _ command: [String], source: ResticMessage.Source, limit: StallLimit,
-    accepting accepted: [ResticExit] = [],
-    onProgress: (@Sendable (ResticMessage) -> Void)? = nil
+    accepting accepted: [ResticExit] = [], workingDirectory: URL? = nil,
+    newPassword: String? = nil, onProgress: (@Sendable (ResticMessage) -> Void)? = nil
   ) async throws -> ResticProcess.Completed {
     let completed = try await ResticProcess(
       executable: executable,
       arguments: globalArguments + command,
       password: password,
+      newPassword: newPassword,
+      workingDirectory: workingDirectory,
       source: source,
       qualityOfService: qualityOfService,
       limit: limit,
@@ -214,5 +299,29 @@ extension ResticProcess.Completed {
       return .exited(exit, message: message)
     }
     return .exited(exit, message: "restic exited with \(exit)")
+  }
+}
+
+/// The patterns a backup leaves out, in a file for restic to read (`--exclude-file`), so their
+/// number is limited by nothing. They name the user's files but hold no secret. None when there
+/// are no patterns.
+private struct ExcludeFile {
+  let url: URL?
+
+  init(_ patterns: [String]) throws {
+    guard !patterns.isEmpty else {
+      url = nil
+      return
+    }
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "dirbuff-exclude-\(UUID().uuidString)")
+    // ponytail: a name with a line break in it would be cut in two here; macOS allows one, and
+    // nobody makes one. Un-park if a left-out path is ever seen backed up.
+    try patterns.joined(separator: "\n").write(to: url, atomically: false, encoding: .utf8)
+    self.url = url
+  }
+
+  func remove() {
+    if let url { try? FileManager.default.removeItem(at: url) }
   }
 }

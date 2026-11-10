@@ -14,6 +14,10 @@ public enum BuffSchedule: Sendable, Equatable {
   /// On the hour, by the clock; an hour the Mac sleeps through is skipped. Temporary's: a forecast
   /// can then name the hour each item goes (`nextCleanUp`).
   case onTheHour
+  /// Once the folder has changed and then been quiet for `settle`, but no sooner than `spacing`
+  /// after its last run; a run owed through sleep or time offline runs on waking or reconnecting,
+  /// and a check runs every `check`, change or not. Backup's.
+  case afterChange(settle: Duration, spacing: Duration, check: Duration)
 }
 
 /// A folder's wear of one buff. The folder wears the buff while the buff's table has its row.

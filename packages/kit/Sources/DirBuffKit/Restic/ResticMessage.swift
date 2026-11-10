@@ -14,6 +14,8 @@ public enum ResticMessage: Equatable, Sendable {
   case checkSummary(CheckSummary)
   case checkError(message: String)
   case initialized(repositoryID: String)
+  /// One file or folder `diff` found changed.
+  case diffChange(DiffChange)
   /// The command's last word when it failed (printed on stderr).
   case exitError(code: Int32, message: String)
   /// Anything else: the JSON document that `snapshots` and `forget` print, `prune`'s plain
@@ -22,7 +24,7 @@ public enum ResticMessage: Equatable, Sendable {
 
   /// The commands whose lines have messages of their own.
   public enum Source: Sendable {
-    case backup, restore, check, initialisation, other
+    case backup, restore, check, initialisation, diff, other
   }
 
   public init(line: String, from source: Source) {
@@ -56,6 +58,7 @@ public enum ResticMessage: Equatable, Sendable {
     case ("summary", .check): return read(CheckSummary.self).map { .checkSummary($0) }
     case ("error", .check):
       return read(CheckErrorLine.self).map { .checkError(message: $0.message) }
+    case ("change", .diff): return read(DiffChange.self).map { .diffChange($0) }
     case ("initialized", .initialisation):
       return read(InitializedLine.self).map { .initialized(repositoryID: $0.id) }
     default: return nil
@@ -116,6 +119,8 @@ public struct BackupSummary: Equatable, Sendable, Decodable {
   public var totalFilesProcessed: UInt64
   public var totalBytesProcessed: UInt64
   public var totalDuration: Double
+  /// When the backup started, which is the snapshot's time.
+  public var backupStart: Date?
   /// Absent when nothing was saved, as in a dry run.
   public var snapshotId: String?
 }
@@ -148,6 +153,33 @@ public struct ItemError: Equatable, Sendable {
   public var message: String
   /// What restic was doing: `scan` or `archival` for a backup.
   public var during: String
+}
+
+/// A file or folder that differs between two snapshots.
+public struct DiffChange: Equatable, Sendable, Decodable {
+  public enum Modifier: String, Equatable, Sendable, Decodable {
+    case added = "+"
+    case removed = "-"
+    /// Its contents changed.
+    case modified = "M"
+    /// A file became a folder, a link, or the other way round.
+    case typeChanged = "T"
+    /// Only its metadata (dates, permissions) changed.
+    case metadataChanged = "U"
+    /// Something restic itself can't name.
+    case unknown = "?"
+  }
+
+  /// As the snapshot holds it; a folder's ends in `/`.
+  public var path: String
+  public var modifier: Modifier
+
+  public init(path: String, modifier: Modifier) {
+    self.path = path
+    self.modifier = modifier
+  }
+
+  public var isFolder: Bool { path.hasSuffix("/") }
 }
 
 /// What `check` found. An unhealthy repository has errors or broken packs.

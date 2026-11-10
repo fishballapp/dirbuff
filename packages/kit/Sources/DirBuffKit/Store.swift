@@ -261,6 +261,7 @@ public struct Store: Sendable {
         t.add(column: "buff", .text).notNull().defaults(to: Buff.temporary.rawValue)
       }
     }
+    registerBackupMigrations(&migrator)
     return migrator
   }
 
@@ -326,8 +327,7 @@ public struct Store: Sendable {
   /// removed folder's only run) are dropped first.
   public func beginRun(of buff: Buff, at date: Date) throws -> Int64 {
     try database.write { db in
-      try db.execute(
-        sql: "DELETE FROM run WHERE NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)")
+      try db.execute(sql: "DELETE FROM run WHERE \(Self.isEmptyRun)")
       try db.execute(
         sql: "INSERT INTO run (buff, startedAt) VALUES (?, ?)",
         arguments: [buff.rawValue, date])
@@ -335,17 +335,19 @@ public struct Store: Sendable {
     }
   }
 
-  /// Drops a run that removed nothing, so History lists only runs that did something.
+  /// Drops a run that did nothing, so History lists only runs that did something.
   public func dropRunIfEmpty(id: Int64) throws {
     try database.write {
-      try $0.execute(
-        sql: """
-          DELETE FROM run WHERE id = ?
-            AND NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)
-          """,
-        arguments: [id])
+      try $0.execute(sql: "DELETE FROM run WHERE id = ? AND \(Self.isEmptyRun)", arguments: [id])
     }
   }
+
+  /// SQL true for a `run` row nothing was recorded under: no file a clean-up removed, no folder a
+  /// backup ran on.
+  private static let isEmptyRun = """
+    NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)
+      AND NOT EXISTS (SELECT 1 FROM backupRun WHERE runID = run.id)
+    """
 
   public func licence() throws -> LicenceRecord {
     try database.read { db in
