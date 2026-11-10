@@ -20,10 +20,8 @@ extension MainContainerView {
     pageActions.changeSettings = { id, settings in
       // A late Undo from a toast must not hand settings back to a buff that was taken off: they
       // are forgotten, and adding it again starts from the defaults.
-      guard let folder = appModel.folder(id: id),
-        folder.wearsTemporary || folder.turnedOffByLicence
-      else { return }
-      Task { await appModel.save(settings, for: folder) }
+      guard let report = appModel.report(id: id), report.temporaryWear != nil else { return }
+      Task { await appModel.save(settings, for: report.folder) }
     }
     pageActions.showFiles = { id in windowState.navigation.open(.files(id)) }
     pageActions.showHistory = { id in windowState.navigation.open(.folderHistory(id)) }

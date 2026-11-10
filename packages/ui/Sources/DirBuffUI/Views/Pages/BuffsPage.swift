@@ -1,3 +1,4 @@
+import DirBuffCore
 import SwiftUI
 
 /// The Buffs page: every buff as a card, two to a row. A card drags onto a folder in the sidebar,

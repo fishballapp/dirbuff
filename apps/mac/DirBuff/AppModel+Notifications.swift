@@ -7,11 +7,13 @@ import os
 private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "notifications")
 
 extension AppModel {
-  /// After each hourly clean-up, with what each folder's run removed.
-  func didCleanUp(_ runs: [Engine.RunResult], at hour: Date) async {
+  /// After each hourly clean-up, with what its run removed. A run that couldn't be recorded
+  /// journals nothing History can find, so it goes unannounced too.
+  func didCleanUp(runID: Int64?, at hour: Date) async {
+    let entries = await journal(runID: runID)
     await trimHistory()
     historyDidChange()
-    if let notification = CleanUpNotification(runs: runs, reports: reports) {
+    if let notification = CleanUpNotification(entries: entries, reports: reports) {
       await notify(notification)
     }
     await notifyWhatsClearedTomorrow(now: hour)
@@ -21,7 +23,9 @@ extension AppModel {
   private func notifyWhatsClearedTomorrow(now: Date) async {
     let calendar = Calendar.current
     for report in reports {
-      guard let id = report.folder.id, let status = report.status else { continue }
+      guard let id = report.folder.id, let wear = report.temporaryWear,
+        let status = report.temporaryStatus
+      else { continue }
       let count = status.upcoming.count {
         calendar.dateComponents(
           [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: $0.date)
@@ -32,9 +36,20 @@ extension AppModel {
       await notifyOncePerDay(
         id: "tomorrow.\(id)", now: now,
         title: URL(fileURLWithPath: report.folder.path).lastPathComponent,
-        body: report.folder.settings.disposal == .delete
+        body: wear.settings.disposal == .delete
           ? "\(items) will be deleted permanently tomorrow."
           : "\(items) will be moved to the \(SystemBin.name) tomorrow.")
+    }
+  }
+
+  private func journal(runID: Int64?) async -> [JournalEntry] {
+    guard let runID else { return [] }
+    let store = engine.store
+    do {
+      return try await Task.detached { try store.journal(runID: runID) }.value
+    } catch {
+      logger.error("Couldn't read the run: \(error.localizedDescription, privacy: .public)")
+      return []
     }
   }
 

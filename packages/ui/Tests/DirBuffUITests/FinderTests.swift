@@ -117,7 +117,7 @@ private func makeSnapshot(
       3,
       path: folders.archive.path,
       wearsTemporary: false,
-      turnedOffByLicence: true
+      isPausedByLicence: true
     )
 
     for inactiveLicence in [Licence.trialEnded, .ended(paidThrough: now), .paused] {

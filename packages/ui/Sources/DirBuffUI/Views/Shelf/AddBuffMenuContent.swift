@@ -1,4 +1,5 @@
 import AppKit
+import DirBuffCore
 import SwiftUI
 
 /// Menu items for adding a buff to one folder: headed "Add a Buff to <Name>", listing only the

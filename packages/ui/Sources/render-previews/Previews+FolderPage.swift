@@ -46,7 +46,7 @@ func folderPagePreviews() -> [Preview] {
       "folder-page-working",
       page(
         1, reports, working: [1],
-        progress: Engine.RunProgress(
+        progress: RunProgress(
           folderID: 1, itemsDone: 3, itemsTotal: 12, bytesDone: 400_000_000,
           bytesTotal: 1_300_000_000, current: "invoice.pdf-4")),
       short
@@ -87,7 +87,7 @@ private func page(
   _ reports: [FolderReport],
   licence: Licence = .trial(daysLeft: 9),
   working: Set<Int64> = [],
-  progress: Engine.RunProgress? = nil,
+  progress: RunProgress? = nil,
   toast: SettingsToast? = nil
 ) -> AnyView {
   let state = Samples.pageState(
@@ -109,7 +109,8 @@ private func page(
 private func pausedReports() -> [FolderReport] {
   Samples.pageReports().map { report in
     Samples.pageReport(
-      id: report.folder.id ?? 0, path: report.folder.path, settings: report.folder.settings,
-      items: report.status?.items ?? [], wearsTemporary: false, turnedOffByLicence: true)
+      id: report.folder.id ?? 0, path: report.folder.path,
+      settings: report.temporaryWear?.settings ?? TemporarySettings(),
+      items: report.temporaryStatus?.items ?? [], wearsTemporary: false, isPausedByLicence: true)
   }
 }

@@ -26,7 +26,7 @@ extension Samples {
     settings: TemporarySettings,
     items: [Item] = [],
     wearsTemporary: Bool = true,
-    turnedOffByLicence: Bool = false,
+    isPausedByLicence: Bool = false,
     problem: FolderProblem? = nil,
     accessLostAt: Date? = nil,
     missingSince: Date? = nil,
@@ -36,16 +36,20 @@ extension Samples {
   ) -> FolderReport {
     let lastRunAt = lastRunAt ?? moment.addingTimeInterval(-37 * 60)
     let folder = Folder(
-      id: id, bookmark: Data(), path: path, settings: settings, wearsTemporary: wearsTemporary,
-      turnedOffByLicence: turnedOffByLicence,
-      accessLostAt: accessLostAt, missingSince: missingSince,
-      createdAt: moment.addingTimeInterval(-60 * 86_400), lastRunAt: lastRunAt)
-    if let problem { return FolderReport(folder: folder, reading: .failure(problem)) }
+      id: id, bookmark: Data(), path: path, accessLostAt: accessLostAt,
+      missingSince: missingSince, createdAt: moment.addingTimeInterval(-60 * 86_400))
+    let isWorn = wearsTemporary || isPausedByLicence
+    func report(_ reading: Result<TemporaryStatus?, FolderProblem>) -> FolderReport {
+      .sample(
+        folder, settings: isWorn ? settings : nil, isPaused: isPausedByLicence,
+        lastRunAt: lastRunAt, reading: reading)
+    }
+    if let problem { return report(.failure(problem)) }
     // A folder that wears no buff is found but never read.
-    guard folder.wearsABuff else { return FolderReport(folder: folder, reading: .success(nil)) }
+    guard isWorn else { return report(.success(nil)) }
     let snapshot = FolderSnapshot(
       wearsTemporary: wearsTemporary, isProtectedRoot: false, items: items)
-    let status = Engine.FolderStatus(
+    let status = TemporaryStatus(
       url: URL(fileURLWithPath: path), wearsTemporary: wearsTemporary, isProtectedRoot: false,
       items: items,
       dueNow: plan(
@@ -55,7 +59,7 @@ extension Samples {
           totalCapacity: 1_000_000_000_000,
           bootTime: moment.addingTimeInterval(-3 * 86_400), lastRunAt: lastRunAt)),
       upcoming: upcoming(snapshot, settings: settings))
-    return FolderReport(folder: folder, reading: .success(status))
+    return report(.success(status))
   }
 
   /// `count` files in `path`, each `age` old at `pageMoment`.
@@ -179,7 +183,7 @@ extension Samples {
     reports: [FolderReport],
     licence: Licence = .trial(daysLeft: 9),
     working: Set<Int64> = [],
-    progress: Engine.RunProgress? = nil
+    progress: RunProgress? = nil
   ) -> FolderPageState {
     let shelf = MainState(
       reports: reports, licence: licence, working: working, progress: progress, now: pageMoment,

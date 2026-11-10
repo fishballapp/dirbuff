@@ -1,5 +1,6 @@
 import Cocoa
 import Darwin
+import DirBuffCore
 import DirBuffUI
 import FinderSync
 import os.log

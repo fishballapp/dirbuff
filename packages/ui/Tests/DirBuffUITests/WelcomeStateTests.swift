@@ -7,14 +7,14 @@ import Testing
 
 private let downloads = WelcomeFolder(name: "Downloads", path: "\(home)/Downloads")
 
-private func status(daysOld: [Double], settings: TemporarySettings) -> Engine.FolderStatus {
+private func status(daysOld: [Double], settings: TemporarySettings) -> TemporaryStatus {
   let items = daysOld.map {
     Item(
       url: URL(fileURLWithPath: "\(home)/Downloads/\($0)"),
       freshness: now.addingTimeInterval(-$0 * 86_400), size: 1_000)
   }
   let snapshot = FolderSnapshot(wearsTemporary: true, isProtectedRoot: false, items: items)
-  return Engine.FolderStatus(
+  return TemporaryStatus(
     url: URL(fileURLWithPath: "\(home)/Downloads"), wearsTemporary: true,
     isProtectedRoot: false, items: items,
     dueNow: plan(

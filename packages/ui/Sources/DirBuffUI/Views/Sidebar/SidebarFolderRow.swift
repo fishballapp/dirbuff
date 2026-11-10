@@ -1,3 +1,4 @@
+import DirBuffCore
 import SwiftUI
 
 /// A folder's row in the sidebar: its 28 pt icon and mark, its name, and beneath it the symbols of

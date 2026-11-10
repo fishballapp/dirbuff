@@ -1,3 +1,4 @@
+import DirBuffCore
 import DirBuffUI
 import SwiftUI
 

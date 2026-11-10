@@ -37,7 +37,7 @@ public struct FolderPreview: Sendable, Equatable {
   }
 
   public init(
-    _ status: Engine.FolderStatus,
+    _ status: TemporaryStatus,
     settings: TemporarySettings,
     now: Date,
     calendar: Calendar = .current,
@@ -201,7 +201,7 @@ extension MainFolder {
 /// anything, the rest of the next day something is cleared, and everything later. Empty on restart's
 /// files have no time, so they are one group of their own.
 func upcomingGroups(
-  _ status: Engine.FolderStatus,
+  _ status: TemporaryStatus,
   settings: TemporarySettings,
   now: Date,
   calendar: Calendar
@@ -316,7 +316,7 @@ private func time(_ date: Date, calendar: Calendar) -> String {
 /// The forecast only looks a week ahead: a quiet week should look quiet.
 private let forecastHorizonDays = 7
 
-extension Engine.FolderStatus {
+extension TemporaryStatus {
   /// When each item a rule has a time for is cleared, soonest first: what's due now at the next
   /// clean-up, the rest at the clean-up after the Age rule finds it due. Never before the next
   /// clean-up, even when the status was read before the clock moved on.
@@ -355,7 +355,7 @@ private struct GroupKey: Hashable, Comparable {
 /// What each folder's rules will remove over the coming week and after the next restart, grouped
 /// by when and how: "In 23 min · Move to Bin", "Tomorrow · Move to Bin".
 func forecastGroups(
-  _ folders: [(settings: TemporarySettings, status: Engine.FolderStatus)],
+  _ folders: [(settings: TemporarySettings, status: TemporaryStatus)],
   now: Date,
   calendar: Calendar,
   binName: String

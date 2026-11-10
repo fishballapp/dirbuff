@@ -95,13 +95,15 @@ public struct CleanUpNotification: Sendable, Equatable {
 
   /// Nil when the clean-up moved nothing, so there is nothing to say.
   ///
-  /// - Parameter reports: Folder reports in the order the folders were added (the store's order).
+  /// - Parameters:
+  ///   - entries: What the clean-up's run journalled.
+  ///   - reports: Folder reports in the order the folders were added (the store's order).
   public init?(
-    runs: [Engine.RunResult],
+    entries: [JournalEntry],
     reports: [FolderReport],
     binName: String = SystemBin.name
   ) {
-    let moved = Dictionary(grouping: runs.flatMap(\.journal), by: \.folderID)
+    let moved = Dictionary(grouping: entries, by: \.folderID)
     let folders = reports.compactMap { report -> CleanUpFolder? in
       guard let id = report.folder.id, let entries = moved[id] else { return nil }
       return CleanUpFolder(path: report.folder.path, entries: entries)

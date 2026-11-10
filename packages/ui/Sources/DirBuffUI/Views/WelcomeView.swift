@@ -1,3 +1,4 @@
+import DirBuffCore
 import SwiftUI
 
 /// The first-run window: the app, one sentence, the buffs as pieces to drop on four folder tiles,

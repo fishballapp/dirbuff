@@ -103,9 +103,9 @@ private func mainState(
 
   @Test func pausesTheSubtitleWhenPausedByLicence() {
     let endedReports = [
-      report(1, name: "Downloads", wearsTemporary: false, turnedOffByLicence: true),
+      report(1, name: "Downloads", wearsTemporary: false, isPausedByLicence: true),
       report(2, name: "Projects", problem: .noAccess),
-      report(3, name: "Screenshots", wearsTemporary: false, turnedOffByLicence: true),
+      report(3, name: "Screenshots", wearsTemporary: false, isPausedByLicence: true),
     ]
     let trialEnded = mainState(endedReports, licence: .trialEnded)
     #expect(trialEnded.needsYouCount == 0)

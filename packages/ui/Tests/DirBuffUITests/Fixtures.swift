@@ -30,25 +30,30 @@ func report(
   wearsTemporary: Bool = true,
   isProtectedRoot: Bool = false,
   problem: FolderProblem? = nil,
-  turnedOffByLicence: Bool = false,
+  isPausedByLicence: Bool = false,
   accessLostAt: Date? = nil,
   missingSince: Date? = nil
 ) -> FolderReport {
   let path = path ?? "\(home)/\(name ?? "Folder\(id)")"
+  let folder = Folder(
+    id: id, bookmark: Data(), path: path, accessLostAt: accessLostAt, missingSince: missingSince,
+    createdAt: now)
+  let wear =
+    wearsTemporary || isPausedByLicence
+    ? Wear(folderID: id, settings: settings, isPausedByLicence: isPausedByLicence, lastRunAt: now)
+    : nil
+  if let problem {
+    return FolderReport(
+      folder: folder, location: .failure(problem),
+      buffs: wear.map { [.temporary($0, nil)] } ?? [])
+  }
+  // A folder that wears no buff is found but never read.
+  let status = TemporaryStatus(
+    url: URL(fileURLWithPath: path), wearsTemporary: wearsTemporary,
+    isProtectedRoot: isProtectedRoot, items: items + dueNow + upcoming.map(\.0),
+    dueNow: dueNow.map { Removal(item: $0, rule: settings.rule) },
+    upcoming: upcoming.map { Upcoming(item: $0.0, date: now.addingTimeInterval($0.1)) })
   return FolderReport(
-    folder: Folder(
-      id: id, bookmark: Data(), path: path, settings: settings,
-      wearsTemporary: wearsTemporary,
-      turnedOffByLicence: turnedOffByLicence, accessLostAt: accessLostAt,
-      missingSince: missingSince, createdAt: now,
-      lastRunAt: now),
-    // A folder that wears no buff is found but never read.
-    reading: problem.map { .failure($0) }
-      ?? (!wearsTemporary && !turnedOffByLicence ? .success(nil) : nil)
-      ?? .success(
-        Engine.FolderStatus(
-          url: URL(fileURLWithPath: path), wearsTemporary: wearsTemporary,
-          isProtectedRoot: isProtectedRoot, items: items + dueNow + upcoming.map(\.0),
-          dueNow: dueNow.map { Removal(item: $0, rule: settings.rule) },
-          upcoming: upcoming.map { Upcoming(item: $0.0, date: now.addingTimeInterval($0.1)) })))
+    folder: folder, location: .success(URL(fileURLWithPath: path)),
+    buffs: wear.map { [.temporary($0, .success(status))] } ?? [])
 }

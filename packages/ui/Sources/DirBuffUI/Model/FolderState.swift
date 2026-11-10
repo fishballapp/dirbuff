@@ -121,7 +121,7 @@ extension FolderState {
     _ reports: [FolderReport],
     licence: Licence,
     working: Set<Int64> = [],
-    progress: Engine.RunProgress? = nil,
+    progress: RunProgress? = nil,
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name,
@@ -129,11 +129,11 @@ extension FolderState {
   ) -> [FolderState] {
     reports.compactMap { report -> FolderState? in
       guard let id = report.folder.id else { return nil }
-      let buffs = [
-        temporaryRow(
-          report, licence: licence, isWorking: working.contains(id), now: now,
+      let buffs = report.buffs.map {
+        $0.row(
+          in: report, licence: licence, isWorking: working.contains(id), now: now,
           calendar: calendar, binName: binName)
-      ].compactMap(\.self)
+      }
       let isMissing = report.problem == .missing
       return FolderState(
         id: id,
@@ -141,7 +141,7 @@ extension FolderState {
         path: report.folder.path,
         location: isMissing
           ? "Was at \(folderLocation(report.folder.path, holding: nil, home: home))"
-          : folderLocation(report.folder.path, holding: report.status?.size, home: home),
+          : folderLocation(report.folder.path, holding: report.temporaryStatus?.size, home: home),
         mark: buffs.map(\.state.mark).max(),
         buffs: buffs,
         accessLostAt: report.folder.accessLostAt,
@@ -152,36 +152,57 @@ extension FolderState {
   }
 }
 
-/// Temporary's row, or nil when the folder doesn't wear it, and no licence took it off.
+extension BuffReading {
+  /// The buff's row on `report`'s folder, which a licence pause, a folder DirBuff can't find or
+  /// read, or a run in progress overrides.
+  func row(
+    in report: FolderReport,
+    licence: Licence,
+    isWorking: Bool,
+    now: Date,
+    calendar: Calendar,
+    binName: String
+  ) -> BuffRow {
+    switch self {
+    case .temporary(let wear, let reading):
+      temporaryRow(
+        wear, reading, in: report, licence: licence, isWorking: isWorking, now: now,
+        calendar: calendar, binName: binName)
+    }
+  }
+}
+
 private func temporaryRow(
-  _ report: FolderReport,
+  _ wear: Wear<TemporarySettings>,
+  _ reading: Result<TemporaryStatus, FolderProblem>?,
+  in report: FolderReport,
   licence: Licence,
   isWorking: Bool,
   now: Date,
   calendar: Calendar,
   binName: String
-) -> BuffRow? {
+) -> BuffRow {
   let folder = report.folder
-  let setting = temporarySetting(folder.settings, binName: binName)
+  let setting = temporarySetting(wear.settings, binName: binName)
   func row(_ state: BuffState, _ status: String, setting: String = setting) -> BuffRow {
     BuffRow(buff: .temporary, state: state, status: status, setting: setting)
   }
 
   let licencePause = BuffState.paused(.licence(licence.line?.action ?? .buy))
-  // A trial or licence end takes Temporary off but keeps the folder's buff, paused.
-  if folder.turnedOffByLicence { return row(licencePause, "Nothing is cleared while paused") }
-  guard folder.wearsTemporary else { return nil }
-  guard licence.mayClean else { return row(licencePause, "Nothing is cleared while paused") }
-  switch report.reading {
-  case .failure(.noAccess):
+  // A trial or licence end keeps the folder's buff, paused.
+  guard !wear.isPausedByLicence, licence.mayClean else {
+    return row(licencePause, "Nothing is cleared while paused")
+  }
+  switch report.problem {
+  case .noAccess:
     return row(
       .needsYou(.giveAccess), "macOS took away access",
       setting: folder.accessLostAt.map { "Nothing cleared for \(timeSince($0, now: now))" }
         ?? setting)
-  case .failure(.unreachable):
+  case .unreachable:
     let drive = volumeName(folder.path) ?? "The drive"
     return row(.paused(.driveUnplugged(drive)), "\(drive) isn't connected")
-  case .failure(.missing):
+  case .missing:
     var missing = row(
       .needsYou(.locate), "Can't find",
       setting: folder.missingSince.map {
@@ -189,13 +210,14 @@ private func temporaryRow(
       } ?? "Missing")
     missing.statusFolder = report.name
     return missing
-  case .success(nil):
-    // Put on since the folder was last read; the next read counts what it holds.
-    return row(.atRest, "Nothing to clear yet")
-  case .success(let status?):
+  case nil:
+    guard case .success(let status)? = reading else {
+      // Put on since the folder was last read; the next read counts what it holds.
+      return row(.atRest, "Nothing to clear yet")
+    }
     if isWorking { return row(.working, "Clearing now") }
     return row(
-      .atRest, temporaryStatus(status, settings: folder.settings, now: now, calendar: calendar))
+      .atRest, temporaryStatus(status, settings: wear.settings, now: now, calendar: calendar))
   }
 }
 

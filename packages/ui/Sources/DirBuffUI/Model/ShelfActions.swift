@@ -1,3 +1,4 @@
+import DirBuffCore
 import Foundation
 
 /// Everything the main window's folders and buffs can do, wired to the app by

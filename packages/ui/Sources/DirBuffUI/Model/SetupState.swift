@@ -58,7 +58,7 @@ public struct WelcomePlacement: Sendable, Equatable {
     folder: WelcomeFolder,
     folderID: Int64,
     settings: TemporarySettings,
-    status: Engine.FolderStatus?,
+    status: TemporaryStatus?,
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name
@@ -89,7 +89,7 @@ public struct WelcomePlacement: Sendable, Equatable {
   /// "3 to clear in 23 min" (the soonest clean-up's), "38 to clear at restart", or "nothing to
   /// clear yet"; nil when the folder couldn't be read.
   private static func next(
-    _ status: Engine.FolderStatus?, settings: TemporarySettings, now: Date, calendar: Calendar
+    _ status: TemporaryStatus?, settings: TemporarySettings, now: Date, calendar: Calendar
   ) -> String? {
     guard let status else { return nil }
     let cleanUps = status.cleanUps(now: now, calendar: calendar)
@@ -153,11 +153,11 @@ public struct WelcomeState: Sendable {
   /// Temporary on `folder` as it is now, if the folder wears it.
   public func placement(on folder: WelcomeFolder) -> WelcomePlacement? {
     let path = (try? canonicalPath(of: URL(fileURLWithPath: folder.path))) ?? folder.path
-    guard let report = reports.first(where: { $0.folder.path == path && $0.folder.wearsTemporary }),
-      let id = report.folder.id
+    guard let report = reports.first(where: { $0.folder.path == path }),
+      let id = report.folder.id, let wear = report.temporaryWear, !wear.isPausedByLicence
     else { return nil }
     return WelcomePlacement(
-      folder: folder, folderID: id, settings: report.folder.settings, status: report.status,
+      folder: folder, folderID: id, settings: wear.settings, status: report.temporaryStatus,
       now: now, calendar: calendar, binName: binName)
   }
 

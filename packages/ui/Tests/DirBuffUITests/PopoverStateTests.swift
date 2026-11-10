@@ -58,9 +58,12 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
   }
 
   @Test func saysAllTheFoldersAreFineWithTheNextCleanUp() {
-    let many = popover([folder(1, "Downloads", .atRest), folder(2, "Scratch", .atRest)])
+    let schedule = "Last clean-up 37 min ago · next in 1 hr"
+    let many = PopoverState(
+      folders: [folder(1, "Downloads", .atRest), folder(2, "Scratch", .atRest)],
+      scheduleLines: [schedule], licence: .licensed, now: now, calendar: calendar)
     #expect(many.headline == "All 2 folders are fine")
-    #expect(many.subheadline == "Next clean-up in 1 hr")
+    #expect(many.subheadline == schedule)
     let one = popover([folder(1, "Downloads", .atRest)])
     #expect(one.headline == "The folder is fine")
   }
@@ -157,21 +160,29 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
 }
 
 @Suite struct PopoverSchedule {
-  /// A folder at rest whose last clean-up ran `ago` seconds before `now`.
-  private func ran(_ id: Int64, ago: TimeInterval) -> FolderReport {
+  /// A folder at rest whose last clean-up ran `ago` seconds before `now`, or one that wears
+  /// nothing.
+  private func ran(_ id: Int64, ago: TimeInterval, isWearing: Bool = true) -> FolderReport {
     FolderReport(
       folder: Folder(
-        id: id, bookmark: Data(), path: "\(home)/Folder\(id)", settings: TemporarySettings(),
-        wearsTemporary: true, createdAt: now.addingTimeInterval(-30 * oneDay),
-        lastRunAt: now.addingTimeInterval(-ago)),
-      reading: .failure(.unreachable))
+        id: id, bookmark: Data(), path: "\(home)/Folder\(id)",
+        createdAt: now.addingTimeInterval(-30 * oneDay)),
+      location: .failure(.unreachable),
+      buffs: isWearing
+        ? [
+          .temporary(
+            Wear(
+              folderID: id, settings: TemporarySettings(), isPausedByLicence: false,
+              lastRunAt: now.addingTimeInterval(-ago)), nil)
+        ] : [])
   }
 
   private func calm(
     _ folders: [FolderState] = [folder(1, "Downloads", .atRest)], reports: [FolderReport]
   ) -> PopoverState {
     PopoverState(
-      folders: folders, reports: reports, licence: .licensed, now: now, calendar: calendar)
+      folders: folders, scheduleLines: scheduleLines(reports, now: now, calendar: calendar),
+      licence: .licensed, now: now, calendar: calendar)
   }
 
   @Test func saysWhenTheLastCleanUpRanAndWhenTheNextIs() {
@@ -192,14 +203,16 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
   }
 
   @Test func leavesOutAFolderThatWearsNoBuff() {
-    // Folder 2 has a report but isn't among the folders that wear a buff.
+    // Folder 2 has a report but wears no buff.
     let state = calm(
-      [folder(1, "Downloads", .atRest)], reports: [ran(1, ago: 2 * 3_600), ran(2, ago: 60)])
+      [folder(1, "Downloads", .atRest)],
+      reports: [ran(1, ago: 2 * 3_600), ran(2, ago: 60, isWearing: false)])
     #expect(state.subheadline == "Last clean-up 2 hr ago · next in 1 hr")
   }
 
-  @Test func givesOnlyTheNextCleanUpBeforeAnyHasRun() {
-    #expect(calm(reports: []).subheadline == "Next clean-up in 1 hr")
+  @Test func hasNoLineWhileNoFolderWearsABuff() {
+    #expect(scheduleLines([ran(1, ago: 60, isWearing: false)], now: now).isEmpty)
+    #expect(calm(reports: []).subheadline == nil)
   }
 
   @Test func sitsUnderAPausedHeadlineToo() {
@@ -222,13 +235,13 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
 @Suite struct PopoverRunSection {
   private func progress(
     _ folderID: Int64 = 1, done: Int = 3, total: Int = 12, current: String? = "zoom_bundle.zip"
-  ) -> Engine.RunProgress {
-    Engine.RunProgress(
+  ) -> RunProgress {
+    RunProgress(
       folderID: folderID, itemsDone: done, itemsTotal: total, bytesDone: 400_000_000,
       bytesTotal: 1_300_000_000, current: current)
   }
 
-  private func running(_ progress: Engine.RunProgress?) -> PopoverRun? {
+  private func running(_ progress: RunProgress?) -> PopoverRun? {
     PopoverState(
       folders: [folder(1, "Downloads", .working), folder(2, "Scratch", .atRest)],
       progress: progress, licence: .licensed, now: now, calendar: calendar

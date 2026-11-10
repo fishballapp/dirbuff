@@ -69,7 +69,7 @@ private func sidebar(_ reports: [FolderReport], licence: Licence = .licensed) ->
 
   @Test func quietensEveryBuffTheLicencePaused() {
     let rows = sidebar(
-      [report(1, name: "Downloads", wearsTemporary: false, turnedOffByLicence: true)],
+      [report(1, name: "Downloads", wearsTemporary: false, isPausedByLicence: true)],
       licence: .trialEnded)
     #expect(rows.first?.condition == .paused)
     #expect(rows.first?.note == nil)

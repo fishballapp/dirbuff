@@ -2,7 +2,8 @@ import DirBuffCore
 import Foundation
 import GRDB
 
-/// A folder the user added to DirBuff. It is Temporary while `wearsTemporary` is set.
+/// A folder the user added to DirBuff: the registry's record of where it is. What it wears is in
+/// each buff's own table.
 public struct Folder: Sendable, Equatable {
   public internal(set) var id: Int64?
   /// Finds the folder again after it is renamed or moved. Not security-scoped: the app is not
@@ -10,45 +11,26 @@ public struct Folder: Sendable, Equatable {
   public internal(set) var bookmark: Data
   /// Where the folder was last seen.
   public internal(set) var path: String
-  public var settings: TemporarySettings
-  /// Whether the folder is Temporary. DirBuff keeps this itself, so no Finder tag can change it.
-  public internal(set) var wearsTemporary: Bool
-  /// DirBuff stopped the folder's Temporary when the trial or licence ended; buying offers it back.
-  public internal(set) var turnedOffByLicence: Bool
-
-  /// Whether it wears a buff, one the licence paused included. A folder that wears none is never
-  /// read or run.
-  public var wearsABuff: Bool { wearsTemporary || turnedOffByLicence }
   /// Since when macOS has refused DirBuff access to the folder; nil while it can read it.
   public internal(set) var accessLostAt: Date?
   /// Since when the folder has been missing: deleted, moved to another disk, or moved to the Bin.
   public internal(set) var missingSince: Date?
   public internal(set) var createdAt: Date
-  /// Starts at `createdAt`, so marking a folder never counts as the first run after a reboot.
-  public internal(set) var lastRunAt: Date
 
   public init(
     id: Int64? = nil,
     bookmark: Data,
     path: String,
-    settings: TemporarySettings,
-    wearsTemporary: Bool = false,
-    turnedOffByLicence: Bool = false,
     accessLostAt: Date? = nil,
     missingSince: Date? = nil,
-    createdAt: Date,
-    lastRunAt: Date
+    createdAt: Date
   ) {
     self.id = id
     self.bookmark = bookmark
     self.path = path
-    self.settings = settings
-    self.wearsTemporary = wearsTemporary
-    self.turnedOffByLicence = turnedOffByLicence
     self.accessLostAt = accessLostAt
     self.missingSince = missingSince
     self.createdAt = createdAt
-    self.lastRunAt = lastRunAt
   }
 }
 
@@ -229,6 +211,56 @@ public struct Store: Sendable {
       try db.alter(table: "folder") { t in t.drop(column: "takenOffAt") }
     }
     registerHistoryMigrations(&migrator)
+    // Each buff keeps its own table, settings as columns, and a folder wears the buff while the
+    // table has its row; the folder table is left as the registry. A folder still owing its
+    // legacy tag's removal wears nothing until the tag is read, so the settings the tag would put
+    // back wait with it. Every run is one buff's.
+    migrator.registerMigration("buff tables") { db in
+      let defaults: StatementArguments = [
+        TemporarySettings.defaultMaxAgeDays, TemporarySettings.defaultSizeLimit,
+      ]
+      try db.create(table: "temporary") { t in
+        t.primaryKey("folderID", .integer).references("folder", onDelete: .cascade)
+        t.column("rule", .text).notNull()
+        t.column("maxAgeDays", .integer).notNull()
+        t.column("sizeLimit", .integer).notNull()
+        t.column("disposal", .text).notNull()
+        t.column("pausedByLicence", .boolean).notNull().defaults(to: false)
+        t.column("lastRunAt", .datetime).notNull()
+      }
+      try db.execute(
+        sql: """
+          INSERT INTO temporary
+            (folderID, rule, maxAgeDays, sizeLimit, disposal, pausedByLicence, lastRunAt)
+          SELECT id, rule, coalesce(maxAgeDays, ?1), coalesce(sizeLimit, ?2), disposal,
+            turnedOffByLicence, lastRunAt
+          FROM folder WHERE wearsTemporary OR turnedOffByLicence
+          """, arguments: defaults)
+      try db.alter(table: "legacyTagPending") { t in
+        t.add(column: "rule", .text)
+        t.add(column: "maxAgeDays", .integer)
+        t.add(column: "sizeLimit", .integer)
+        t.add(column: "disposal", .text)
+        t.add(column: "lastRunAt", .datetime)
+      }
+      try db.execute(
+        sql: """
+          UPDATE legacyTagPending SET (rule, maxAgeDays, sizeLimit, disposal, lastRunAt) = (
+            SELECT rule, coalesce(maxAgeDays, ?1), coalesce(sizeLimit, ?2), disposal, lastRunAt
+            FROM folder WHERE folder.id = legacyTagPending.folderID)
+          """, arguments: defaults)
+      try db.alter(table: "folder") { t in
+        for column in [
+          "rule", "maxAgeDays", "sizeLimit", "disposal", "wearsTemporary", "turnedOffByLicence",
+          "lastRunAt",
+        ] {
+          t.drop(column: column)
+        }
+      }
+      try db.alter(table: "run") { t in
+        t.add(column: "buff", .text).notNull().defaults(to: Buff.temporary.rawValue)
+      }
+    }
     return migrator
   }
 
@@ -256,50 +288,11 @@ public struct Store: Sendable {
     _ = try database.write { try Folder.deleteOne($0, key: id) }
   }
 
-  /// The user said no to turning the folders back on after buying: their settings are forgotten,
-  /// as taking a buff off forgets them.
-  public func forgetFoldersTurnedOffByLicence() throws {
-    try database.write {
-      try $0.execute(
-        sql: """
-          UPDATE folder SET rule = 'age', maxAgeDays = ?, sizeLimit = ?, disposal = 'bin',
-            turnedOffByLicence = 0
-          WHERE turnedOffByLicence
-          """,
-        arguments: [TemporarySettings.defaultMaxAgeDays, TemporarySettings.defaultSizeLimit])
-    }
-  }
-
   func hasLegacyTag(folderID: Int64) throws -> Bool {
     try database.read {
       try Bool.fetchOne(
         $0, sql: "SELECT EXISTS (SELECT 1 FROM legacyTagPending WHERE folderID = ?)",
         arguments: [folderID]) ?? false
-    }
-  }
-
-  /// Sets the folder's Temporary from its legacy tag and marks the tag done, in one write: on if
-  /// the tag was there and the folder had a rule. Returns false when another read already did it.
-  func finishLegacyTag(folderID: Int64, hadTag: Bool) throws -> Bool {
-    try database.write { db in
-      guard
-        let hadRule = try Bool.fetchOne(
-          db, sql: "SELECT hadRule FROM legacyTagPending WHERE folderID = ?",
-          arguments: [folderID])
-      else { return false }
-      try db.execute(sql: "DELETE FROM legacyTagPending WHERE folderID = ?", arguments: [folderID])
-      try db.execute(
-        sql: "UPDATE folder SET wearsTemporary = ? WHERE id = ?",
-        arguments: [hadTag && hadRule, folderID])
-      return true
-    }
-  }
-
-  /// Writes only the run's time: a run must not write back a setting the user changed while it ran.
-  func recordRun(folderID: Int64, at date: Date) throws {
-    try database.write {
-      try $0.execute(
-        sql: "UPDATE folder SET lastRunAt = ? WHERE id = ?", arguments: [date, folderID])
     }
   }
 
@@ -328,13 +321,16 @@ public struct Store: Sendable {
     }
   }
 
-  /// Opens a run: one clean-up across every folder. Returns its id for `Engine.run`. Runs left
-  /// empty (a clean-up cut short by a quit, or a removed folder's only run) are dropped first.
-  public func beginRun(at date: Date) throws -> Int64 {
+  /// Opens a run: one buff's run across every folder that wears it, as History lists it. Returns
+  /// its id for the buff's runs to record under. Runs left empty (one cut short by a quit, or a
+  /// removed folder's only run) are dropped first.
+  public func beginRun(of buff: Buff, at date: Date) throws -> Int64 {
     try database.write { db in
       try db.execute(
         sql: "DELETE FROM run WHERE NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)")
-      try db.execute(sql: "INSERT INTO run (startedAt) VALUES (?)", arguments: [date])
+      try db.execute(
+        sql: "INSERT INTO run (buff, startedAt) VALUES (?, ?)",
+        arguments: [buff.rawValue, date])
       return db.lastInsertedRowID
     }
   }
@@ -348,27 +344,6 @@ public struct Store: Sendable {
             AND NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)
           """,
         arguments: [id])
-    }
-  }
-
-  /// Writes only the settings columns, so a copy of the folder taken before a Temporary switch or a
-  /// licence change can't write those back. Choosing Empty on restart also counts the folder's runs
-  /// from `now`, so a restart before the choice clears nothing (the CASE reads the old rule).
-  func saveSettings(_ settings: TemporarySettings, folderID: Int64, now: Date) throws {
-    try database.write {
-      try $0.execute(
-        sql: """
-          UPDATE folder SET
-            lastRunAt = CASE WHEN :rule = 'emptyOnRestart' AND rule != :rule THEN :now
-              ELSE lastRunAt END,
-            rule = :rule, maxAgeDays = :maxAgeDays, sizeLimit = :sizeLimit, disposal = :disposal
-          WHERE id = :id
-          """,
-        arguments: [
-          "rule": settings.rule.rawValue, "now": now, "maxAgeDays": settings.maxAgeDays,
-          "sizeLimit": settings.sizeLimit, "disposal": settings.chosenDisposal.rawValue,
-          "id": folderID,
-        ])
     }
   }
 
@@ -432,50 +407,25 @@ public struct Store: Sendable {
   }
 }
 
-/// Settings are columns, not a JSON blob, so a new setting arrives as a migration with a default.
 extension Folder: FetchableRecord, MutablePersistableRecord {
   public static let databaseTableName = "folder"
 
   public init(row: Row) throws {
-    let rule: String = row["rule"]
-    guard let rule = Rule(rawValue: rule) else {
-      throw DatabaseError(message: "Unknown rule \(rule)")
-    }
-    let disposal: String = row["disposal"]
-    guard let disposal = Disposal(rawValue: disposal) else {
-      throw DatabaseError(message: "Unknown disposal \(disposal)")
-    }
     id = row["id"]
     bookmark = row["bookmark"]
     path = row["path"]
-    settings = TemporarySettings(
-      rule: rule,
-      maxAgeDays: row["maxAgeDays"],
-      sizeLimit: row["sizeLimit"],
-      disposal: disposal
-    )
-    wearsTemporary = row["wearsTemporary"]
     accessLostAt = row["accessLostAt"]
     missingSince = row["missingSince"]
-    turnedOffByLicence = row["turnedOffByLicence"]
     createdAt = row["createdAt"]
-    lastRunAt = row["lastRunAt"]
   }
 
   public func encode(to container: inout PersistenceContainer) throws {
     container["id"] = id
     container["bookmark"] = bookmark
     container["path"] = path
-    container["rule"] = settings.rule.rawValue
-    container["maxAgeDays"] = settings.maxAgeDays
-    container["sizeLimit"] = settings.sizeLimit
-    container["disposal"] = settings.chosenDisposal.rawValue
-    container["wearsTemporary"] = wearsTemporary
     container["accessLostAt"] = accessLostAt
     container["missingSince"] = missingSince
-    container["turnedOffByLicence"] = turnedOffByLicence
     container["createdAt"] = createdAt
-    container["lastRunAt"] = lastRunAt
   }
 
   public mutating func didInsert(_ inserted: InsertionSuccess) {

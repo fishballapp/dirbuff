@@ -23,21 +23,19 @@ enum Samples {
       size: size)
   }
 
-  private static func folder(
-    _ id: Int64, _ name: String, _ settings: TemporarySettings, wearsTemporary: Bool = true
-  ) -> Folder {
+  private static func folder(_ id: Int64, _ name: String) -> Folder {
     Folder(
-      id: id, bookmark: Data(), path: "/Users/sample/\(name)", settings: settings,
-      wearsTemporary: wearsTemporary, createdAt: now.addingTimeInterval(-90 * day), lastRunAt: now)
+      id: id, bookmark: Data(), path: "/Users/sample/\(name)",
+      createdAt: now.addingTimeInterval(-90 * day))
   }
 
   /// A status as the engine would report it for these items under `settings`.
   private static func status(
     _ name: String, _ items: [Item], _ settings: TemporarySettings, wearsTemporary: Bool = true
-  ) -> Engine.FolderStatus {
+  ) -> TemporaryStatus {
     let snapshot = FolderSnapshot(
       wearsTemporary: wearsTemporary, isProtectedRoot: false, items: items)
-    return Engine.FolderStatus(
+    return TemporaryStatus(
       url: URL(fileURLWithPath: "/Users/sample/\(name)"), wearsTemporary: wearsTemporary,
       isProtectedRoot: false, items: items,
       dueNow: plan(
@@ -72,19 +70,17 @@ enum Samples {
   static let archiveSettings = TemporarySettings(maxAgeDays: 90)
 
   static let reports: [FolderReport] = [
-    FolderReport(
-      folder: folder(1, "Downloads", downloadsSettings),
+    .sample(
+      folder(1, "Downloads"), settings: downloadsSettings, lastRunAt: now,
       reading: .success(status("Downloads", downloadsItems, downloadsSettings))),
-    FolderReport(
-      folder: folder(2, "Scratch", scratchSettings),
+    .sample(
+      folder(2, "Scratch"), settings: scratchSettings, lastRunAt: now,
       reading: .success(status("Scratch", scratchItems, scratchSettings))),
-    FolderReport(
-      folder: folder(3, "Recordings", recordingsSettings),
+    .sample(
+      folder(3, "Recordings"), settings: recordingsSettings, lastRunAt: now,
       reading: .success(status("Recordings", recordingsItems, recordingsSettings))),
-    FolderReport(
-      folder: folder(4, "Archive", archiveSettings, wearsTemporary: false),
-      // It wears no buff, so it's found but never read.
-      reading: .success(nil)),
+    // It wears no buff, so it's found but never read.
+    .sample(folder(4, "Archive"), lastRunAt: now, reading: .success(nil)),
   ]
 
   private static let calendar = {
@@ -110,4 +106,31 @@ enum Samples {
     item("Downloads", "design-brief-v1.pdf", daysOld: 12, size: 3_100_000),
     item("Downloads", "boarding-pass.pdf", daysOld: 2, size: 90_000),
   ]
+}
+
+extension FolderReport {
+  /// A report as the app builds it, from what finding and reading the folder gave as one result.
+  /// The folder wears Temporary while `settings` is given, paused by the licence if `isPaused`.
+  static func sample(
+    _ folder: Folder,
+    settings: TemporarySettings? = nil,
+    isPaused: Bool = false,
+    lastRunAt: Date,
+    reading: Result<TemporaryStatus?, FolderProblem>
+  ) -> FolderReport {
+    let wear = settings.map {
+      Wear(
+        folderID: folder.id ?? 0, settings: $0, isPausedByLicence: isPaused, lastRunAt: lastRunAt)
+    }
+    switch reading {
+    case .failure(let problem):
+      return FolderReport(
+        folder: folder, location: .failure(problem),
+        buffs: wear.map { [.temporary($0, nil)] } ?? [])
+    case .success(let status):
+      return FolderReport(
+        folder: folder, location: .success(URL(fileURLWithPath: folder.path)),
+        buffs: wear.map { [.temporary($0, status.map { .success($0) })] } ?? [])
+    }
+  }
 }

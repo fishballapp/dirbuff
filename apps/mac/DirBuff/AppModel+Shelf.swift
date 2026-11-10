@@ -19,7 +19,12 @@ extension AppModel {
 
   /// The folder DirBuff knows by `id`, as last read.
   func folder(id: Int64) -> Folder? {
-    reports.first(where: { $0.folder.id == id })?.folder
+    report(id: id)?.folder
+  }
+
+  /// The folder DirBuff knows by `id` and what it wears, as last read.
+  func report(id: Int64) -> FolderReport? {
+    reports.first(where: { $0.folder.id == id })
   }
 
   /// Asks where a missing folder went, and points DirBuff at the folder the user chooses.

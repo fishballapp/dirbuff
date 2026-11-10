@@ -36,7 +36,7 @@ extension Samples {
         freshness: now.addingTimeInterval(-daysOld * 86_400), size: 40_000_000)
     }
     let snapshot = FolderSnapshot(wearsTemporary: true, isProtectedRoot: false, items: items)
-    let status = Engine.FolderStatus(
+    let status = TemporaryStatus(
       url: URL(fileURLWithPath: path), wearsTemporary: true, isProtectedRoot: false, items: items,
       dueNow: plan(
         snapshot, settings: settings,
@@ -44,11 +44,9 @@ extension Samples {
           now: shownAt, availableCapacity: 120_000_000_000, totalCapacity: 500_000_000_000,
           bootTime: now.addingTimeInterval(-3 * 86_400), lastRunAt: now)),
       upcoming: upcoming(snapshot, settings: settings))
-    return FolderReport(
-      folder: Folder(
-        id: 1, bookmark: Data(), path: path, settings: settings, wearsTemporary: true,
-        createdAt: now, lastRunAt: now),
-      reading: .success(status))
+    return .sample(
+      Folder(id: 1, bookmark: Data(), path: path, createdAt: now), settings: settings,
+      lastRunAt: now, reading: .success(status))
   }
 
   /// A stand-in for the app icon, which a command-line tool has no bundle to read: the blue

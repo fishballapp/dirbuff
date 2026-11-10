@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// A run as History lists it: one clean-up across every folder, and what it removed from each.
-public struct RunSummary: Sendable, Equatable {
+public struct HistoryRun: Sendable, Equatable {
   /// What a run removed from one folder.
   public struct Share: Sendable, Equatable {
     public var itemCount: Int
@@ -70,7 +70,7 @@ extension Store {
   }
 
   /// Every run that removed something, newest first.
-  public func runs() throws -> [RunSummary] {
+  public func runs() throws -> [HistoryRun] {
     try database.read { db in
       Self.summaries(
         try Row.fetchAll(
@@ -85,7 +85,7 @@ extension Store {
   }
 
   /// One run, or nil once it's gone (trimmed, cleared, or its folders removed).
-  public func run(id: Int64) throws -> RunSummary? {
+  public func run(id: Int64) throws -> HistoryRun? {
     try database.read { db in
       Self.summaries(
         try Row.fetchAll(
@@ -102,15 +102,15 @@ extension Store {
   }
 
   /// Folds one row per run and folder, grouped by run, into one summary per run, in order.
-  private static func summaries(_ rows: [Row]) -> [RunSummary] {
+  private static func summaries(_ rows: [Row]) -> [HistoryRun] {
     rows.reduce(into: []) { summaries, row in
       let id: Int64 = row["id"]
-      let share = RunSummary.Share(itemCount: row["itemCount"], size: row["size"])
+      let share = HistoryRun.Share(itemCount: row["itemCount"], size: row["size"])
       if summaries.last?.id == id {
         summaries[summaries.count - 1].shares[row["folderID"]] = share
       } else {
         summaries.append(
-          RunSummary(id: id, startedAt: row["startedAt"], shares: [row["folderID"]: share]))
+          HistoryRun(id: id, startedAt: row["startedAt"], shares: [row["folderID"]: share]))
       }
     }
   }

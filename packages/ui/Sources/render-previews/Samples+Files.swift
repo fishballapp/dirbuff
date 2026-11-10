@@ -59,33 +59,35 @@ extension Samples {
   }
 
   private static func filesFolder(
-    _ settings: TemporarySettings = filesSettings,
     path: String = filesDownloadsPath,
     accessLostAt: Date? = nil,
     missingSince: Date? = nil
   ) -> Folder {
     Folder(
-      id: 1, bookmark: Data(), path: path, settings: settings, wearsTemporary: true,
-      accessLostAt: accessLostAt, missingSince: missingSince, createdAt: now,
-      lastRunAt: filesMoment.addingTimeInterval(-37 * 60))
+      id: 1, bookmark: Data(), path: path, accessLostAt: accessLostAt, missingSince: missingSince,
+      createdAt: now)
   }
 
   private static func filesStatus(
     items: [Item] = [], upcoming: [Upcoming] = []
-  ) -> Engine.FolderStatus {
-    Engine.FolderStatus(
+  ) -> TemporaryStatus {
+    TemporaryStatus(
       url: URL(fileURLWithPath: filesDownloadsPath), wearsTemporary: true, isProtectedRoot: false,
       items: items + upcoming.map(\.item), dueNow: [], upcoming: upcoming)
   }
 
   private static func filesState(
-    _ reading: Result<Engine.FolderStatus?, FolderProblem>,
+    _ reading: Result<TemporaryStatus?, FolderProblem>,
     settings: TemporarySettings = filesSettings,
     licence: Licence = .licensed,
     folder: Folder? = nil
   ) -> MainState {
     MainState(
-      reports: [FolderReport(folder: folder ?? filesFolder(settings), reading: reading)]
+      reports: [
+        .sample(
+          folder ?? filesFolder(), settings: settings,
+          lastRunAt: filesMoment.addingTimeInterval(-37 * 60), reading: reading)
+      ]
         + reports.dropFirst().prefix(2),
       licence: licence, now: filesMoment, calendar: filesCalendar, binName: binName,
       home: NSHomeDirectory(), startupVolumeName: "Macintosh HD")

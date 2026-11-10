@@ -7,7 +7,7 @@ import Testing
 
 private func folders(
   _ reports: [FolderReport], licence: Licence = .licensed, working: Set<Int64> = [],
-  progress: Engine.RunProgress? = nil, at time: Date = now
+  progress: RunProgress? = nil, at time: Date = now
 ) -> [FolderState] {
   FolderState.all(
     reports, licence: licence, working: working, progress: progress, now: time,
@@ -95,12 +95,12 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
   }
 
   @Test func staysPausedOnceTheLicenceEndTookItOff() {
-    let report = report(1, wearsTemporary: false, turnedOffByLicence: true)
+    let report = report(1, wearsTemporary: false, isPausedByLicence: true)
     #expect(row(report, licence: .ended(paidThrough: now))?.state == .paused(.licence(.renew)))
   }
 
   @Test func fillsItsBarAsTheRunGoes() {
-    let progress = Engine.RunProgress(
+    let progress = RunProgress(
       folderID: 1, itemsDone: 3, itemsTotal: 12, bytesDone: 0, bytesTotal: 0, current: "a")
     #expect(folders([report(1)], working: [1], progress: progress).first?.progress == 0.25)
     #expect(folders([report(1)], working: [1]).first?.progress == 0)
@@ -180,11 +180,12 @@ private func row(_ report: FolderReport, licence: Licence = .licensed, working: 
   }
 
   @Test func namesTheDriveAndWhatTheFolderHolds() {
-    var onDrive = report(1, path: "/Volumes/T7 Shuttle/Exports", items: [item("a", size: 5_000)])
+    let path = "/Volumes/T7 Shuttle/Exports"
+    let onDrive = report(1, path: path, items: [item("a", size: 5_000)])
     #expect(folders([onDrive]).first?.location == "T7 Shuttle · \(bytes(5_000))")
-    onDrive.reading = .failure(.unreachable)
-    #expect(folders([onDrive]).first?.location == "T7 Shuttle")
-    #expect(folders([onDrive]).first?.buffs.first?.status == "T7 Shuttle isn't connected")
+    let unplugged = report(1, path: path, problem: .unreachable)
+    #expect(folders([unplugged]).first?.location == "T7 Shuttle")
+    #expect(folders([unplugged]).first?.buffs.first?.status == "T7 Shuttle isn't connected")
   }
 }
 

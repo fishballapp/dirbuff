@@ -10,23 +10,22 @@ import Testing
 struct SystemTests {
   let scratch: Scratch
   let engine: Engine
+  let temporary: TemporaryBuff
   let binning = TemporarySettings(maxAgeDays: 30, disposal: .bin)
   let later = Date(timeIntervalSinceNow: 31 * day).wholeSeconds
 
   init() throws {
     scratch = try Scratch()
     engine = Engine(store: try Store.inMemory())
+    temporary = TemporaryBuff(engine: engine)
   }
 
   /// Adds `folder`, makes it Temporary, runs it, and returns the one journal entry the run wrote.
   private func binOnlyItem(in folder: URL) throws -> JournalEntry {
-    var record = try engine.add(folder)
-    record.settings = binning
-    try engine.store.save(record)
-    try engine.setTemporary(record, true)
-    let result = try engine.run(folderID: try #require(record.id), now: later)
-    #expect(result.failures.isEmpty)
-    return try #require(result.journal.first)
+    let folderID = try temporary.addWearing(folder, binning)
+    let summary = try temporary.run(folderID: folderID, now: later)
+    #expect(summary.failures == 0)
+    return try #require(engine.store.journal(folderID: folderID).first)
   }
 
   @Test func undoPutsABinnedItemBack() throws {
@@ -35,12 +34,12 @@ struct SystemTests {
     let binned = URL(fileURLWithPath: try #require(entry.binnedPath))
     #expect(!exists(file) && exists(binned))
 
-    try engine.undo(journalEntryID: try #require(entry.id))
+    try temporary.undo(journalEntryID: try #require(entry.id))
 
     #expect(exists(file) && !exists(binned))
     #expect(try engine.store.journalEntry(id: try #require(entry.id))?.undoneAt != nil)
-    #expect(throws: Engine.Failure.alreadyUndone) {
-      try engine.undo(journalEntryID: try #require(entry.id))
+    #expect(throws: TemporaryBuff.Failure.alreadyUndone) {
+      try temporary.undo(journalEntryID: try #require(entry.id))
     }
   }
 
@@ -50,7 +49,7 @@ struct SystemTests {
     let entries = try [first, second].map { try binOnlyItem(in: $0.deletingLastPathComponent()) }
     #expect(Set(entries.map(\.binnedPath)).count == 2)
 
-    for entry in entries { try engine.undo(journalEntryID: try #require(entry.id)) }
+    for entry in entries { try temporary.undo(journalEntryID: try #require(entry.id)) }
 
     #expect(exists(first) && exists(second))
   }
@@ -61,8 +60,8 @@ struct SystemTests {
     try scratch.file("a.txt")
 
     let original = try canonicalPath(of: scratch.url) + "/a.txt"
-    #expect(throws: Engine.Failure.originalPathTaken(original)) {
-      try engine.undo(journalEntryID: try #require(entry.id))
+    #expect(throws: TemporaryBuff.Failure.originalPathTaken(original)) {
+      try temporary.undo(journalEntryID: try #require(entry.id))
     }
     try FileManager.default.removeItem(atPath: try #require(entry.binnedPath))
   }
@@ -74,7 +73,7 @@ struct SystemTests {
     let renamed = scratch.url.appendingPathComponent("Renamed")
     try FileManager.default.moveItem(at: inbox, to: renamed)
 
-    try engine.undo(journalEntryID: try #require(entry.id))
+    try temporary.undo(journalEntryID: try #require(entry.id))
 
     #expect(exists(renamed.appendingPathComponent("a.txt")))
   }
@@ -85,8 +84,8 @@ struct SystemTests {
     let binnedPath = try #require(entry.binnedPath)
     try FileManager.default.removeItem(atPath: binnedPath)
 
-    #expect(throws: Engine.Failure.goneFromBin(binnedPath)) {
-      try engine.undo(journalEntryID: try #require(entry.id))
+    #expect(throws: TemporaryBuff.Failure.goneFromBin(binnedPath)) {
+      try temporary.undo(journalEntryID: try #require(entry.id))
     }
   }
 
@@ -110,7 +109,7 @@ struct SystemTests {
 
     let entry = try binOnlyItem(in: folder)
     #expect(try #require(entry.binnedPath).contains("/.Trashes/"))
-    try engine.undo(journalEntryID: try #require(entry.id))
+    try temporary.undo(journalEntryID: try #require(entry.id))
     #expect(exists(file))
   }
 }

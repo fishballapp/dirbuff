@@ -11,7 +11,8 @@ private func preview(
   dueNow: [Item] = [],
   upcoming: [(Item, TimeInterval)] = []
 ) -> FolderPreview {
-  guard let status = report(1, items: items, dueNow: dueNow, upcoming: upcoming).status else {
+  guard let status = report(1, items: items, dueNow: dueNow, upcoming: upcoming).temporaryStatus
+  else {
     preconditionFailure("report(1) is readable")
   }
   return FolderPreview(status, settings: settings, now: now, calendar: calendar, binName: "Bin")

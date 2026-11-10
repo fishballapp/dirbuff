@@ -94,7 +94,7 @@ private func folder(_ id: Int64, in state: MainState) throws -> FolderState {
     ]
     #expect(shelf(plain, licence: .trialEnded).shelfSubtitle == "2 folders")
     let worn =
-      plain + [report(3, name: "Downloads", wearsTemporary: false, turnedOffByLicence: true)]
+      plain + [report(3, name: "Downloads", wearsTemporary: false, isPausedByLicence: true)]
     #expect(shelf(worn, licence: .trialEnded).shelfSubtitle == "3 folders · all paused")
   }
 }

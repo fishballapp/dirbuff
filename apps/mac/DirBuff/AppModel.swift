@@ -24,13 +24,12 @@ final class AppModel {
   private(set) var loginItemNeedsApproval = false
   private(set) var isNotificationAuthorized = false
   private(set) var licenceRecord: LicenceRecord
-  private var isRunning = false
   /// The folders a clean-up is running in now.
   private(set) var working: Set<Int64> = [] {
     didSet { publishForFinder() }
   }
   /// How far the folder a clean-up is running in now has got; nil between runs.
-  private(set) var runProgress: Engine.RunProgress?
+  private(set) var runProgress: RunProgress?
   /// Goes up whenever History changes (a clean-up, a Put Back, trimming or clearing), so open
   /// History pages read it again. Set only by `historyDidChange()` in `AppModel+History`, which
   /// is why it can't be `private(set)` here.
@@ -39,11 +38,12 @@ final class AppModel {
   private(set) var openRunID: Int64?
 
   let engine: Engine
+  let temporary: TemporaryBuff
   private let polar: PolarLicensing
   private let polarSettings: PolarSettings
   private let machine: String
   private let releaseDay: ReleaseDay
-  private var cleanUpTimer: Timer?
+  private var scheduler: BuffScheduler?
 
   init() {
     do {
@@ -51,6 +51,7 @@ final class AppModel {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       engine = Engine(
         store: try Store(path: directory.appendingPathComponent("dirbuff.sqlite").path))
+      temporary = TemporaryBuff(engine: engine)
       licenceRecord = try engine.store.licence()
       polarSettings = try PolarSettings.fromInfoPlist()
       machine = try Machine.id()
@@ -160,16 +161,19 @@ final class AppModel {
 
   func refresh() async {
     let engine = engine
+    let temporary = temporary
     do {
       let reports = try await Task.detached {
-        // Reading a folder can change its record (its old tag taken off, a renamed folder's
-        // path), so the records are fetched after the reads.
-        let readings = Dictionary(
-          uniqueKeysWithValues: try engine.store.folders().compactMap(\.id).map {
-            ($0, Self.read($0, engine))
-          })
+        var found: [Int64: (location: Result<URL, FolderProblem>, buffs: [BuffReading])] = [:]
+        for id in try engine.store.folders().compactMap(\.id) {
+          found[id] = try await Self.read(id, engine: engine, temporary: temporary)
+        }
+        // Finding a folder can change its record (a renamed folder's path), and so does recording
+        // its access, so the records are fetched after.
         return try engine.store.folders().compactMap { folder in
-          folder.id.flatMap { readings[$0] }.map { FolderReport(folder: folder, reading: $0) }
+          folder.id.flatMap { found[$0] }.map {
+            FolderReport(folder: folder, location: $0.location, buffs: $0.buffs)
+          }
         }
       }.value
       self.reports = reports
@@ -179,29 +183,36 @@ final class AppModel {
     }
   }
 
-  /// One unreadable folder (an unplugged drive) mustn't hide the others. Records whether macOS
-  /// let DirBuff in, so a folder that needs the user can say since when.
-  nonisolated private static func read(_ id: Int64, _ engine: Engine)
-    -> Result<Engine.FolderStatus?, FolderProblem>
+  /// Finds the folder and reads each buff it wears. One unreadable folder (an unplugged drive)
+  /// mustn't hide the others. Records whether macOS let DirBuff in, so a folder that needs the
+  /// user can say since when.
+  nonisolated private static func read(_ id: Int64, engine: Engine, temporary: TemporaryBuff)
+    async throws -> (location: Result<URL, FolderProblem>, buffs: [BuffReading])
   {
-    let reading: Result<Engine.FolderStatus?, FolderProblem>
+    let located: Result<LocatedFolder, FolderProblem>
     do {
-      reading = .success(try engine.status(folderID: id))
+      located = .success(try engine.locate(folderID: id))
     } catch {
-      logger.error("Couldn't read folder \(id): \(error.localizedDescription, privacy: .public)")
-      reading = .failure(FolderProblem(error))
+      logger.error("Couldn't find folder \(id): \(error.localizedDescription, privacy: .public)")
+      located = .failure(FolderProblem(error))
     }
+    // Read after finding it: taking a folder's old tag off can put Temporary on.
+    let buffs = [
+      try await read(temporary, located, folderID: id).map { BuffReading.temporary($0, $1) }
+    ].compactMap(\.self)
+    let location = located.map(\.url)
+    let problem = FolderProblem(location: location, buffs: buffs)
     let isLost: Bool? =
-      switch reading {
-      case .success: false
-      case .failure(.noAccess): true
-      case .failure(.unreachable), .failure(.missing): nil
+      switch problem {
+      case nil: false
+      case .noAccess: true
+      case .unreachable, .missing: nil
       }
     let isMissing: Bool? =
-      switch reading {
-      case .success, .failure(.noAccess): false
-      case .failure(.missing): true
-      case .failure(.unreachable): nil
+      switch problem {
+      case nil, .noAccess: false
+      case .missing: true
+      case .unreachable: nil
       }
     do {
       if let isLost { try engine.store.recordAccess(folderID: id, isLost: isLost, at: Date()) }
@@ -211,7 +222,23 @@ final class AppModel {
     } catch {
       logger.error("Couldn't record access: \(error.localizedDescription, privacy: .public)")
     }
-    return reading
+    return (location, buffs)
+  }
+
+  /// The folder's wear of `module` and what reading it found: nil when it doesn't wear it, no
+  /// reading when the folder wasn't found.
+  nonisolated private static func read<Module: BuffModule>(
+    _ module: Module, _ located: Result<LocatedFolder, FolderProblem>, folderID: Int64
+  ) async throws -> (Wear<Module.Settings>, Result<Module.Reading, FolderProblem>?)? {
+    guard let wear = try module.wear(folderID: folderID) else { return nil }
+    guard case .success(let folder) = located else { return (wear, nil) }
+    do {
+      return (wear, .success(try await module.read(folder, wear, now: Date())))
+    } catch {
+      logger.error(
+        "Couldn't read folder \(folderID): \(error.localizedDescription, privacy: .public)")
+      return (wear, .failure(FolderProblem(error)))
+    }
   }
 
   @discardableResult
@@ -230,10 +257,17 @@ final class AppModel {
   /// Puts Temporary on the folder or takes it off; returns whether that happened.
   @discardableResult
   func setTemporary(_ folder: Folder, _ isOn: Bool) async -> Bool {
-    let engine = engine
+    guard let folderID = folder.id else { return false }
+    let temporary = temporary
     let isDone: Bool
     do {
-      try await Task.detached { try engine.setTemporary(folder, isOn) }.value
+      try await Task.detached {
+        if isOn {
+          try temporary.putOn(folderID: folderID)
+        } else {
+          try temporary.takeOff(folderID: folderID)
+        }
+      }.value
       isDone = true
     } catch {
       show(
@@ -245,7 +279,9 @@ final class AppModel {
     }
     await refresh()
     // Ask when the benefit is clear: right after the first folder is made Temporary.
-    if isOn, isDone, reports.count(where: { $0.folder.wearsTemporary }) == 1 {
+    if isOn, isDone,
+      reports.count(where: { $0.temporaryWear.map { !$0.isPausedByLicence } == true }) == 1
+    {
       requestNotificationPermission()
     }
     return isDone
@@ -262,9 +298,10 @@ final class AppModel {
   }
 
   func save(_ settings: TemporarySettings, for folder: Folder) async {
-    let engine = engine
+    guard let folderID = folder.id else { return }
+    let temporary = temporary
     do {
-      try await Task.detached { try engine.saveSettings(settings, for: folder) }.value
+      try await Task.detached { try temporary.save(settings, folderID: folderID) }.value
     } catch {
       show(error, doing: "save the folder's settings")
     }
@@ -273,11 +310,11 @@ final class AppModel {
 
   func putBack(entryIDs: [Int64]) async {
     guard !entryIDs.isEmpty else { return }
-    let engine = engine
+    let temporary = temporary
     var problems: [String] = []
     for id in entryIDs {
       do {
-        try await Task.detached { try engine.undo(journalEntryID: id) }.value
+        try await Task.detached { try temporary.undo(journalEntryID: id) }.value
       } catch {
         problems.append(Self.explain(error))
       }
@@ -289,11 +326,34 @@ final class AppModel {
     await refresh()
   }
 
-  private static func explain(_ error: any Error) -> String {
-    guard let failure = error as? Engine.Failure else { return error.localizedDescription }
+  static func explain(_ error: any Error) -> String {
+    switch error {
+    case let failure as Engine.Failure: explain(failure)
+    case let failure as TemporaryBuff.Failure: explain(failure)
+    case let refusal as Refusal: explain(refusal)
+    default: error.localizedDescription
+    }
+  }
+
+  private static func explain(_ refusal: Refusal) -> String {
+    switch refusal {
+    case .protectedFolder: Self.protectedFolderExplanation
+    }
+  }
+
+  private static func explain(_ failure: Engine.Failure) -> String {
     switch failure {
-    case .protectedFolder:
-      return Self.protectedFolderExplanation
+    case .protectedFolder: Self.protectedFolderExplanation
+    case .folderNotFound: "DirBuff no longer knows about that folder."
+    case .folderAlreadyAdded: "That folder is already in DirBuff."
+    case .folderInBin:
+      "That folder is in the \(SystemBin.name). Take it out to turn its buffs back on."
+    case .folderMissing: "DirBuff can't find that folder. It may have been deleted or moved."
+    }
+  }
+
+  private static func explain(_ failure: TemporaryBuff.Failure) -> String {
+    switch failure {
     case .originalPathTaken(let path):
       let url = URL(fileURLWithPath: path)
       return
@@ -303,14 +363,8 @@ final class AppModel {
     case .alreadyUndone: return "Those items were already put back."
     case .changedSincePlanned(let path):
       return "\(URL(fileURLWithPath: path).lastPathComponent) changed, so it was left alone."
-    case .folderNotFound, .journalEntryNotFound:
+    case .journalEntryNotFound:
       return "DirBuff no longer knows about that folder."
-    case .folderAlreadyAdded:
-      return "That folder is already in DirBuff."
-    case .folderInBin:
-      return "That folder is in the \(SystemBin.name). Take it out to turn its buffs back on."
-    case .folderMissing:
-      return "DirBuff can't find that folder. It may have been deleted or moved."
     }
   }
 
@@ -354,7 +408,7 @@ final class AppModel {
 
   /// After a key is activated, offers back the folders the trial's or licence's end made plain.
   func offerFoldersBack() async {
-    let folders = reports.map(\.folder).filter(\.turnedOffByLicence)
+    let folders = reports.filter { $0.temporaryWear?.isPausedByLicence == true }.map(\.folder)
     if !folders.isEmpty {
       let names = folders.map { URL(fileURLWithPath: $0.path).lastPathComponent }
       let alert = NSAlert()
@@ -370,11 +424,15 @@ final class AppModel {
       if alert.runModal() == .alertFirstButtonReturn {
         for folder in folders { await setTemporary(folder, true) }
       } else {
-        do {
-          try engine.store.forgetFoldersTurnedOffByLicence()
-        } catch {
-          logger.error(
-            "Couldn't forget plain folders: \(error.localizedDescription, privacy: .public)")
+        // Declining forgets their settings, as taking a buff off does.
+        let temporary = temporary
+        for folderID in folders.compactMap(\.id) {
+          do {
+            try await Task.detached { try temporary.takeOff(folderID: folderID) }.value
+          } catch {
+            logger.error(
+              "Couldn't forget paused folders: \(error.localizedDescription, privacy: .public)")
+          }
         }
       }
     }
@@ -442,16 +500,17 @@ final class AppModel {
   /// Makes every Temporary folder plain once the trial or licence has ended. Folders already plain
   /// are skipped, so it does its work once per end.
   private func makeFoldersPlain(_ licence: Licence) async {
-    let engine = engine
-    let temporary = reports.filter { $0.folder.wearsTemporary }.map(\.folder)
-    guard !temporary.isEmpty else { return }
-    for folder in temporary {
+    let temporary = temporary
+    let wearing = reports.compactMap(\.temporaryWear).filter { !$0.isPausedByLicence }
+    guard !wearing.isEmpty else { return }
+    for wear in wearing {
       do {
-        try await Task.detached { try engine.turnOffByLicence(folder) }.value
+        try await Task.detached {
+          try temporary.setPausedByLicence(true, folderID: wear.folderID)
+        }.value
       } catch {
         logger.error(
-          "Couldn't make \(folder.path, privacy: .public) plain: \(error.localizedDescription, privacy: .public)"
-        )
+          "Couldn't pause folder \(wear.folderID): \(error.localizedDescription, privacy: .public)")
       }
     }
     await refresh()
@@ -467,29 +526,17 @@ final class AppModel {
     }
   }
 
-  // MARK: - Running the rules
+  // MARK: - Running the buffs
 
   /// The model lives as long as the app, so the observers below hold it strongly.
   private func startScheduler() {
     Task { await settleLicence(now: Date()) }
-    scheduleCleanUp(after: Date())
+    let scheduler = BuffScheduler { schedule, date in await self.runDue(schedule, at: date) }
+    scheduler.start()
+    self.scheduler = scheduler
     let workspace = NSWorkspace.shared.notificationCenter
-    // A timer that falls due while the Mac sleeps fires the moment it wakes, so it's dropped
-    // before sleep, synchronously: an hour slept through is skipped, never made up on waking.
-    workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) {
-      _ in MainActor.assumeIsolated { self.cleanUpTimer?.invalidate() }
-    }
     workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) {
-      _ in
-      Task { @MainActor in
-        self.scheduleCleanUp(after: Date())
-        await self.settleLicence(now: Date())
-      }
-    }
-    for change in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange] {
-      NotificationCenter.default.addObserver(forName: change, object: nil, queue: .main) { _ in
-        Task { @MainActor in self.scheduleCleanUp(after: Date()) }
-      }
+      _ in Task { @MainActor in await self.settleLicence(now: Date()) }
     }
     workspace.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) {
       _ in Task { @MainActor in await self.refresh() }
@@ -504,21 +551,9 @@ final class AppModel {
     ) { _ in Task { @MainActor in self.refreshSystemStatus() } }
   }
 
-  /// Folders are cleared on the hour and at no other time (`nextCleanUp`), so the forecast can
-  /// say when.
-  private func scheduleCleanUp(after date: Date) {
-    cleanUpTimer?.invalidate()
-    let hour = nextCleanUp(after: date)
-    let timer = Timer(fire: hour, interval: 0, repeats: false) { _ in
-      Task { @MainActor in
-        // From the later of the two: a timer the system held back past the next hour mustn't
-        // schedule one already gone.
-        self.scheduleCleanUp(after: max(hour, Date()))
-        await self.cleanUp(at: hour)
-      }
-    }
-    RunLoop.main.add(timer, forMode: .common)
-    cleanUpTimer = timer
+  /// Runs each buff whose schedule fell due.
+  private func runDue(_ schedule: BuffSchedule, at date: Date) async {
+    if temporary.schedule == schedule { await cleanUp(at: date) }
   }
 
   /// Checks the licence with Polar when a check is due, makes the folders plain once the licence
@@ -539,33 +574,36 @@ final class AppModel {
     }
   }
 
-  /// Runs every folder, one after another: each run reads free space after the last one freed
-  /// some. Each run counts from `hour`, not from when the timer fired, so it removes what the
-  /// forecast said would be cleared at that hour. Polar is asked afterwards, not before: a build the last
-  /// answer covers needs no answer to run, and one it doesn't is paused and never runs. So the run
-  /// starts on the hour, before the user can change what was shown.
+  /// Runs every folder that wears Temporary, one after another: each run reads free space after
+  /// the last one freed some. Each run counts from `hour`, not from when the timer fired, so it
+  /// removes what the forecast said would be cleared at that hour. Polar is asked afterwards, not
+  /// before: a build the last answer covers needs no answer to run, and one it doesn't is paused
+  /// and never runs. So the run starts on the hour, before the user can change what was shown.
   private func cleanUp(at hour: Date) async {
-    guard !isRunning else { return }
-    isRunning = true
-    defer { isRunning = false }
-
     guard licence(now: hour).mayClean else {
       await settleLicence(now: hour)
       return
     }
 
     let engine = engine
+    let temporary = temporary
     let runID: Int64?
     do {
-      runID = try engine.store.beginRun(at: hour)
+      runID = try engine.store.beginRun(of: temporary.buff, at: hour)
     } catch {
       logger.error("Couldn't open a run: \(error.localizedDescription, privacy: .public)")
       runID = nil
     }
-    var runs: [Engine.RunResult] = []
     openRunID = runID
-    // A folder that wears nothing has nothing to run; one the licence paused keeps its run times.
-    for id in reports.map(\.folder).filter(\.wearsABuff).compactMap(\.id) {
+    // One the licence paused runs too, removing nothing, so its run times stay current.
+    let folderIDs: [Int64]
+    do {
+      folderIDs = try temporary.wearers().map(\.folderID)
+    } catch {
+      logger.error("Couldn't list the folders: \(error.localizedDescription, privacy: .public)")
+      folderIDs = []
+    }
+    for id in folderIDs {
       // The licence can end or be deactivated while earlier folders run.
       guard self.licence.mayClean else { break }
       working.insert(id)
@@ -573,16 +611,18 @@ final class AppModel {
         working.remove(id)
         runProgress = nil
       }
+      let context = RunContext(runID: runID, scheduledAt: hour) { progress in
+        // A report that lands after its folder finished is dropped.
+        Task { @MainActor in
+          if self.working.contains(progress.folderID) { self.runProgress = progress }
+        }
+      }
       do {
-        runs.append(
-          try await Task.detached {
-            try engine.run(folderID: id, now: hour, runID: runID) { progress in
-              // A report that lands after its folder finished is dropped.
-              Task { @MainActor in
-                if self.working.contains(progress.folderID) { self.runProgress = progress }
-              }
-            }
-          }.value)
+        try await Task.detached {
+          // Read now, not before the first folder ran: the user may have changed it since.
+          guard let wear = try temporary.wear(folderID: id) else { return }
+          _ = try temporary.run(engine.locate(folderID: id), wear, context: context)
+        }.value
       } catch {
         logger.error("Run of folder \(id) failed: \(error.localizedDescription, privacy: .public)")
       }
@@ -596,6 +636,6 @@ final class AppModel {
       }
     }
     await settleLicence(now: hour)
-    await didCleanUp(runs, at: hour)
+    await didCleanUp(runID: runID, at: hour)
   }
 }

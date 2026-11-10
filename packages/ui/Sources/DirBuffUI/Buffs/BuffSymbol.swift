@@ -1,3 +1,4 @@
+import DirBuffCore
 import SwiftUI
 
 /// A buff's plain line symbol: one stroke weight, round caps and joins, no fill, nothing inside.

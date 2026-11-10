@@ -14,8 +14,8 @@ private let screenshots = HistoryFolder(
 private func run(
   _ id: Int64, at date: Date = now, folders: Set<Int64> = [1], items: Int = 1,
   size: Int64 = 1_000
-) -> RunSummary {
-  RunSummary(
+) -> HistoryRun {
+  HistoryRun(
     id: id, startedAt: date,
     shares: Dictionary(
       uniqueKeysWithValues: folders.map { ($0, .init(itemCount: items, size: size)) }))
@@ -71,7 +71,7 @@ private func year(_ date: Date) -> String {
 
   @Test func countsFoldersItemsAndBytes() {
     let many = HistoryRunRow(
-      RunSummary(
+      HistoryRun(
         id: 1, startedAt: now,
         shares: [
           1: .init(itemCount: 5, size: 2_300_000_000), 2: .init(itemCount: 6, size: 24_000_000),
@@ -104,7 +104,7 @@ private func year(_ date: Date) -> String {
   @Test func oneFoldersHistoryShowsItsShareOfEachRun() {
     let state = HistoryState(
       [
-        RunSummary(
+        HistoryRun(
           id: 1, startedAt: now,
           shares: [
             1: .init(itemCount: 5, size: 2_300_000_000), 2: .init(itemCount: 6, size: 24_000_000),
@@ -132,7 +132,7 @@ private func year(_ date: Date) -> String {
     _ entries: [JournalEntry], inBin: Set<Int64>
   ) -> RunState {
     RunState(
-      RunSummary(
+      HistoryRun(
         id: 7, startedAt: now,
         shares: Dictionary(grouping: entries, by: \.folderID).mapValues {
           .init(itemCount: $0.count, size: $0.reduce(0) { $0 + $1.size })

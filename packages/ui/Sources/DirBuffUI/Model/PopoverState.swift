@@ -75,12 +75,12 @@ public struct PopoverFoot: Sendable, Equatable {
 extension PopoverState {
   /// - Parameters:
   ///   - folders: Every folder's state as the app reads it at `now` (`FolderState.all`).
-  ///   - reports: What reading each folder found; their `lastRunAt` says when the last clean-up ran.
+  ///   - scheduleLines: When each worn buff runs (`scheduleLines(_:now:)`).
   ///   - progress: How far the clean-up running now has got.
   public init(
     folders: [FolderState],
-    reports: [FolderReport] = [],
-    progress: Engine.RunProgress? = nil,
+    scheduleLines: [String] = [],
+    progress: RunProgress? = nil,
     licence: Licence,
     now: Date,
     calendar: Calendar = .current
@@ -90,11 +90,7 @@ extension PopoverState {
     let needsYou = listed.compactMap { callout($0, now: now, calendar: calendar) }
     let clearing = listed.filter { $0.buffs.contains { $0.state == .working } }
     let paused = listed.filter { $0.buffs.contains { $0.state.isPaused } }
-    let listedIDs = Set(listed.map(\.id))
-    let schedule = schedule(
-      lastCleanUp: reports.filter { listedIDs.contains($0.folder.id ?? -1) }.map(\.folder.lastRunAt)
-        .max(),
-      now: now, calendar: calendar)
+    let schedule = scheduleLines.isEmpty ? nil : scheduleLines.joined(separator: "\n")
     let (headline, subheadline): (String, String?) = {
       if !licence.mayClean { return ("Every buff is paused", pausedReason(licence)) }
       if listed.isEmpty {
@@ -120,12 +116,16 @@ extension PopoverState {
   }
 }
 
-/// When the clean-ups are: "Last clean-up 37 min ago · next in 23 min", or only the next one
-/// before any has run.
-private func schedule(lastCleanUp: Date?, now: Date, calendar: Calendar) -> String {
-  let next = timeLeft(until: nextCleanUp(after: now, calendar: calendar), now: now)
-  guard let lastCleanUp else { return "Next clean-up in \(next)" }
-  return "Last clean-up \(timeSince(lastCleanUp, now: now)) ago · next in \(next)"
+/// The popover's line for each buff some folder wears, in `Buff` order: "Last clean-up 37 min ago ·
+/// next in 23 min".
+public func scheduleLines(
+  _ reports: [FolderReport], now: Date, calendar: Calendar = .current
+) -> [String] {
+  let cleanUps = reports.compactMap(\.temporaryWear?.lastRunAt).max().map {
+    let next = timeLeft(until: nextCleanUp(after: now, calendar: calendar), now: now)
+    return "Last clean-up \(timeSince($0, now: now)) ago · next in \(next)"
+  }
+  return [cleanUps].compactMap(\.self)
 }
 
 /// The callout for a folder that needs the user: its first buff that does.
@@ -152,7 +152,7 @@ private func accessReason(_ row: BuffRow, lostAt: Date?, now: Date) -> String {
 
 /// The run on show: the folder the engine reports on, or else the first one clearing, which has
 /// reported nothing yet.
-private func currentRun(_ clearing: [FolderState], progress: Engine.RunProgress?) -> PopoverRun? {
+private func currentRun(_ clearing: [FolderState], progress: RunProgress?) -> PopoverRun? {
   let reporting = progress.flatMap { progress in clearing.first { $0.id == progress.folderID } }
   guard let folder = reporting ?? clearing.first else { return nil }
   let report = reporting == nil ? nil : progress

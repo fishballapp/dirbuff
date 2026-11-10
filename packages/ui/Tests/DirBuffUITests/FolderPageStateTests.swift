@@ -7,7 +7,7 @@ import Testing
 
 private func page(
   _ reports: [FolderReport], id: Int64 = 1, licence: Licence = .licensed,
-  working: Set<Int64> = [], progress: Engine.RunProgress? = nil
+  working: Set<Int64> = [], progress: RunProgress? = nil
 ) -> FolderPageState? {
   let shelf = MainState(
     reports: reports, licence: licence, working: working, progress: progress, now: now,
@@ -22,7 +22,7 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
   page(
     [report], working: working ? [1] : [],
     progress: working
-      ? Engine.RunProgress(
+      ? RunProgress(
         folderID: 1, itemsDone: 3, itemsTotal: 12, bytesDone: 0, bytesTotal: 1_300,
         current: "a.zip") : nil)?.cards.first
 }
@@ -151,7 +151,7 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
 
   @Test func saysWhyALicencePauseStopsIt() {
     let card = page(
-      [report(1, wearsTemporary: false, turnedOffByLicence: true)], licence: .trialEnded)?
+      [report(1, wearsTemporary: false, isPausedByLicence: true)], licence: .trialEnded)?
       .cards.first
     #expect(card?.detail == FolderSentence(PauseReason.licence(.buy).explanation))
     #expect(card?.settings == TemporarySettings())

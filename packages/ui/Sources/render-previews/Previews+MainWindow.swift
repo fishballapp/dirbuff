@@ -117,7 +117,7 @@ extension Samples {
     settings: TemporarySettings,
     items: [Item] = [],
     wearsTemporary: Bool = true,
-    turnedOffByLicence: Bool = false,
+    isPausedByLicence: Bool = false,
     problem: FolderProblem? = nil,
     accessLostAt: Date? = nil,
     missingSince: Date? = nil
@@ -126,25 +126,26 @@ extension Samples {
       id: id,
       bookmark: Data(),
       path: path,
-      settings: settings,
-      wearsTemporary: wearsTemporary,
-      turnedOffByLicence: turnedOffByLicence,
       accessLostAt: accessLostAt,
       missingSince: missingSince,
-      createdAt: shelfMoment.addingTimeInterval(-60 * 86_400),
-      lastRunAt: shelfMoment.addingTimeInterval(-37 * 60)
+      createdAt: shelfMoment.addingTimeInterval(-60 * 86_400)
     )
-    if let problem {
-      return FolderReport(folder: folder, reading: .failure(problem))
+    let lastRunAt = shelfMoment.addingTimeInterval(-37 * 60)
+    let isWorn = wearsTemporary || isPausedByLicence
+    func report(_ reading: Result<TemporaryStatus?, FolderProblem>) -> FolderReport {
+      .sample(
+        folder, settings: isWorn ? settings : nil, isPaused: isPausedByLicence,
+        lastRunAt: lastRunAt, reading: reading)
     }
+    if let problem { return report(.failure(problem)) }
     // A folder that wears no buff is found but never read.
-    guard folder.wearsABuff else { return FolderReport(folder: folder, reading: .success(nil)) }
+    guard isWorn else { return report(.success(nil)) }
     let snapshot = FolderSnapshot(
       wearsTemporary: wearsTemporary,
       isProtectedRoot: false,
       items: items
     )
-    let status = Engine.FolderStatus(
+    let status = TemporaryStatus(
       url: URL(fileURLWithPath: path),
       wearsTemporary: wearsTemporary,
       isProtectedRoot: false,
@@ -157,12 +158,12 @@ extension Samples {
           availableCapacity: 120_000_000_000,
           totalCapacity: 500_000_000_000,
           bootTime: shelfMoment.addingTimeInterval(-3 * 86_400),
-          lastRunAt: shelfMoment.addingTimeInterval(-37 * 60)
+          lastRunAt: lastRunAt
         )
       ),
       upcoming: upcoming(snapshot, settings: settings)
     )
-    return FolderReport(folder: folder, reading: .success(status))
+    return report(.success(status))
   }
 
   private static var shelfDownloadsItems: [Item] {
@@ -192,14 +193,14 @@ extension Samples {
         settings: TemporarySettings(maxAgeDays: 14),
         items: shelfDownloadsItems,
         wearsTemporary: !paused,
-        turnedOffByLicence: paused
+        isPausedByLicence: paused
       ),
       shelfReport(
         id: 2,
         path: "\(shelfHome)/Projects",
         settings: TemporarySettings(maxAgeDays: 30),
         wearsTemporary: !paused,
-        turnedOffByLicence: paused,
+        isPausedByLicence: paused,
         problem: .noAccess,
         accessLostAt: shelfMoment.addingTimeInterval(-3 * 86_400 - 120)
       ),
@@ -216,7 +217,7 @@ extension Samples {
           )
         ],
         wearsTemporary: !paused,
-        turnedOffByLicence: paused
+        isPausedByLicence: paused
       ),
       shelfReport(
         id: 4,
@@ -228,7 +229,7 @@ extension Samples {
           )
         ],
         wearsTemporary: !paused,
-        turnedOffByLicence: paused
+        isPausedByLicence: paused
       ),
       // Added with + Folder, wearing nothing yet.
       shelfReport(
@@ -248,7 +249,7 @@ extension Samples {
         settings: TemporarySettings(rule: .emptyOnRestart),
         items: shelfScreenshotsItems,
         wearsTemporary: !paused,
-        turnedOffByLicence: paused
+        isPausedByLicence: paused
       ),
     ]
   }
@@ -263,7 +264,7 @@ extension Samples {
       working: working,
       // A quarter of the way through.
       progress: working.first.map {
-        Engine.RunProgress(
+        RunProgress(
           folderID: $0, itemsDone: 3, itemsTotal: 12, bytesDone: 0, bytesTotal: 0,
           current: "zoom_bundle.zip")
       },

@@ -40,7 +40,7 @@ public struct HistoryState: Sendable, Equatable {
   }
 
   public init(
-    _ runs: [RunSummary],
+    _ runs: [HistoryRun],
     folders: [HistoryFolder],
     now: Date,
     calendar: Calendar = .current
@@ -77,7 +77,7 @@ public struct HistoryRunRow: Sendable, Equatable, Identifiable {
   /// Each folder's share, by folder id.
   var folderSummaries: [Int64: String]
 
-  public init(_ run: RunSummary, now: Date, calendar: Calendar = .current) {
+  public init(_ run: HistoryRun, now: Date, calendar: Calendar = .current) {
     id = run.id
     buff = .temporary
     when = runTime(run.startedAt, now: now, calendar: calendar)
@@ -110,7 +110,7 @@ public struct RunState: Sendable, Equatable {
   ///   - folders: Every folder, in the order the run's groups follow.
   ///   - inBin: The entries whose items are still in the Bin, where the run put them.
   public init(
-    _ run: RunSummary,
+    _ run: HistoryRun,
     entries: [JournalEntry],
     folders: [HistoryFolder],
     inBin: Set<Int64>,

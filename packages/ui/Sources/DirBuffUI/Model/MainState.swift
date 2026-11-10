@@ -121,7 +121,7 @@ extension MainState {
     reports: [FolderReport],
     licence: Licence,
     working: Set<Int64> = [],
-    progress: Engine.RunProgress? = nil,
+    progress: RunProgress? = nil,
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name,
@@ -151,9 +151,11 @@ extension MainState {
     self.folders = reports.compactMap { report in
       guard let id = report.folder.id else { return nil }
       let isReadable = report.problem == nil
-      let isTemporary = report.status?.wearsTemporary == true
+      let isTemporary = report.temporaryStatus?.wearsTemporary == true
+      // A folder that doesn't wear Temporary shows what putting it on would start with.
+      let settings = report.temporaryWear?.settings ?? TemporarySettings()
       let preview: FolderPreview = {
-        guard let status = report.status else {
+        guard let status = report.temporaryStatus else {
           return FolderPreview(headline: "Can't read this folder", forecast: [])
         }
         if !licence.mayClean {
@@ -161,7 +163,7 @@ extension MainState {
         }
         return FolderPreview(
           status,
-          settings: report.folder.settings,
+          settings: settings,
           now: now,
           calendar: calendar,
           binName: binName
@@ -173,7 +175,7 @@ extension MainState {
         path: report.folder.path,
         isTemporary: isTemporary,
         isReadable: isReadable,
-        settings: report.folder.settings,
+        settings: settings,
         preview: preview
       )
     }

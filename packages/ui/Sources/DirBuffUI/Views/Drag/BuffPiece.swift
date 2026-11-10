@@ -1,3 +1,4 @@
+import DirBuffCore
 import SwiftUI
 
 /// A buff as a piece to drag onto a folder: 36 pt, white (lighter than its ground in dark), an 8 pt

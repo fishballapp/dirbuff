@@ -17,19 +17,32 @@ let fixtureHome = "/Users/me"
     store = try Store.inMemory()
   }
 
-  private func folder(settings: TemporarySettings = TemporarySettings()) throws -> Folder {
+  private func folder() throws -> Folder {
     try store.insert(
-      Folder(
-        bookmark: Data([1]), path: "/Users/me/Downloads", settings: settings,
-        createdAt: createdAt, lastRunAt: createdAt))
+      Folder(bookmark: Data([1]), path: "/Users/me/Downloads", createdAt: createdAt))
   }
 
-  @Test func keepsAFoldersSettings() throws {
+  /// A folder wearing Temporary with `settings`.
+  private func wearing(_ settings: TemporarySettings = TemporarySettings()) throws -> Int64 {
+    let folderID = try #require(folder().id)
+    try store.putOnTemporary(folderID: folderID, settings: settings, now: createdAt)
+    return folderID
+  }
+
+  @Test func keepsAFolder() throws {
+    let saved = try folder()
+    #expect(try store.folder(id: try #require(saved.id)) == saved)
+    #expect(try store.folders() == [saved])
+  }
+
+  @Test func keepsTemporarysSettings() throws {
     let settings = TemporarySettings(
       rule: .size, maxAgeDays: 14, sizeLimit: 5_000_000_000, disposal: .delete)
-    let saved = try folder(settings: settings)
-    #expect(try store.folder(id: try #require(saved.id)) == saved)
-    #expect(try store.folders().map(\.settings) == [settings])
+    let folderID = try wearing(settings)
+    #expect(
+      try store.temporaryWearers() == [
+        Wear(folderID: folderID, settings: settings, isPausedByLicence: false, lastRunAt: createdAt)
+      ])
   }
 
   @Test func findsAFolderByPath() throws {
@@ -85,12 +98,12 @@ let fixtureHome = "/Users/me"
     #expect(try store.licence() == licence)
   }
 
-  @Test func forgetsFoldersTurnedOffByLicence() throws {
-    var saved = try folder()
-    saved.turnedOffByLicence = true
-    try store.save(saved)
-    try store.forgetFoldersTurnedOffByLicence()
-    #expect(try store.folders().map(\.turnedOffByLicence) == [false])
+  @Test func forgetsAWearTheLicencePausedWhenItIsTakenOff() throws {
+    let folderID = try wearing()
+    try store.setTemporaryPausedByLicence(true, folderID: folderID)
+    try store.takeOffTemporary(folderID: folderID)
+    #expect(try store.temporaryWear(folderID: folderID) == nil)
+    #expect(try store.folders().map(\.id) == [folderID])
   }
 
   @Test func addsTheLicenceToADatabaseFromBeforeIt() throws {
@@ -105,9 +118,9 @@ let fixtureHome = "/Users/me"
           """,
         arguments: [createdAt, createdAt])
     }
-    try Store.migrator.migrate(database)
-    let folders = try database.read { try Folder.fetchAll($0) }
-    #expect(folders.map(\.turnedOffByLicence) == [false])
+    let store = try Store(database)
+    #expect(try store.folders().count == 1)
+    #expect(try store.temporaryWearers().isEmpty)
     #expect(try database.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM licence") } == 1)
   }
 
@@ -123,10 +136,10 @@ let fixtureHome = "/Users/me"
   }
 
   @Test func keepsWhetherItWearsTemporary() throws {
-    var saved = try folder()
-    saved.wearsTemporary = true
-    try store.save(saved)
-    #expect(try store.folder(id: try #require(saved.id)) == saved)
+    let folderID = try wearing()
+    #expect(try store.temporaryWear(folderID: folderID) != nil)
+    try store.takeOffTemporary(folderID: folderID)
+    #expect(try store.temporaryWear(folderID: folderID) == nil)
   }
 
   @Test func aFolderFromBeforeOwesItsLegacyTagUntilItIsRead() throws {
@@ -136,7 +149,7 @@ let fixtureHome = "/Users/me"
 
     #expect(try store.finishLegacyTag(folderID: folderID, hadTag: true))
     #expect(try !store.hasLegacyTag(folderID: folderID))
-    #expect(try store.folder(id: folderID)?.wearsTemporary == true)
+    #expect(try store.temporaryWear(folderID: folderID) != nil)
   }
 
   @Test func aLegacyTagIsFinishedOnce() throws {
@@ -145,7 +158,7 @@ let fixtureHome = "/Users/me"
     _ = try store.finishLegacyTag(folderID: folderID, hadTag: true)
 
     #expect(try !store.finishLegacyTag(folderID: folderID, hadTag: false))
-    #expect(try store.folder(id: folderID)?.wearsTemporary == true)
+    #expect(try store.temporaryWear(folderID: folderID) != nil)
   }
 
   @Test func aFolderFromBeforeWithNoRuleStaysPlain() throws {
@@ -154,7 +167,7 @@ let fixtureHome = "/Users/me"
     ])
     let folderID = try #require(store.folders().first?.id)
     #expect(try store.finishLegacyTag(folderID: folderID, hadTag: true))
-    #expect(try store.folder(id: folderID)?.wearsTemporary == false)
+    #expect(try store.temporaryWear(folderID: folderID) == nil)
   }
 
   @Test func aFolderTakenOffBeforeForgetsItsSettings() throws {
@@ -170,11 +183,11 @@ let fixtureHome = "/Users/me"
           """,
         arguments: [createdAt])
     }
-    let folders = try Store(database).folders()
+    let store = try Store(database)
+    let ids = try store.folders().compactMap(\.id)
     #expect(
-      folders.map(\.settings) == [
-        TemporarySettings(),
-        TemporarySettings(rule: .size, maxAgeDays: 3, sizeLimit: 5, disposal: .delete),
+      try ids.map { try store.temporaryWear(folderID: $0)?.settings } == [
+        nil, TemporarySettings(rule: .size, maxAgeDays: 3, sizeLimit: 5, disposal: .delete),
       ])
   }
 
@@ -193,10 +206,11 @@ let fixtureHome = "/Users/me"
           """,
         arguments: [createdAt])
     }
-    let folders = try Store(database).folders()
-    #expect(folders.map(\.wearsTemporary) == [false, false, false, true])
-    #expect(folders.map(\.turnedOffByLicence) == [false, false, false, false])
-    #expect(folders.last?.settings.rule == .size)
+    let store = try Store(database)
+    let wearers = try store.temporaryWearers()
+    #expect(wearers.map(\.folderID) == [try #require(store.folders().last?.id)])
+    #expect(wearers.map(\.isPausedByLicence) == [false])
+    #expect(wearers.last?.settings.rule == .size)
   }
 
   @Test(arguments: [
@@ -213,7 +227,10 @@ let fixtureHome = "/Users/me"
     ),
   ])
   func aFolderFromBeforeKeepsItsFirstRule(legacy: LegacyFolder, rule: Rule) throws {
-    let settings = try #require(legacyStore([legacy]).folders().first?.settings)
+    let store = try legacyStore([legacy])
+    let folderID = try #require(store.folders().first?.id)
+    #expect(try store.finishLegacyTag(folderID: folderID, hadTag: true))
+    let settings = try #require(store.temporaryWear(folderID: folderID)?.settings)
     #expect(settings.rule == rule)
     #expect(settings.maxAgeDays == legacy.maxAgeDays ?? TemporarySettings.defaultMaxAgeDays)
     #expect(settings.sizeLimit == legacy.sizeLimit ?? TemporarySettings.defaultSizeLimit)
@@ -225,16 +242,15 @@ let fixtureHome = "/Users/me"
   }
 
   @Test func recordingARunChangesOnlyItsTime() throws {
-    var saved = try folder()
-    let folderID = try #require(saved.id)
-    saved.wearsTemporary = true
-    try store.save(saved)
+    let settings = TemporarySettings(rule: .size, disposal: .delete)
+    let folderID = try wearing(settings)
+    try store.setTemporaryPausedByLicence(true, folderID: folderID)
 
     let ran = createdAt.addingTimeInterval(60)
-    try store.recordRun(folderID: folderID, at: ran)
+    try store.recordTemporaryRun(folderID: folderID, at: ran)
 
-    let stored = try #require(try store.folder(id: folderID))
-    #expect(stored.lastRunAt == ran)
-    #expect(stored.wearsTemporary)
+    #expect(
+      try store.temporaryWear(folderID: folderID)
+        == Wear(folderID: folderID, settings: settings, isPausedByLicence: true, lastRunAt: ran))
   }
 }

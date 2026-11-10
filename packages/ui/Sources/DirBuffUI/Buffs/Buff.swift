@@ -1,10 +1,7 @@
-/// A capability a folder wears. A folder wears at most one of each, always listed in this order.
-public enum Buff: CaseIterable, Sendable, Hashable {
-  case temporary
-  case backup
-  case organise
-  case search
+import DirBuffCore
 
+/// What every surface says about a buff.
+extension Buff {
   public var name: String {
     switch self {
     case .temporary: "Temporary"

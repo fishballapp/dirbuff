@@ -11,10 +11,9 @@ extension AppModel {
   @discardableResult
   func addBuff(_ buff: Buff, toFolderAt url: URL) async -> Bool {
     guard buff == .temporary else { return false }
-    if report(for: url)?.folder.wearsTemporary == true { return false }
-    guard !System.isProtected(url) else {
-      alert(
-        "Can't add Temporary to \(url.lastPathComponent)", AppModel.protectedFolderExplanation)
+    if let wear = report(for: url)?.temporaryWear, !wear.isPausedByLicence { return false }
+    if let refusal = temporary.refusal(for: url) {
+      alert("Can't add Temporary to \(url.lastPathComponent)", AppModel.explain(refusal))
       return false
     }
     guard let folder = await addFolder(url) else { return false }
@@ -29,8 +28,9 @@ extension AppModel {
 
   /// Sets how old things get before they are cleared, from the drop card's pop-up.
   func setMaxAge(days: Int, on folderID: Int64) async {
-    guard let folder = folder(id: folderID) else { return }
-    var settings = folder.settings
+    guard let folder = folder(id: folderID),
+      var settings = report(id: folderID)?.temporaryWear?.settings
+    else { return }
     settings.rule = .age
     settings.maxAgeDays = days
     await save(settings, for: folder)

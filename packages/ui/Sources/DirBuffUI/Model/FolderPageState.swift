@@ -126,7 +126,7 @@ extension FolderPageState {
     folderID: Int64,
     reports: [FolderReport],
     shelf: MainState,
-    progress: Engine.RunProgress? = nil,
+    progress: RunProgress? = nil,
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name,
@@ -142,9 +142,10 @@ extension FolderPageState {
     self.subtitle =
       report.problem == .missing
       ? folder.location : pageLocation(report, home: home)
-    self.cards = folder.buffs.map { row in
+    // Both list the folder's buffs in `Buff` order, a row for each reading.
+    self.cards = zip(folder.buffs, report.buffs).map { row, reading in
       words.card(
-        row, report: report,
+        row, reading,
         progress: progress.flatMap { $0.folderID == folderID ? $0 : nil })
     }
     self.addBuffItems = shelf.addBuffItems(for: folder)
@@ -182,15 +183,23 @@ private struct CardWords {
   var calendar: Calendar
   var binName: String
 
-  func card(_ row: BuffRow, report: FolderReport, progress: Engine.RunProgress?) -> BuffCard {
-    let settings = report.folder.settings
+  func card(_ row: BuffRow, _ reading: BuffReading, progress: RunProgress?) -> BuffCard {
+    switch reading {
+    case .temporary(let wear, let reading):
+      temporaryCard(row, settings: wear.settings, status: try? reading?.get(), progress: progress)
+    }
+  }
+
+  private func temporaryCard(
+    _ row: BuffRow, settings: TemporarySettings, status: TemporaryStatus?, progress: RunProgress?
+  ) -> BuffCard {
     var card = BuffCard(
       buff: row.buff, state: row.state, headline: FolderSentence(row.status), detail: nil,
       gauge: nil, settings: settings, meaning: meaning(settings),
-      canShowFiles: report.status != nil)
+      canShowFiles: status != nil)
     switch row.state {
     case .atRest:
-      if let status = report.status { summarise(status, settings: settings, into: &card) }
+      if let status { summarise(status, settings: settings, into: &card) }
     case .working:
       card.headline = FolderSentence("Clearing now")
       if let progress {
@@ -217,7 +226,7 @@ private struct CardWords {
 
   /// What the folder's rule does next, at rest.
   private func summarise(
-    _ status: Engine.FolderStatus, settings: TemporarySettings, into card: inout BuffCard
+    _ status: TemporaryStatus, settings: TemporarySettings, into card: inout BuffCard
   ) {
     let cleanUps = status.cleanUps(now: now, calendar: calendar)
     let soonest = soonestTogether(cleanUps, now: now, calendar: calendar)
@@ -320,7 +329,7 @@ private func pageLocation(_ report: FolderReport, home: String) -> String {
   let place =
     volumeName(path)
     ?? (path == home || path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path)
-  guard let status = report.status else { return place }
+  guard let status = report.temporaryStatus else { return place }
   let count = status.items.count
   guard count > 0 else { return "\(place) · Empty" }
   return [place, bytes(status.size), count == 1 ? "1 item" : "\(count.formatted()) items"]

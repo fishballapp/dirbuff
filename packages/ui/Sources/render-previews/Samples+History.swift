@@ -51,7 +51,7 @@ extension Samples {
   static let history = HistoryState(
     [todaysRun]
       + earlierRuns.enumerated().map { index, run in
-        RunSummary(
+        HistoryRun(
           id: Int64(index + 2), startedAt: historyTime(daysBack: run.0, hour: run.1),
           shares: run.2.mapValues { .init(itemCount: $0.0, size: $0.1) })
       },
@@ -83,7 +83,7 @@ extension Samples {
   ]
 
   /// Today 09:00, as History sums it from the entries, so its list row and page agree.
-  private static let todaysRun = RunSummary(
+  private static let todaysRun = HistoryRun(
     id: 1, startedAt: historyTime(daysBack: 0, hour: 9),
     shares: Dictionary(grouping: runEntries, by: \.folderID).mapValues {
       .init(itemCount: $0.count, size: $0.reduce(0) { $0 + $1.size })

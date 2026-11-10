@@ -19,7 +19,7 @@ func temporarySetting(_ settings: TemporarySettings, binName: String) -> String 
 /// What Temporary does next, in numbers: the items that clear together soonest, when, and their
 /// size ("12 items to clear tomorrow · 1.3 GB"), or "Nothing to clear yet".
 func temporaryStatus(
-  _ status: Engine.FolderStatus, settings: TemporarySettings, now: Date, calendar: Calendar
+  _ status: TemporaryStatus, settings: TemporarySettings, now: Date, calendar: Calendar
 ) -> String {
   let cleanUps = status.cleanUps(now: now, calendar: calendar)
   guard let soonest = cleanUps.first?.at else {
@@ -49,7 +49,7 @@ func days(_ count: Int) -> String {
   count == 1 ? "1 day" : "\(count) days"
 }
 
-extension Engine.FolderStatus {
+extension TemporaryStatus {
   /// Empty on restart has no date: everything dated clears at the first clean-up after a restart.
   func clearedAtRestart(_ settings: TemporarySettings) -> [Item] {
     settings.rule == .emptyOnRestart ? items.filter { $0.freshness != nil } : []

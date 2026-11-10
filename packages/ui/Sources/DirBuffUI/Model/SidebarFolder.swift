@@ -1,3 +1,4 @@
+import DirBuffCore
 import Foundation
 
 /// A folder's row in the sidebar: its icon and mark, its name, and beneath it the symbols of the

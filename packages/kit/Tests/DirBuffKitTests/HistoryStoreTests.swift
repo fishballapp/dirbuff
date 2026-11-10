@@ -17,8 +17,7 @@ import Testing
     try #require(
       store.insert(
         Folder(
-          bookmark: Data([1]), path: "\(fixtureHome)/\(name)", settings: TemporarySettings(),
-          createdAt: nine, lastRunAt: nine)
+          bookmark: Data([1]), path: "\(fixtureHome)/\(name)", createdAt: nine)
       ).id)
   }
 
@@ -36,19 +35,19 @@ import Testing
   @Test func listsRunsNewestFirstWithWhatEachRemoved() throws {
     let downloads = try folder("Downloads")
     let screenshots = try folder("Screenshots")
-    let first = try store.beginRun(at: nine)
+    let first = try store.beginRun(of: .temporary, at: nine)
     try entry("a", folderID: downloads, runID: first, size: 10)
     try entry("b", folderID: downloads, runID: first, size: 20)
     try entry("c", folderID: screenshots, runID: first, size: 30)
-    let second = try store.beginRun(at: nine.addingTimeInterval(3_600))
+    let second = try store.beginRun(of: .temporary, at: nine.addingTimeInterval(3_600))
     try entry("d", folderID: screenshots, runID: second, size: 5)
 
     #expect(
       try store.runs() == [
-        RunSummary(
+        HistoryRun(
           id: second, startedAt: nine.addingTimeInterval(3_600),
           shares: [screenshots: .init(itemCount: 1, size: 5)]),
-        RunSummary(
+        HistoryRun(
           id: first, startedAt: nine,
           shares: [
             downloads: .init(itemCount: 2, size: 30), screenshots: .init(itemCount: 1, size: 30),
@@ -62,7 +61,7 @@ import Testing
 
   @Test func leavesOutARunWithNothingLeftInIt() throws {
     let downloads = try folder("Downloads")
-    let run = try store.beginRun(at: nine)
+    let run = try store.beginRun(of: .temporary, at: nine)
     try entry("a", folderID: downloads, runID: run)
     try store.deleteFolder(id: downloads)
 
@@ -73,7 +72,8 @@ import Testing
   @Test func trimsTheOldestRunsPastTheLimit() throws {
     let downloads = try folder("Downloads")
     let runs = try (0..<4).map { hour in
-      let run = try store.beginRun(at: nine.addingTimeInterval(Double(hour) * 3_600))
+      let run = try store.beginRun(
+        of: .temporary, at: nine.addingTimeInterval(Double(hour) * 3_600))
       try entry("item\(hour)", folderID: downloads, runID: run)
       return run
     }
@@ -87,7 +87,7 @@ import Testing
 
   @Test func measuresWhatEachRowHolds() throws {
     let downloads = try folder("Downloads")
-    let run = try store.beginRun(at: nine)
+    let run = try store.beginRun(of: .temporary, at: nine)
     let empty = try store.historySize()
     try entry("short", folderID: downloads, runID: run)
     let short = try store.historySize() - empty
@@ -102,7 +102,7 @@ import Testing
 
   @Test func clearsEveryRunAndEntry() throws {
     let downloads = try folder("Downloads")
-    let run = try store.beginRun(at: nine)
+    let run = try store.beginRun(of: .temporary, at: nine)
     try entry("a", folderID: downloads, runID: run)
 
     try store.clearHistory()
@@ -114,10 +114,10 @@ import Testing
 
   @Test func clearingKeepsTheRunACleanUpIsWriting() throws {
     let downloads = try folder("Downloads")
-    let finished = try store.beginRun(at: nine)
+    let finished = try store.beginRun(of: .temporary, at: nine)
     try entry("a", folderID: downloads, runID: finished)
     try entry("old", folderID: downloads, runID: nil)
-    let open = try store.beginRun(at: nine.addingTimeInterval(3_600))
+    let open = try store.beginRun(of: .temporary, at: nine.addingTimeInterval(3_600))
     try entry("b", folderID: downloads, runID: open)
 
     try store.clearHistory(keeping: open)

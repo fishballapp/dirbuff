@@ -6,8 +6,8 @@ extension AppModel {
   /// The menu-bar popover as the folders stand at `now`.
   func popoverState(now: Date) -> PopoverState {
     PopoverState(
-      folders: folders(now: now), reports: reports, progress: runProgress, licence: licence,
-      now: now)
+      folders: folders(now: now), scheduleLines: scheduleLines(reports, now: now),
+      progress: runProgress, licence: licence, now: now)
   }
 
   /// Opens the place where the fix is made.

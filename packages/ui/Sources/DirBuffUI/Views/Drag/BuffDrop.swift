@@ -1,3 +1,4 @@
+import DirBuffCore
 import SwiftUI
 
 /// What letting go of a buff over a folder does: its tile, its sidebar row, or its page.

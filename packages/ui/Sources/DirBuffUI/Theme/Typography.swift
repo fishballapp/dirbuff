@@ -1,4 +1,5 @@
 import CoreText
+import DirBuffCore
 import SwiftUI
 
 /// The one narrow caps face, Barlow Condensed, bundled with the package. It sets buff names only:

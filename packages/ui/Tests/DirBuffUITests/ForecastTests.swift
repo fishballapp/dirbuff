@@ -7,7 +7,9 @@ import Testing
 
 private func groups(_ reports: [FolderReport], at moment: Date = now) -> [ForecastGroup] {
   forecastGroups(
-    reports.compactMap { report in report.status.map { (report.folder.settings, $0) } },
+    reports.compactMap { report in
+      report.temporaryWear.flatMap { wear in report.temporaryStatus.map { (wear.settings, $0) } }
+    },
     now: moment,
     calendar: calendar,
     binName: "Bin"
@@ -101,7 +103,8 @@ private func groups(_ reports: [FolderReport], at moment: Date = now) -> [Foreca
     dueNow: [Item] = [],
     upcoming: [(Item, TimeInterval)] = []
   ) -> FolderPreview {
-    guard let status = report(1, items: items, dueNow: dueNow, upcoming: upcoming).status else {
+    guard let status = report(1, items: items, dueNow: dueNow, upcoming: upcoming).temporaryStatus
+    else {
       preconditionFailure("report(1) is readable")
     }
     return FolderPreview(status, settings: settings, now: now, calendar: calendar, binName: "Bin")
