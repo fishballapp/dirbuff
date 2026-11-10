@@ -15,7 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appModel = AppModel()
     self.appModel = appModel
     updates = Updates(
-      licence: { appModel.licenceRecord }, checkLicence: { await appModel.checkLicenceNow() })
+      licence: { appModel.licenceRecord }, checkLicence: { await appModel.checkLicenceNow() },
+      postponeRelaunch: { appModel.afterBackupRuns($0) })
     super.init()
   }
 

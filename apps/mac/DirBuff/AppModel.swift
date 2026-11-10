@@ -39,11 +39,18 @@ final class AppModel {
 
   let engine: Engine
   let temporary: TemporaryBuff
+  /// Backup's module. It runs against a repository in a folder here until the Drive bridge
+  /// exists; no folder can wear it yet (it is a Soon buff).
+  let backup: BackupBuff
+  /// Asked by the hourly check. Nothing, until the Google account exists.
+  @ObservationIgnored var backupAccount: any BackupAccountCheck = NoBackupAccount()
+  /// Why Backup's owed runs are waiting, if they are.
+  private(set) var backupHold: BackupHold?
   private let polar: PolarLicensing
   private let polarSettings: PolarSettings
   private let machine: String
   private let releaseDay: ReleaseDay
-  private var scheduler: BuffScheduler?
+  private(set) var scheduler: BuffScheduler?
 
   init() {
     do {
@@ -52,6 +59,11 @@ final class AppModel {
       engine = Engine(
         store: try Store(path: directory.appendingPathComponent("dirbuff.sqlite").path))
       temporary = TemporaryBuff(engine: engine)
+      let repository = directory.appendingPathComponent("Backup/Repository")
+      backup = BackupBuff(
+        engine: engine, repository: LocalRepository(folder: repository),
+        cacheDirectory: URL.cachesDirectory.appendingPathComponent("app.fishball.dirbuff/restic"),
+        ownFolders: [repository])
       licenceRecord = try engine.store.licence()
       polarSettings = try PolarSettings.fromInfoPlist()
       machine = try Machine.id()
@@ -62,6 +74,10 @@ final class AppModel {
     polar = PolarLicensing(api: polarSettings.api, organizationID: polarSettings.organizationID)
     refreshSystemStatus()
     startScheduler()
+  }
+
+  private enum SchedulerFailure: Error {
+    case backupIsNotAfterChange
   }
 
   private static func quit(because error: any Error) -> Never {
@@ -178,6 +194,7 @@ final class AppModel {
       }.value
       self.reports = reports
       publishForFinder()
+      await scheduler?.afterChange.reload()
     } catch {
       logger.error("Couldn't read the folders: \(error.localizedDescription, privacy: .public)")
     }
@@ -531,7 +548,13 @@ final class AppModel {
   /// The model lives as long as the app, so the observers below hold it strongly.
   private func startScheduler() {
     Task { await settleLicence(now: Date()) }
-    let scheduler = BuffScheduler { schedule, date in await self.runDue(schedule, at: date) }
+    guard
+      let afterChange = AfterChangeDriver(
+        schedule: backup.schedule, work: self, onHoldChange: { self.backupHold = $0 })
+    else { Self.quit(because: SchedulerFailure.backupIsNotAfterChange) }
+    let scheduler = BuffScheduler(afterChange: afterChange) { schedule, date in
+      await self.runDue(schedule, at: date)
+    }
     scheduler.start()
     self.scheduler = scheduler
     let workspace = NSWorkspace.shared.notificationCenter

@@ -20,6 +20,9 @@ import Sparkle
 /// refuses any update the licence doesn't cover yet, so nothing unconfirmed is ever downloaded and
 /// so nothing unconfirmed can install, on relaunch or on quit. While Polar is asked, the refusal is
 /// silent; once an answer covers the build, a background check finds the update again and proceeds.
+///
+/// Sparkle doesn't relaunch into an update while restic runs: it waits for the backup (or the
+/// upkeep) to end (`updater(_:shouldPostponeRelaunchForUpdate:untilInvokingBlock:)`).
 @MainActor
 final class Updates: NSObject, ObservableObject, SPUUpdaterDelegate {
   /// The UserDefaults key of the Settings switch for dev builds.
@@ -27,16 +30,20 @@ final class Updates: NSObject, ObservableObject, SPUUpdaterDelegate {
   @Published private(set) var canCheck = false
   private let licence: @MainActor () -> LicenceRecord
   private let checkLicence: @MainActor () async -> Void
+  /// Calls the block once no backup runs; false if none does now.
+  private let postponeRelaunch: @MainActor (@escaping @MainActor () -> Void) -> Bool
   private var controller: SPUStandardUpdaterController?
   /// Whether a licence check is under way for an update that waits on one.
   private var isConfirming = false
 
   init(
     licence: @escaping @MainActor () -> LicenceRecord,
-    checkLicence: @escaping @MainActor () async -> Void
+    checkLicence: @escaping @MainActor () async -> Void,
+    postponeRelaunch: @escaping @MainActor (@escaping @MainActor () -> Void) -> Bool
   ) {
     self.licence = licence
     self.checkLicence = checkLicence
+    self.postponeRelaunch = postponeRelaunch
     super.init()
     let controller = SPUStandardUpdaterController(
       startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
@@ -82,6 +89,15 @@ final class Updates: NSObject, ObservableObject, SPUUpdaterDelegate {
     let later = appcast.items.filter(isNewer)
     let covered = record.covered(later) { $0.date.map(ReleaseDay.init(containing:)) }
     return newest(covered) ?? newest(later) ?? SUAppcastItem.empty()
+  }
+
+  /// Holds the relaunch back while a backup runs, so the installer never replaces the app under
+  /// restic; the update installs the moment the backup ends.
+  func updater(
+    _ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+    untilInvokingBlock installHandler: @escaping () -> Void
+  ) -> Bool {
+    postponeRelaunch { installHandler() }
   }
 
   /// Decides, before the download, whether an update may be downloaded at all. An ended licence

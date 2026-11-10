@@ -1,18 +1,25 @@
 import AppKit
 import DirBuffCore
 
-/// Times the buffs' runs, with a driver for each kind of `BuffSchedule`. A driver calls `run` with
-/// its schedule and when the run was due, and never while its last run is still going.
+/// Times the buffs' runs, with a driver for each kind of `BuffSchedule`. The on-the-hour driver
+/// calls `run` with its schedule and when the run was due, and never while its last run is still
+/// going. The after-a-change driver (`AfterChangeDriver`) does its work through its own
+/// `AfterChangeWork`, one backup at a time, whatever the clean-ups are doing.
 @MainActor
 final class BuffScheduler {
   private let onTheHour: OnTheHourDriver
+  let afterChange: AfterChangeDriver
 
-  init(run: @escaping @MainActor (BuffSchedule, Date) async -> Void) {
+  init(
+    afterChange: AfterChangeDriver, run: @escaping @MainActor (BuffSchedule, Date) async -> Void
+  ) {
     onTheHour = OnTheHourDriver { await run(.onTheHour, $0) }
+    self.afterChange = afterChange
   }
 
   func start() {
     onTheHour.start()
+    afterChange.start()
   }
 }
 
