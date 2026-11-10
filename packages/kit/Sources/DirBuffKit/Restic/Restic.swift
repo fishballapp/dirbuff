@@ -6,8 +6,9 @@ import Foundation
 /// its standard input, and is stopped when it stalls. `repository` is anything restic takes for
 /// `-r`: a folder, or the REST address of the Drive bridge.
 public struct Restic: Sendable {
-  /// `backup` and `restore` are stopped when nothing moves for this long.
-  public static let defaultStallLimit = StallLimit.noProgress(for: .seconds(600))
+  /// `backup` and `restore` are stopped when nothing moves for this long. restic's counters stand
+  /// still while a pack crawls up a slow uplink to Drive, so this is generous.
+  public static let defaultStallLimit = StallLimit.noProgress(for: .seconds(1800))
 
   /// The quick commands (`init`, `snapshots`, `forget`) are stopped after this long.
   public static let defaultWallClockLimit = Duration.seconds(600)
@@ -26,6 +27,11 @@ public struct Restic: Sendable {
   /// efficiency cores and little of them while other work runs, and on a busy Mac a backup at
   /// that priority may never finish (opening the repository alone took up to 95 s at a load of 50).
   public var qualityOfService: QualityOfService
+  /// How long restic waits on a request to a REST repository that neither sends nor answers
+  /// before it gives up on it; restic's own 5 minutes when nil.
+  public var stuckRequestTimeout: Duration?
+  /// How many requests restic makes at once to a REST repository; restic's own 5 when nil.
+  public var restConnections: Int?
 
   public init(
     executable: URL, repository: String, password: String, cacheDirectory: URL? = nil,
@@ -278,6 +284,8 @@ public struct Restic: Sendable {
   private var globalArguments: [String] {
     ["--json", "--repo", repository, "--password-file", "/dev/stdin"]
       + (cacheDirectory.map { ["--cache-dir", $0.path] } ?? [])
+      + (stuckRequestTimeout.map { ["--stuck-request-timeout", "\($0.components.seconds)s"] } ?? [])
+      + (restConnections.map { ["--option", "rest.connections=\($0)"] } ?? [])
   }
 }
 
