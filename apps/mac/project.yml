@@ -71,6 +71,11 @@ targets:
         DIRBUFF_POLAR_ORGANIZATION_ID: "06b3e001-297b-4ebd-bd97-c2008176dde0"
         DIRBUFF_POLAR_CHECKOUT_URL: "https:/$()/sandbox-api.polar.sh/v1/checkout-links/polar_cl_MrvqdeDKkaPJYQ0RL1RSC2a0zZFMGwXhTOTY411JLPB/redirect"
         DIRBUFF_POLAR_PORTAL_URL: "https:/$()/sandbox.polar.sh/fishball-ltd/portal"
+        # The Google OAuth client Backup signs in to Drive with. Empty until the client exists: with
+        # either empty, sign-in says it isn't set up. Google treats a desktop client's secret as
+        # public, but a release build still reads it from the build, not the source.
+        DIRBUFF_GOOGLE_CLIENT_ID: ""
+        DIRBUFF_GOOGLE_CLIENT_SECRET: ""
         # The script below writes the release date into Info.plist, so it may edit the built bundle.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
     postBuildScripts:

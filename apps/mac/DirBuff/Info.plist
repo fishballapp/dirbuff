@@ -44,6 +44,10 @@
     <string>$(DIRBUFF_POLAR_CHECKOUT_URL)</string>
     <key>DirBuffPolarPortalURL</key>
     <string>$(DIRBUFF_POLAR_PORTAL_URL)</string>
+    <key>DirBuffGoogleClientID</key>
+    <string>$(DIRBUFF_GOOGLE_CLIENT_ID)</string>
+    <key>DirBuffGoogleClientSecret</key>
+    <string>$(DIRBUFF_GOOGLE_CLIENT_SECRET)</string>
     <key>SUFeedURL</key>
     <string>https://dirbuff.fishball.app/appcast.xml</string>
     <key>SUPublicEDKey</key>
