@@ -97,8 +97,10 @@ targets:
           mkdir -p "$helpers" "$notices"
           cp "$built/restic" "$helpers/restic"
           cp "$built/LICENSE" "$notices/restic.txt"
+          # OTHER_CODE_SIGN_FLAGS carries build.sh's `--keychain`, so restic is signed from the same
+          # keychain as the app; it is a list of flags, left unquoted to split like Xcode's own.
           if [[ "${CODE_SIGNING_ALLOWED}" == YES && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
-            codesign --force --options runtime --timestamp \
+            codesign --force --options runtime --timestamp ${OTHER_CODE_SIGN_FLAGS:-} \
               --identifier app.fishball.dirbuff.restic \
               --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$helpers/restic"
           fi

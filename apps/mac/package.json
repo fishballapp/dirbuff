@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "with-secrets": "varlock run --filter '!#release'",
     "feed": "node --experimental-strip-types release/feed.ts"
   },
   "dependencies": {

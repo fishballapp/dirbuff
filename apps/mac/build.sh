@@ -15,6 +15,13 @@ echo "=========================================================="
 echo " Building DirBuff macOS App (Release)"
 echo "=========================================================="
 
+# The Developer ID certificate comes from 1Password through varlock, into a keychain that lasts
+# as long as this script (signing-keychain.sh). Run it as `pnpm -F @dirbuff/mac with-secrets --
+# ./build.sh`. OTHER_CODE_SIGN_FLAGS splits on spaces, so a $TMPDIR with a space in it fails the
+# signing step; accepted, macOS's never has one.
+source "$SCRIPT_DIR/signing-keychain.sh"
+open_signing_keychain
+
 echo "0. Building the pinned restic..."
 "$SCRIPT_DIR/restic/build.sh"
 
@@ -29,6 +36,7 @@ xcodebuild -project "$SCRIPT_DIR/DirBuff.xcodeproj" \
     CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     CODE_SIGN_STYLE="Manual" \
+    OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN" \
     ENABLE_HARDENED_RUNTIME=YES \
     build
 
