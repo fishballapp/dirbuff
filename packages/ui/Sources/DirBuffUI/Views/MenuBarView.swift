@@ -53,7 +53,7 @@ public struct MenuBarView: View {
   private func runSection(_ run: PopoverRun) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 6) {
-        Text(run.buff == .backup ? "Backing up" : "Clearing")
+        Text(run.isRestoring ? "Restoring" : (run.buff == .backup ? "Backing up" : "Clearing"))
         FolderPill(run.folderName, path: run.path)
       }
       .font(.headline)

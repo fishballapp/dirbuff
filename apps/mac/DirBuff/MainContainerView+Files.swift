@@ -28,7 +28,8 @@ extension MainContainerView {
         folderName: URL(fileURLWithPath: folder.path).lastPathComponent,
         folderPath: folder.path,
         onLeaveOut: { file in Task { await appModel.leaveOut(file, folderID: id) } },
-        onShowInFinder: appModel.showInFinder
+        onShowInFinder: appModel.showInFinder,
+        onShowVersions: { windowState.navigation.open(.versions(id)) }
       )
     }
   }

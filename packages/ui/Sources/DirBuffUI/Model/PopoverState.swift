@@ -33,6 +33,8 @@ public struct PopoverRun: Sendable, Equatable {
   public var counts: String?
   /// How much of the run's items are done, from 0 to 1.
   public var fraction: Double
+  /// A restore (Backup's, in the other direction) rather than a backup.
+  public var isRestoring = false
 }
 
 /// A folder that needs the user: its name and path for the callout's pill, why, and the one fix.
@@ -86,11 +88,13 @@ extension PopoverState {
   ///   - scheduleLines: When each worn buff runs (`scheduleLines(_:now:)`).
   ///   - progress: How far the clean-up running now has got.
   ///   - backupProgress: How far the backup running now has got.
+  ///   - restore: The restore under way, which a clean-up or backup gives the top to.
   public init(
     folders: [FolderState],
     scheduleLines: [String] = [],
     progress: RunProgress? = nil,
     backupProgress: RunProgress? = nil,
+    restore: RestoreRun? = nil,
     licence: Licence,
     now: Date,
     calendar: Calendar = .current
@@ -112,6 +116,8 @@ extension PopoverState {
     let schedule = scheduleLines.isEmpty ? nil : scheduleLines.joined(separator: "\n")
     let (headline, subheadline): (String, String?) = {
       if !licence.mayClean { return ("Every buff is paused", pausedReason(licence)) }
+      // A new Mac restoring has no buffed folder yet.
+      if let restore, needing.isEmpty { return ("Restoring \(restore.folderName)", nil) }
       if listed.isEmpty {
         return ("No buffed folders yet", "Right-click a folder in Finder, then DirBuff: Add Buff")
       }
@@ -130,7 +136,8 @@ extension PopoverState {
       subheadline: subheadline,
       needsYou: needsYou,
       run: needsYou.isEmpty
-        ? currentRun(clearing, progress: progress)
+        ? restore.map(restoreRun)
+          ?? currentRun(clearing, progress: progress)
           ?? currentBackup(backingUp, progress: backupProgress)
         : nil,
       glyph: glyphState(listed, licence: licence),
@@ -222,6 +229,13 @@ private func currentRun(_ clearing: [FolderState], progress: RunProgress?) -> Po
       "\($0.itemsDone) of \(items($0.itemsTotal)) · \(bytes($0.bytesTotal))"
     },
     fraction: report.map { $0.itemsTotal == 0 ? 0 : $0.fraction } ?? 0)
+}
+
+/// The restore on show: its bytes are the measure, as a backup's are.
+private func restoreRun(_ restore: RestoreRun) -> PopoverRun {
+  PopoverRun(
+    buff: .backup, folderID: 0, folderName: restore.folderName, path: restore.path, current: nil,
+    counts: restore.counts, fraction: restore.fraction, isRestoring: true)
 }
 
 /// The backup on show, the same way: its bytes are the measure, "1.2 of 3.4 GB".

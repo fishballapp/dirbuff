@@ -48,6 +48,23 @@ import Testing
         == "This Mac's backup is in another Google account's Drive.")
   }
 
+  @Test func aRestoreSaysWhatHappenedAndWhatToDo() {
+    let words = [
+      backupErrorWords(BackupBuff.Failure.nothingToRestore),
+      backupErrorWords(BackupBuff.Failure.notInBackup("Finance/a.xlsx")),
+      backupErrorWords(BackupBuff.Failure.notEnoughRoom(needed: 48_000_000_000, available: 1_000)),
+      backupErrorWords(BackupBuff.Failure.cannotWrite(URL(fileURLWithPath: "/Volumes"))),
+      backupErrorWords(BackupBuff.Failure.outsideFolder("Finance")),
+      backupErrorWords(BackupBuff.Failure.seriesShared("docs")),
+      backupErrorWords(BackupBuff.Failure.backupIsEmpty),
+    ]
+    #expect(words.allSatisfy { ($0?.count ?? 0) > 50 && $0?.hasSuffix(".") == true })
+    #expect(words[2]?.contains(bytes(48_000_000_000)) == true)
+    #expect(words[2]?.contains(bytes(1_000)) == true)
+    #expect(words[3]?.contains("Volumes") == true)
+    #expect(words[5]?.contains("docs") == false)
+  }
+
   @Test func resticSaysWhatItPrinted() {
     #expect(
       backupErrorWords(ResticFailure.exited(.failed, message: "Fatal: unable to open config file"))

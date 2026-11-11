@@ -111,6 +111,14 @@ public struct SettingsView: View {
       }
 
       LabeledContent {
+        Button("Restore from Google Drive…") { onBackupAction(.restoreFromDrive) }
+      } label: {
+        labelled(
+          "Restore",
+          "Bring a folder back from any Mac's backup in your Drive, on this Mac or a new one.")
+      }
+
+      LabeledContent {
         if backup.isPasswordProtected {
           HStack(spacing: 8) {
             Button("Change Password…") { onBackupAction(.changePassword) }

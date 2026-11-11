@@ -38,6 +38,7 @@ extension MainContainerView {
         .backUp(
           folderName: URL(fileURLWithPath: folder.path).lastPathComponent, folderPath: folder.path))
     }
+    pageActions.showVersions = { id in windowState.navigation.open(.versions(id)) }
     pageActions.showFiles = { id in windowState.navigation.open(.files(id)) }
     pageActions.showHistory = { id in windowState.navigation.open(.folderHistory(id)) }
     return pageActions

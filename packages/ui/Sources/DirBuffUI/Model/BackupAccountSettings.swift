@@ -36,6 +36,8 @@ public struct BackupAccountSettings: Sendable, Equatable {
     case setPassword
     case changePassword
     case removePassword
+    /// Restore from Google Drive…: another Mac's backup, or this Mac's, into new folders.
+    case restoreFromDrive
   }
 }
 

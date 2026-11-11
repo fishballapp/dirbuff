@@ -46,6 +46,18 @@ final class AppModel {
   /// The Google sign-in sheet, on the main window while it's asked for (`AppModel+GoogleSignIn`).
   var signInSheet: GoogleSignInState?
   @ObservationIgnored var signInTask: Task<Void, Never>?
+  /// The restore sheets on the main window while one is open, the restore under way, the Backup
+  /// folder's copy being restored and its toast (`AppModel+Restore`).
+  var restoreFolderSheet: RestoreFolderState?
+  var restoreFromDriveSheet: RestoreFromDriveState?
+  var restoreRun: RestoreRun?
+  var versionsCopying: String?
+  var versionsToast: VersionsToast?
+  /// What the open restore sheets need between their steps, none of it kept past their closing.
+  @ObservationIgnored var restoreContext = RestoreContext()
+  @ObservationIgnored var restoreTask: Task<Void, Never>?
+  /// Which restore is running, so a task that was cancelled or replaced touches nothing.
+  @ObservationIgnored var restoreGate = RestoreGate()
   /// When Make Room…'s return last checked the account (`checkForRoomIfFull`).
   @ObservationIgnored var lastRoomCheckAt: Date?
   /// Goes up whenever History changes (a clean-up, a Put Back, trimming or clearing), so open

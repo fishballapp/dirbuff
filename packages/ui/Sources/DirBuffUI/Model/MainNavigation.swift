@@ -14,7 +14,7 @@ public struct MainNavigation: Hashable, Sendable {
   /// sidebar row it belongs to: a folder's files and History over its page, a run over History.
   public init(opening page: MainPage) {
     switch page {
-    case .files(let id), .folderHistory(let id), .unreadFiles(let id):
+    case .files(let id), .folderHistory(let id), .unreadFiles(let id), .versions(let id):
       self.init(.folder(id), path: [page])
     case .run: self.init(.history, path: [page])
     }
@@ -72,10 +72,12 @@ public enum MainPage: Hashable, Sendable {
   case run(Int64)
   /// Show Files: what the last backup of a folder couldn't read, each with Leave Out.
   case unreadFiles(Int64)
+  /// Show Versions…: a Backup folder's files with a past, each restorable as a copy.
+  case versions(Int64)
 
   var folderID: Int64? {
     switch self {
-    case .files(let id), .folderHistory(let id), .unreadFiles(let id): id
+    case .files(let id), .folderHistory(let id), .unreadFiles(let id), .versions(let id): id
     case .run: nil
     }
   }

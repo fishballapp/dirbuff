@@ -24,6 +24,51 @@ struct MainContainerView: View {
         onUseAnotherAccount: appModel.useAnotherGoogleAccount,
         onStartNewBackup: appModel.startNewBackupHere)
     }
+    .sheet(item: restoreFolderSheet) { sheet in
+      RestoreFolderSheet(
+        state: sheet,
+        onSelectDate: appModel.pickRestoreDate,
+        onRestore: { appModel.restoreFolder(snapshotID: $0) },
+        onCancel: appModel.closeRestoreFolder,
+        onHide: appModel.hideRestoreFolder,
+        onShowInFinder: appModel.showRestoredFolderInFinder,
+        onFix: appModel.fixRestoreFolder,
+        onSubmitPassword: appModel.submitRestoreFolderPassword)
+    }
+    .sheet(item: restoreFromDriveSheet) { sheet in
+      RestoreFromDriveSheet(
+        state: sheet,
+        onSelectMac: appModel.pickBackedUpMac,
+        onOpenMac: appModel.openBackup,
+        onSubmitPassword: appModel.submitBackupPassword,
+        onSelectFolder: appModel.selectBackedUpFolder,
+        onSelectDate: appModel.selectBackedUpDate,
+        onChoosePlace: appModel.chooseRestorePlace,
+        onRestore: appModel.restoreFromDrive,
+        onRestoreAnother: appModel.restoreAnotherFromDrive,
+        onBack: appModel.backToRestored,
+        onKeep: appModel.keepBackingUpHere,
+        onShowInFinder: appModel.showRestoredFolderInFinder,
+        onFix: appModel.fixRestoreFromDrive,
+        onClose: appModel.closeRestoreFromDrive)
+    }
+  }
+
+  /// The Restore Folder sheet while it's open. Closing it any other way is Cancel.
+  private var restoreFolderSheet: Binding<RestoreFolderState?> {
+    let appModel = appModel
+    return Binding(
+      get: { appModel.restoreFolderSheet },
+      set: { if $0 == nil, appModel.restoreFolderSheet != nil { appModel.closeRestoreFolder() } })
+  }
+
+  private var restoreFromDriveSheet: Binding<RestoreFromDriveState?> {
+    let appModel = appModel
+    return Binding(
+      get: { appModel.restoreFromDriveSheet },
+      set: {
+        if $0 == nil, appModel.restoreFromDriveSheet != nil { appModel.closeRestoreFromDrive() }
+      })
   }
 
   /// The Google sign-in sheet while the app asks for it. Closing it any other way is Not Now.
@@ -48,6 +93,7 @@ struct MainContainerView: View {
         case .folderHistory(let id): AnyView(historyPage(folderID: id, now: now))
         case .run(let id): AnyView(runPage(id, now: now))
         case .unreadFiles(let id): AnyView(unreadFilesPage(id))
+        case .versions(let id): AnyView(versionsPage(id))
         }
       }
     )

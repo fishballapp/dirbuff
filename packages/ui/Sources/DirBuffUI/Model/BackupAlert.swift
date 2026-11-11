@@ -56,6 +56,15 @@ public struct BackupAlert: Sendable, Equatable {
         "Also delete this folder's backup from Google Drive. Its versions can't be brought back.")
   }
 
+  /// A restore that stopped, in words: what happened and what to do. Only a sign-in (or choosing
+  /// the account) is a button of its own; the rest of the fixes are in the sheets that offer
+  /// them.
+  public static func restoreProblem(_ problem: RestoreProblem) -> BackupAlert {
+    BackupAlert(
+      title: problem.title, message: problem.message,
+      buttons: problem.fix.isSignIn ? [problem.fix.title ?? "OK", "Close"] : ["OK"])
+  }
+
   /// The alert, ready to run.
   @MainActor
   public func makeAlert() -> NSAlert {

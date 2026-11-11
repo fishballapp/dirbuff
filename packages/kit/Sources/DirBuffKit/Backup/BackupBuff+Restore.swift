@@ -72,16 +72,18 @@ extension BackupBuff {
   /// `directory`), "Documents (3 Mar 2027)", once its volume has room. Beside a folder whose
   /// parent can't be written to (a disk's top folder sits in `/Volumes`), this throws
   /// `cannotWrite` before anything downloads, for the caller to ask for a `directory`. Returns
-  /// the new folder.
+  /// the new folder. `onProgress` hears how far the download has got.
   public func restoreFolder(
-    folderID: Int64, snapshot: ResticSnapshot, into directory: URL? = nil, now: Date = Date()
+    folderID: Int64, snapshot: ResticSnapshot, into directory: URL? = nil, now: Date = Date(),
+    onProgress: (@Sendable (RestoreProgress) -> Void)? = nil
   ) async throws -> URL {
     let folder = try engine.locate(folderID: folderID).url
     let destination = directory ?? folder.deletingLastPathComponent()
     return try await commands.run {
       let session = try await openRepository(now: now)
       return try await restore(
-        snapshot, session: session, named: folder.lastPathComponent, into: destination)
+        snapshot, session: session, named: folder.lastPathComponent, into: destination,
+        onProgress: onProgress)
     }
   }
 
@@ -115,36 +117,52 @@ extension BackupBuff {
   }
 
   /// The folder as `snapshot` saved it, in a new folder in `directory` named
-  /// "Documents (3 Mar 2027)", once its volume has room. Returns the new folder.
+  /// "Documents (3 Mar 2027)", once its volume has room. Returns the new folder. `onProgress`
+  /// hears how far the download has got.
   public func restore(
     _ snapshot: ResticSnapshot, of folder: BackedUpFolder, from mac: BackedUpMac,
-    into directory: URL, password: String? = nil
+    into directory: URL, password: String? = nil,
+    onProgress: (@Sendable (RestoreProgress) -> Void)? = nil
   ) async throws -> URL {
     try await commands.run {
       let session = try await session(of: mac, password: password)
-      return try await restore(snapshot, session: session, named: folder.name, into: directory)
+      return try await restore(
+        snapshot, session: session, named: folder.name, into: directory, onProgress: onProgress)
     }
   }
 
   /// Keep Backing Up Here: this Mac takes over `mac`'s repository as that Mac, with its
   /// snapshots' host, and keeps its password, if it has one, in the Keychain; so what's restored
-  /// from it is found there and doesn't upload again. Each folder in `continuing`, a folder of
-  /// this Mac's by ID, wears Backup on the series of the backed-up folder it was restored from.
-  /// The repository this Mac had stays where it is, and nothing backs up into it any more.
+  /// from it is found there and doesn't upload again. Each folder in `continuing`, by where it
+  /// is on this Mac, is added to DirBuff and wears Backup on the series of the backed-up folder it
+  /// was restored from: one folder to a series, and none is added until everything that can fail
+  /// has not. The repository this Mac had stays where it is, and nothing backs up into it any more;
+  /// every Backup folder, those too, is owed a first backup into the one it takes.
+  ///
+  /// `owner` is the Google account signed in, whose Drive the repository was listed in: it becomes
+  /// the backup's owner in the same write as the repository, as Start a New Backup Here does, so
+  /// a check never reads the repository as another account's. Without one (a repository in a
+  /// folder, for tests) the owner stays as it was.
   ///
   /// Everything that asks the network comes first: listing the repository afresh, and its
   /// snapshots, which proves the password. Then the database changes in one write, marked
   /// pending until the password has moved from the Keychain's staging slot to its own. Cut short
   /// before that write, nothing has changed; after it, the next command finishes it.
   public func keepBackingUpHere(
-    _ mac: BackedUpMac, password: String? = nil, continuing: [Int64: BackedUpFolder] = [:],
-    now: Date = Date()
+    _ mac: BackedUpMac, password: String? = nil, continuing: [URL: BackedUpFolder] = [:],
+    as owner: BackupOwner? = nil, now: Date = Date()
   ) async throws {
-    let series = continuing.mapValues(\.series)
+    let twice = Dictionary(grouping: continuing.values, by: \.series).first { $1.count > 1 }
+    if let twice { throw Failure.seriesShared(twice.key) }
     try await commands.run {
-      if let shared = try store.sharedBackupSeries(series) { throw Failure.seriesShared(shared) }
       guard !mac.isThisMac else {
-        try store.continueBackupSeries(series, settings: defaultSettings, now: now)
+        let (series, added) = try addFolders(continuing, now: now)
+        try undoingAdds(added) {
+          if let shared = try store.sharedBackupSeries(series) {
+            throw Failure.seriesShared(shared)
+          }
+          try store.continueBackupSeries(series, settings: defaultSettings, now: now)
+        }
         return
       }
       let session = try await session(of: mac, password: password)
@@ -156,19 +174,55 @@ extension BackupBuff {
         let newest = try await withRestic(session, { try await $0.snapshots() })
           .max(by: { $0.time < $1.time })
       else { throw Failure.backupIsEmpty }
-      if let password {
-        try keychain.save(password, in: .staged)
-      } else {
-        try keychain.delete(.staged)
+      let (series, added) = try addFolders(continuing, now: now)
+      try undoingAdds(added) {
+        if let shared = try store.sharedBackupSeries(series) { throw Failure.seriesShared(shared) }
+        if let password {
+          try keychain.save(password, in: .staged)
+        } else {
+          try keychain.delete(.staged)
+        }
+        try store.adoptBackupRepository(
+          host: newest.hostname, repository: mac.id, series: series, settings: defaultSettings,
+          now: now, owner: owner)
       }
-      try store.adoptBackupRepository(
-        host: newest.hostname, repository: mac.id, series: series, settings: defaultSettings,
-        now: now)
       try finishAdoption()
     }
   }
 
   // MARK: Inside
+
+  /// Adds the restored folders to DirBuff, by series; those that weren't already added are
+  /// returned too, for `undoingAdds`.
+  private func addFolders(_ folders: [URL: BackedUpFolder], now: Date) throws
+    -> (series: [Int64: String], added: [Folder])
+  {
+    var series: [Int64: String] = [:]
+    var added: [Folder] = []
+    do {
+      for (url, folder) in folders {
+        let existing = try store.folder(path: try canonicalPath(of: url))
+        let folderAdded = try engine.add(url, now: now)
+        if existing == nil { added.append(folderAdded) }
+        series[try require(folderAdded.id)] = folder.series
+      }
+    } catch {
+      for folder in added { try? engine.remove(folder) }
+      throw error
+    }
+    return (series, added)
+  }
+
+  /// Runs `body`; if it throws, the folders that were added for it go again, so a Keep Backing Up
+  /// Here that didn't happen leaves DirBuff's folders as they were.
+  private func undoingAdds(_ added: [Folder], _ body: () throws -> Void) throws {
+    do {
+      try body()
+    } catch {
+      for folder in added { try? engine.remove(folder) }
+      throw error
+    }
+  }
 
   /// A session on `mac`'s repository that only reads, with the password given; this Mac's opens
   /// with the Keychain's when none is.
@@ -181,7 +235,8 @@ extension BackupBuff {
 
   /// Checks the folder can be written to before anything downloads.
   private func restore(
-    _ snapshot: ResticSnapshot, session: Session, named name: String, into directory: URL
+    _ snapshot: ResticSnapshot, session: Session, named name: String, into directory: URL,
+    onProgress: (@Sendable (RestoreProgress) -> Void)?
   ) async throws -> URL {
     guard FileManager.default.isWritableFile(atPath: directory.path) else {
       throw Failure.cannotWrite(directory)
@@ -196,7 +251,7 @@ extension BackupBuff {
     return try await RestorePlace.withTemporaryFolder(near: directory) { temporary in
       let restored = temporary.appendingPathComponent("restored")
       _ = try await withRestic(session) {
-        try await $0.restore(snapshot: snapshot.id, to: restored)
+        try await $0.restore(snapshot: snapshot.id, to: restored, onProgress: onProgress)
       }
       return try RestorePlace.move(restored, into: directory) {
         RestorePlace.folderName(name, savedAt: snapshot.time, number: $0)
@@ -224,6 +279,13 @@ public struct BackedUpFolder: Sendable, Equatable {
   public var path: String
   /// Oldest first.
   public var snapshots: [ResticSnapshot]
+
+  public init(series: String, name: String, path: String, snapshots: [ResticSnapshot]) {
+    self.series = series
+    self.name = name
+    self.path = path
+    self.snapshots = snapshots
+  }
 }
 
 /// Where a restore puts what it wrote, and under what name.
@@ -241,8 +303,9 @@ enum RestorePlace {
 
   /// Moves `item` into `directory` under the first of `name(1)`, `name(2)`, … that nothing
   /// there has. The rename refuses to replace anything, so nothing is overwritten even by a file
-  /// that appears meanwhile.
+  /// that appears meanwhile. A restore cancelled after restic finished moves nothing.
   static func move(_ item: URL, into directory: URL, naming name: (Int) -> String) throws -> URL {
+    try Task.checkCancellation()
     var number = 1
     while true {
       let target = directory.appendingPathComponent(name(number))

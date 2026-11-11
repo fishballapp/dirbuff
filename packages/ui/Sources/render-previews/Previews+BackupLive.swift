@@ -337,7 +337,7 @@ private func alertPreview(_ name: String, _ alert: BackupAlert) -> Preview {
 
 /// A system alert as the app runs it: the `NSAlert` laid out in its own window, in the preview's
 /// appearance, and drawn from there.
-private struct AlertSnapshot: View {
+struct AlertSnapshot: View {
   var alert: BackupAlert
 
   @Environment(\.colorScheme) private var colorScheme
@@ -352,7 +352,9 @@ private struct AlertSnapshot: View {
   @MainActor
   static func size(of alert: BackupAlert) -> CGSize? {
     let nsAlert = alert.makeAlert()
+    nsAlert.window.appearance = NSAppearance(named: .aqua)
     nsAlert.layout()
+    nsAlert.window.contentView?.layoutSubtreeIfNeeded()
     return nsAlert.window.contentView?.bounds.size
   }
 

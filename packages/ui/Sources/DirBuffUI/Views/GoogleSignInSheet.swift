@@ -81,7 +81,7 @@ public struct GoogleSignInSheet: View {
             .truncationMode(.middle)
         case .signInAgain:
           Text("Carry on backing up to \(account ?? "your Google Drive")")
-        case .settings:
+        case .settings, .restore:
           Text(account.map { "Signed in as \($0)" } ?? "Signed in to Google Drive")
         }
       }

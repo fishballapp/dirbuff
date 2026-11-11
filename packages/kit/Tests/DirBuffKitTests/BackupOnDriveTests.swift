@@ -304,8 +304,8 @@ extension InMemoryDrive {
     #expect(
       try contents(of: restored)
         == contents(of: old.scratch.url.appendingPathComponent("Documents")))
+    try await new.backup.keepBackingUpHere(oldMac, continuing: [restored: folder])
     let restoredID = try require(new.engine.add(restored).id)
-    try await new.backup.keepBackingUpHere(oldMac, continuing: [restoredID: folder])
 
     #expect(try new.keychain.key() == nil)
     #expect(try new.record(restoredID).tag == series)
@@ -317,6 +317,49 @@ extension InMemoryDrive {
     #expect(try await new.backup.backedUpMacs().map(\.isThisMac) == [true])
     // Nothing of the new Mac's own was made in Drive.
     #expect(try await drive.item(at: ["DirBuff Backup", "New Mac"]) == nil)
+  }
+
+  @Test func keepingBackingUpHereMakesTheSignedInAccountTheOwnerWithTheRepository() async throws {
+    let old = try DriveMac("Old Mac", host: "mac-a", drive: drive)
+    let oldFolderID = try old.addWearing("Documents")
+    try old.write("notes", to: "Documents/a.txt")
+    try await old.run(oldFolderID)
+
+    let new = try DriveMac("New Mac", host: "mac-b", drive: drive)
+    let account = DriveAccount(drive: drive, store: new.store)
+    // A new Mac signs in: its account isn't confirmed, and a repository it had is gone.
+    try new.store.recordAccountProblem(.unconfirmed, at: Date())
+    try new.store.recordAccountProblem(.otherAccount, at: Date())
+    try new.store.recordAccountProblem(.backupGone, at: Date())
+    let oldMac = try #require(try await new.backup.backedUpMacs().first)
+    let folder = try #require(try await new.backup.backedUpFolders(of: oldMac).first)
+    let restored = try await new.backup.restore(
+      try #require(folder.snapshots.last), of: folder, from: oldMac,
+      into: new.scratch.url.appendingPathComponent("home"))
+    let owner = try await account.signedInAccount()
+
+    try await new.backup.keepBackingUpHere(oldMac, continuing: [restored: folder], as: owner)
+
+    #expect(try new.store.backupOwner() == owner)
+    // Nothing stands against the account or the repository it took over.
+    #expect(try new.store.accountProblems().isEmpty)
+    #expect(try await account.check() == [])
+    #expect(try new.store.backupDriveFolders().repository?.rawValue == oldMac.id)
+  }
+
+  @Test func keepingBackingUpHereWithNoOwnerLeavesTheOwnerAsItWas() async throws {
+    let old = try DriveMac("Old Mac", host: "mac-a", drive: drive)
+    let oldFolderID = try old.addWearing("Documents")
+    try old.write("notes", to: "Documents/a.txt")
+    let new = try DriveMac("New Mac", host: "mac-b", drive: drive)
+    let kept = BackupOwner(accountID: "id-kept", email: "kept@example.com")
+    try new.store.confirmBackupOwner(kept)
+    try await old.run(oldFolderID)
+    let oldMac = try #require(try await new.backup.backedUpMacs().first)
+
+    try await new.backup.keepBackingUpHere(oldMac)
+
+    #expect(try new.store.backupOwner() == kept)
   }
 
   @Test func anotherMacsBackupWithAPasswordOpensOnlyWithIt() async throws {
@@ -344,9 +387,9 @@ extension InMemoryDrive {
       into: new.scratch.url.appendingPathComponent("home"), password: password)
     #expect(try new.read(restored.appendingPathComponent("a.txt")) == "notes")
 
-    let restoredID = try require(new.engine.add(restored).id)
     try await new.backup.keepBackingUpHere(
-      oldMac, password: password, continuing: [restoredID: folder])
+      oldMac, password: password, continuing: [restored: folder])
+    let restoredID = try require(new.engine.add(restored).id)
 
     #expect(try new.keychain.key() == password)
     #expect(try new.backup.isPasswordProtected())

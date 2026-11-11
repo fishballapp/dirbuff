@@ -134,6 +134,8 @@ public struct FolderPageActions {
   public var bringBack: (_ folderID: Int64, LeaveOut) -> Void = { _, _ in }
   /// Opens Google sign-in for a folder whose Backup waits for it.
   public var signIn: (_ folderID: Int64) -> Void = { _ in }
+  /// Show Versions…: pushes the Backup folder's files with a past.
+  public var showVersions: (_ folderID: Int64) -> Void = { _ in }
 
   public init() {}
 }

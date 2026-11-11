@@ -26,6 +26,8 @@ public struct GoogleSignInState: Sendable, Equatable, Identifiable {
     case signInAgain
     /// Settings › Backup's Sign In with Google….
     case settings
+    /// Restore from Google Drive…, which needs the account the backups are in.
+    case restore
   }
 
   public let id = UUID()
@@ -41,8 +43,11 @@ public struct GoogleSignInState: Sendable, Equatable, Identifiable {
   var title: String {
     if case .failed = step { return "Couldn't sign in to Google" }
     if case .otherAccount(let owner, _) = step { return "This Mac's backup is in \(owner)’s Drive" }
-    return reason == .signInAgain
-      ? "Sign in to Google Drive again" : "Backup goes to your Google Drive"
+    switch reason {
+    case .signInAgain: return "Sign in to Google Drive again"
+    case .restore: return "Sign in to restore from Google Drive"
+    case .backUp, .settings: return "Backup goes to your Google Drive"
+    }
   }
 
   /// What signing in means: where the files go, and what DirBuff can see.
@@ -58,6 +63,9 @@ public struct GoogleSignInState: Sendable, Equatable, Identifiable {
     case .settings:
       return
         "DirBuff keeps your Backup folders' files in a DirBuff Backup folder in your Google Drive. \(sees)"
+    case .restore:
+      return
+        "Sign in with the Google account the backup is in, and DirBuff lists the Macs that have one. Nothing in your Drive changes. \(sees)"
     }
   }
 
@@ -83,6 +91,8 @@ public struct GoogleSignInState: Sendable, Equatable, Identifiable {
       "Backups carry on into the same backup in this account's Drive."
     case .settings:
       "Every Backup folder goes to this account's Drive."
+    case .restore:
+      "DirBuff looks in this account's Drive for the backups your Macs made."
     }
   }
 
@@ -92,6 +102,7 @@ public struct GoogleSignInState: Sendable, Equatable, Identifiable {
     case .backUp: "Start Backup"
     case .signInAgain: "Carry On"
     case .settings: "Done"
+    case .restore: "Find My Backups"
     }
   }
 }

@@ -264,22 +264,35 @@ public struct BackupBuff: BuffModule {
         "Couldn't list what changed: \(String(describing: error), privacy: .public)")
       return []
     }
-    return changes.compactMap { change in
+    var saved: [SavedVersion] = []
+    for change in changes {
       let path = String(change.path.drop { $0 == "/" }.dropLast(change.isFolder ? 1 : 0))
       // A folder is no version of anything, but one that took a file's place ends that file's
       // life on this Mac. (restic doesn't list what's in the new folder.)
-      guard !change.isFolder || change.modifier == .typeChanged else { return nil }
-      if change.isFolder { return SavedVersion(path: path, change: .removed, size: nil) }
+      guard !change.isFolder || change.modifier == .typeChanged else { continue }
+      if change.isFolder {
+        saved.append(SavedVersion(path: path, change: .removed, size: nil))
+        continue
+      }
       let size = {
         try? FileManager.default.attributesOfItem(atPath: root + "/" + path)[.size] as? Int64
       }
       switch change.modifier {
-      case .added: return SavedVersion(path: path, change: .added, size: size())
-      case .modified, .typeChanged: return SavedVersion(path: path, change: .changed, size: size())
-      case .removed: return SavedVersion(path: path, change: .removed, size: nil)
-      case .metadataChanged, .unknown: return nil
+      case .added: saved.append(SavedVersion(path: path, change: .added, size: size()))
+      case .modified: saved.append(SavedVersion(path: path, change: .changed, size: size()))
+      case .typeChanged:
+        // A folder that a file took the place of is a file added, with no earlier version of the
+        // file to bring back; a file that became a link is the same file changed.
+        // Not knowing is the safe answer: a version before it that isn't there is never listed.
+        let wasFile =
+          (try? await restic(session) { try await $0.size(of: "/" + path, in: previous) })
+          .flatMap { $0 } != nil
+        saved.append(SavedVersion(path: path, change: wasFile ? .changed : .added, size: size()))
+      case .removed: saved.append(SavedVersion(path: path, change: .removed, size: nil))
+      case .metadataChanged, .unknown: continue
       }
     }
+    return saved
   }
 
   /// A path restic reported, as a path inside the folder.
@@ -463,6 +476,35 @@ public struct BackupBuff: BuffModule {
   /// is finished first: a repository taken over gets its password into place, and a change of
   /// password leaves only the Keychain's key.
   func openRepository(now: Date) async throws -> Session {
+    let session = try await openUnlistedRepository(now: now)
+    try await listSnapshotsIfPending(session)
+    return session
+  }
+
+  /// Makes the list of the snapshots the repository holds, from restic's own listing, when the
+  /// database has none it trusts (after an upgrade, or a repository taken over). A listing that
+  /// can't be made leaves it pending for the next command: the command itself goes on.
+  private func listSnapshotsIfPending(_ session: Session) async throws {
+    guard try store.isSnapshotListingPending() else { return }
+    var listed: [Int64: [ResticSnapshot]] = [:]
+    do {
+      for wear in try store.backupWearers() {
+        guard let record = try store.backupRecord(folderID: wear.folderID) else { continue }
+        listed[wear.folderID] = try await restic(session) {
+          try await $0.snapshots(tags: [record.resticTag], host: session.host)
+        }
+      }
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      Self.logger.error(
+        "Couldn't list the snapshots: \(String(describing: error), privacy: .public)")
+      return
+    }
+    try store.finishSnapshotListing(listed)
+  }
+
+  private func openUnlistedRepository(now: Date) async throws -> Session {
     if try store.backupAccount()?.isAdoptionPending == true { try finishAdoption() }
     let repository = try await storage.thisMac()
     if let account = try store.backupAccount() {

@@ -54,6 +54,9 @@ struct SettingsContainerView: View {
     case .setPassword: passwordSheet = BackupPasswordSheetState(mode: .set)
     case .changePassword: passwordSheet = BackupPasswordSheetState(mode: .change)
     case .removePassword: Task { await appModel.removeBackupPassword() }
+    case .restoreFromDrive:
+      coordinator.openMain(at: nil)
+      appModel.askToRestoreFromDrive()
     }
   }
 

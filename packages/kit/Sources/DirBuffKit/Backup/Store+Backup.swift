@@ -188,10 +188,16 @@ extension Store {
         sql: """
           INSERT INTO backup (folderID, tag, history, lastRunAt) VALUES (?, ?, ?, ?)
           ON CONFLICT (folderID) DO UPDATE SET tag = excluded.tag, pausedByLicence = 0,
-            lastSnapshotID = NULL, lastForgetAt = NULL
+            lastRunAt = excluded.lastRunAt, lastSuccessAt = NULL, lastSnapshotID = NULL,
+            lastError = NULL, failingSince = NULL, failedRunsInARow = 0, lastForgetAt = NULL,
+            cloudOnlyCount = 0
           """,
         arguments: [folderID, tag, settings.history.rawValue, now])
+      try db.execute(sql: "DELETE FROM backupSkipped WHERE folderID = ?", arguments: [folderID])
       try db.execute(sql: "DELETE FROM backupVersion WHERE folderID = ?", arguments: [folderID])
+      try db.execute(sql: "DELETE FROM backupSnapshot WHERE folderID = ?", arguments: [folderID])
+      // The series it continues was backed up by another Mac: its snapshots are listed next.
+      try db.execute(sql: "UPDATE backupSnapshotListing SET isPending = 1")
     }
   }
 
@@ -297,6 +303,8 @@ extension Store {
           sql: "INSERT OR REPLACE INTO backupSkipped (folderID, path, reason) VALUES (?, ?, ?)",
           arguments: [folderID, skipped.path, skipped.reason])
       }
+      try recordBackupSnapshot(
+        folderID: folderID, snapshotID: saved.snapshotID, savedAt: saved.savedAt, in: db)
       for version in saved.versions {
         try db.execute(
           sql: """
@@ -408,23 +416,41 @@ extension Store {
       let versions = try Row.fetchAll(
         db,
         sql: """
-          SELECT id, path, snapshotID, savedAt FROM backupVersion WHERE folderID = ?
+          SELECT id, path, snapshotID, savedAt, change FROM backupVersion WHERE folderID = ?
           ORDER BY savedAt, id
           """,
         arguments: [folderID]
       ).map(StoredVersion.init)
+      try keepBackupSnapshots(kept, folderID: folderID, in: db)
       let byFileAndHolder = Dictionary(grouping: versions) { [$0.path, holder(of: $0)?.id] }
       for group in byFileAndHolder.values {
         // Oldest first: the last is the newest saved up to the holder.
-        guard let newest = group.last, let holder = holder(of: newest) else {
+        guard let oldest = group.first, let newest = group.last, let holder = holder(of: newest)
+        else {
+          try Self.deleteVersions(group, in: db)
+          continue
+        }
+        // What the group did to the file, seen from the snapshot kept before it: it was there
+        // unless the group's first change added it, and it is there unless the last removed it.
+        // The first backup of a file that was added and removed in between has nothing to list,
+        // and a file added in between is added, not changed: a version before it is no version.
+        let existedBefore = oldest.change != .added
+        let existsAfter = newest.change != .removed
+        guard existedBefore || existsAfter else {
           try Self.deleteVersions(group, in: db)
           continue
         }
         try Self.deleteVersions(group.dropLast(), in: db)
-        guard newest.snapshotID != holder.id else { continue }
+        let change: BackupVersion.Change =
+          switch (existedBefore, existsAfter) {
+          case (false, _): .added
+          case (true, true): .changed
+          case (true, false): .removed
+          }
+        guard newest.snapshotID != holder.id || newest.change != change else { continue }
         try db.execute(
-          sql: "UPDATE backupVersion SET snapshotID = ?, savedAt = ? WHERE id = ?",
-          arguments: [holder.id, holder.time, newest.id])
+          sql: "UPDATE backupVersion SET snapshotID = ?, savedAt = ?, change = ? WHERE id = ?",
+          arguments: [holder.id, holder.time, change.rawValue, newest.id])
       }
     }
   }
@@ -459,7 +485,7 @@ extension Store {
     }
   }
 
-  private static func backupVersion(_ row: Row) throws -> BackupVersion {
+  static func backupVersion(_ row: Row) throws -> BackupVersion {
     let change: String = row["change"]
     guard let change = BackupVersion.Change(rawValue: change) else {
       throw DatabaseError(message: "Unknown change \(change)")
@@ -567,9 +593,14 @@ extension Store {
   /// In one write: the account, the repository it points at (`repository`, the storage's ID for
   /// it), each folder in `series` on the series it continues, and the adoption marked pending
   /// until the password moves into place in the Keychain.
+  ///
+  /// With `owner`, the account the repository was found in, which is the one signed in: it is
+  /// the backup's owner from this write on, so no check takes the repository for another
+  /// account's. The repository this Mac leaves is no longer in question: it isn't gone or in the
+  /// Bin as far as this Mac goes.
   func adoptBackupRepository(
     host: String, repository: String, series: [Int64: String], settings: BackupSettings,
-    now: Date
+    now: Date, owner: BackupOwner? = nil
   ) throws {
     try database.write { db in
       try db.execute(
@@ -586,10 +617,26 @@ extension Store {
           ON CONFLICT (id) DO UPDATE SET repositoryFolderID = excluded.repositoryFolderID
           """,
         arguments: [repository])
-      try db.execute(sql: "UPDATE backup SET lastSnapshotID = NULL, lastForgetAt = NULL")
+      // Every folder's record was of the repository this Mac leaves: each is owed a first backup
+      // into the one it takes, as Start Again owes them.
+      try db.execute(
+        sql: """
+          UPDATE backup SET lastRunAt = ?, lastSuccessAt = NULL, lastSnapshotID = NULL,
+            lastError = NULL, failingSince = NULL, failedRunsInARow = 0, lastForgetAt = NULL,
+            cloudOnlyCount = 0
+          """,
+        arguments: [now])
+      try db.execute(sql: "DELETE FROM backupSkipped")
       try db.execute(sql: "DELETE FROM backupVersion")
+      try db.execute(sql: "DELETE FROM backupSnapshot")
       try db.execute(sql: "DELETE FROM backupDeletion")
       try Self.continueBackupSeries(series, settings: settings, now: now, in: db)
+      try db.execute(
+        sql: "DELETE FROM backupAccountProblem WHERE cause IN (?, ?)",
+        arguments: [
+          DriveAccountProblem.backupGone.rawValue, DriveAccountProblem.backupInBin.rawValue,
+        ])
+      if let owner { try saveBackupOwner(owner, in: db) }
     }
   }
 
@@ -757,12 +804,15 @@ struct StoredVersion {
   var path: String
   var snapshotID: String
   var savedAt: Date
+  var change: BackupVersion.Change
 
   init(row: Row) {
     id = row["id"]
     path = row["path"]
     snapshotID = row["snapshotID"]
     savedAt = row["savedAt"]
+    let change: String = row["change"]
+    self.change = BackupVersion.Change(rawValue: change) ?? .changed
   }
 }
 
@@ -860,15 +910,23 @@ public struct BackupVersion: Sendable, Equatable {
   public var snapshotID: String
   public var savedAt: Date
   public var change: Change
-  /// Its size when saved; nil for a removal.
+  /// Its size when saved; nil for a removal, and for the version before a change, which is
+  /// measured when it is restored.
   public var size: Int64?
+  /// For the version *before* a file's first recorded change (`FileHistory`): when that change
+  /// replaced it. Nil for a version the backup recorded.
+  public var replacedAt: Date?
 
-  public init(path: String, snapshotID: String, savedAt: Date, change: Change, size: Int64?) {
+  public init(
+    path: String, snapshotID: String, savedAt: Date, change: Change, size: Int64?,
+    replacedAt: Date? = nil
+  ) {
     self.path = path
     self.snapshotID = snapshotID
     self.savedAt = savedAt
     self.change = change
     self.size = size
+    self.replacedAt = replacedAt
   }
 }
 

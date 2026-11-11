@@ -114,6 +114,7 @@ extension Store {
         arguments: [now])
       try db.execute(sql: "DELETE FROM backupSkipped")
       try db.execute(sql: "DELETE FROM backupVersion")
+      try db.execute(sql: "DELETE FROM backupSnapshot")
       try db.execute(sql: "DELETE FROM backupDeletion")
       try db.execute(
         sql: "DELETE FROM backupAccountProblem WHERE cause IN (?, ?)",

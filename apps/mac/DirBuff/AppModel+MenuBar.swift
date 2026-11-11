@@ -7,7 +7,8 @@ extension AppModel {
   func popoverState(now: Date) -> PopoverState {
     PopoverState(
       folders: folders(now: now), scheduleLines: scheduleLines(reports, now: now),
-      progress: runProgress, licence: licence, now: now)
+      progress: runProgress, backupProgress: backupProgress, restore: restoreRun, licence: licence,
+      now: now)
   }
 
   /// Makes the fix, or opens the place where it's made.

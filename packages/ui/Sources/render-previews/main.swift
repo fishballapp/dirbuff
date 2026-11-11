@@ -226,9 +226,11 @@ func main() {
       // Each surface's states are in its own file.
     ] + menuBarPreviews() + mainWindowPreviews() + finderPreviews() + folderPagePreviews()
     + filesPreviews() + historyPreviews() + welcomePreviews()
-    + settingsPreviews() + backupPreviews() + backupLivePreviews()
+    + settingsPreviews() + backupPreviews() + backupLivePreviews() + restorePreviews()
 
-  renderAll(states, into: targetDir)
+  // A second argument keeps only the states whose names start with it: `restore-`.
+  let prefix = arguments.dropFirst().first
+  renderAll(states.filter { prefix.map($0.name.hasPrefix) ?? true }, into: targetDir)
 }
 
 main()

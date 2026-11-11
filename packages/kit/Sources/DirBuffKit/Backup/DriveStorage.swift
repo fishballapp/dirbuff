@@ -66,8 +66,13 @@ public struct DriveStorage: BackupStorage {
     return name
   }
 
+  /// The Macs' backups in the Drive signed in to. The remembered `DirBuff Backup` is used only if
+  /// that Drive has it and it isn't in the Bin: a Drive of another account answers a listing of a
+  /// folder it has never seen with nothing, which would read as no backups at all. Otherwise the
+  /// folder is found by name, and what was remembered stays remembered: only taking over a
+  /// backup replaces it.
   public func macs() async throws -> [BackedUpMac] {
-    guard let backups = try await existingBackupsFolder() else { return [] }
+    guard let backups = try await existingBackupsFolder(isRemembering: false) else { return [] }
     let thisMac = try store.backupDriveFolders().repository
     var macs: [BackedUpMac] = []
     for folder in try await drive.allChildren(of: backups) where folder.isFolder {
@@ -128,10 +133,22 @@ public struct DriveStorage: BackupStorage {
 
   // MARK: DirBuff Backup
 
-  /// The kept folder, or one this app made in an earlier life (on another Mac, or before the
-  /// database was lost), kept from now on. Every Mac's backups go in the one folder.
-  private func existingBackupsFolder() async throws -> DriveFileID? {
-    if let id = try store.backupDriveFolders().backups { return id }
+  /// Whether the remembered `DirBuff Backup` is in the Drive signed in to and not in the Bin.
+  private func isUsable(_ id: DriveFileID) async throws -> Bool {
+    do {
+      return try await !drive.metadata(of: id).isTrashed
+    } catch DriveProblem.notFound {
+      return false
+    }
+  }
+
+  /// The kept folder if this Drive has it, or one this app made in an earlier life (on another
+  /// Mac, or before the database was lost). Every Mac's backups go in the one folder. What is
+  /// found is kept from now on when nothing was kept, or when `isRemembering`: the caller is
+  /// writing here, so this Drive's folder is the one to use.
+  private func existingBackupsFolder(isRemembering: Bool = true) async throws -> DriveFileID? {
+    let kept = try store.backupDriveFolders().backups
+    if let kept, try await isUsable(kept) { return kept }
     let items = try await drive.allCreated()
     let ours = Set(items.map(\.id))
     let childCounts = Dictionary(grouping: items.compactMap(\.parents.first), by: { $0 })
@@ -146,7 +163,7 @@ public struct DriveStorage: BackupStorage {
       $0.parents.contains(found.id) && $0.name == Self.readmeName && !$0.isFolder
     }
     if !hasReadme { try await writeReadme(in: found.id) }
-    try store.saveBackupDriveFolder(found.id)
+    if kept == nil || isRemembering { try store.saveBackupDriveFolder(found.id) }
     return found.id
   }
 

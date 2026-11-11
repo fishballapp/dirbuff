@@ -12,19 +12,23 @@ public struct UnreadFilesPage: View {
   public var onLeaveOut: (UnreadFile) -> Void
   /// Shows these in Finder: one file, or the folder.
   public var onShowInFinder: ([URL]) -> Void
+  /// Opens the folder's versions: an unreadable file may have an earlier version that was read.
+  public var onShowVersions: () -> Void
 
   public init(
     state: UnreadFilesState?,
     folderName: String,
     folderPath: String,
     onLeaveOut: @escaping (UnreadFile) -> Void = { _ in },
-    onShowInFinder: @escaping ([URL]) -> Void = { _ in }
+    onShowInFinder: @escaping ([URL]) -> Void = { _ in },
+    onShowVersions: @escaping () -> Void = {}
   ) {
     self.state = state
     self.folderName = folderName
     self.folderPath = folderPath
     self.onLeaveOut = onLeaveOut
     self.onShowInFinder = onShowInFinder
+    self.onShowVersions = onShowVersions
   }
 
   public var body: some View {
@@ -39,6 +43,10 @@ public struct UnreadFilesPage: View {
             .resizable()
             .frame(width: 20, height: 20)
             .accessibilityHidden(true)
+        }
+        ToolbarItem(placement: .primaryAction) {
+          GhostIconButton(
+            "Show Versions", systemImage: GhostIconButton.historySymbol, action: onShowVersions)
         }
         ToolbarItem(placement: .primaryAction) {
           GhostIconButton("Show in Finder", systemImage: GhostIconButton.finderSymbol) {

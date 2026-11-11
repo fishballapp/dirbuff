@@ -132,14 +132,61 @@ import Testing
     let new = try DriveMac("New Mac", host: "mac-b", drive: drive)
     let oldMac = try #require(try await new.backup.backedUpMacs().first)
     let folder = try #require(try await new.backup.backedUpFolders(of: oldMac).first)
-    let first = try require(new.engine.add(try new.scratch.folder("one")).id)
-    let second = try require(new.engine.add(try new.scratch.folder("two")).id)
+    let first = try new.scratch.folder("one")
+    let second = try new.scratch.folder("two")
 
     await #expect(throws: BackupBuff.Failure.seriesShared(folder.series)) {
       try await new.backup.keepBackingUpHere(oldMac, continuing: [first: folder, second: folder])
     }
     #expect(try new.store.backupAccount() == nil)
     #expect(try new.store.backupDriveFolders().repository == nil)
+    // Neither was added to DirBuff.
+    #expect(try new.engine.store.folder(path: canonicalPath(of: first)) == nil)
+    #expect(try new.engine.store.folder(path: canonicalPath(of: second)) == nil)
+  }
+
+  @Test func aFolderAlreadyContinuingTheSeriesStopsAnotherFromTakingItAndAddsNothing() async throws
+  {
+    let old = try DriveMac("Old Mac", host: "mac-a", drive: drive)
+    let oldFolderID = try old.addWearing("Documents")
+    try old.write("notes", to: "Documents/a.txt")
+    try await old.run(oldFolderID)
+    let new = try DriveMac("New Mac", host: "mac-b", drive: drive)
+    let oldMac = try #require(try await new.backup.backedUpMacs().first)
+    let folder = try #require(try await new.backup.backedUpFolders(of: oldMac).first)
+    // A folder of this Mac's already carries on that series.
+    let taken = try new.scratch.folder("taken")
+    let takenID = try require(new.engine.add(taken).id)
+    try new.store.continueBackupSeries(
+      [takenID: folder.series], settings: BackupSettings(), now: Date())
+    let another = try new.scratch.folder("another")
+
+    await #expect(throws: BackupBuff.Failure.seriesShared(folder.series)) {
+      try await new.backup.keepBackingUpHere(oldMac, continuing: [another: folder])
+    }
+
+    #expect(try new.engine.store.folder(path: canonicalPath(of: another)) == nil)
+    #expect(try new.store.backupAccount() == nil)
+  }
+
+  @Test func nothingIsAddedToDirBuffWhenTheBackupIsEmpty() async throws {
+    let mac = try DriveMac("Empty Mac", host: "mac-a", drive: drive)
+    let folderID = try mac.addWearing("docs")
+    try mac.write("notes", to: "docs/a.txt")
+    try await mac.run(folderID)
+    // Its backup deleted: a repository with every snapshot forgotten.
+    try mac.backup.takeOff(folderID: folderID, isDeletingBackup: true)
+    try await mac.backup.maintain()
+    let new = try DriveMac("New Mac", host: "mac-b", drive: drive)
+    let emptyMac = try #require(try await new.backup.backedUpMacs().first)
+    let place = try new.scratch.folder("restored")
+    let folder = BackedUpFolder(series: "x", name: "Documents", path: "/x/Documents", snapshots: [])
+
+    await #expect(throws: BackupBuff.Failure.backupIsEmpty) {
+      try await new.backup.keepBackingUpHere(emptyMac, continuing: [place: folder])
+    }
+
+    #expect(try new.engine.store.folder(path: canonicalPath(of: place)) == nil)
   }
 
   // MARK: The weekly check

@@ -50,7 +50,8 @@ extension AppModel {
     await googleDidSignIn()
     if googleAccount == nil { await readGoogleAccount() }
     guard !Task.isCancelled else { return }
-    if case .otherAccount(let owner) = driveState {
+    // Restoring reads the account signed in, whoever owns this Mac's own backup.
+    if signInSheet?.reason != .restore, case .otherAccount(let owner) = driveState {
       setSignInStep(.otherAccount(owner: owner, signedIn: googleAccount))
     } else {
       setSignInStep(.signedIn(account: googleAccount))
@@ -72,6 +73,13 @@ extension AppModel {
   func confirmSignIn() {
     guard let sheet = signInSheet else { return }
     signInSheet = nil
+    // Restore from Google Drive… asked for the sign-in, and goes on with it: restoring another
+    // Mac's backup needs no confirmed account, and nothing is backed up.
+    if sheet.reason == .restore {
+      Task { await refresh() }
+      openRestoreFromDrive()
+      return
+    }
     Task {
       do {
         try await driveAccount.confirmSignedInAccount()

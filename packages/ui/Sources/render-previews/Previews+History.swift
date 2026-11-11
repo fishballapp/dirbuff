@@ -15,7 +15,7 @@ func historyPreviews() -> [Preview] {
           switch page {
           case .folderHistory(let id): AnyView(HistoryPage(folderID: id, history: history))
           case .run: AnyView(RunPage(run: Samples.run))
-          case .files, .unreadFiles: AnyView(EmptyView())
+          case .files, .unreadFiles, .versions: AnyView(EmptyView())
           }
         }))
   }

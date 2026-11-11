@@ -45,14 +45,20 @@ private func backupWords(_ failure: BackupBuff.Failure) -> String {
   case .passwordTooShort(let minimum): "A password needs at least \(minimum) characters."
   case .passwordHasSurroundingSpace: "A password can't start or end with a space."
   case .nameWithSlash(let name): "\(name) has a / in it, so it can't be left out by name."
-  case .nothingToRestore: "That version is a deletion: there's nothing of it to restore."
-  case .notInBackup(let path): "\(path) isn't in that backup."
+  case .nothingToRestore:
+    "That version is a deletion: there's nothing of it to restore. Choose an earlier version."
+  case .notInBackup(let path):
+    "\(path) isn't in that backup. Older versions thin out with age, so it may no longer hold it: choose another version, or restore the folder as it was on a date the backup still has."
   case .notEnoughRoom(let needed, let available):
-    "There isn't room: it needs \(bytes(needed)), and \(bytes(available)) is free."
-  case .cannotWrite(let url): "DirBuff can't write into \(url.lastPathComponent)."
-  case .outsideFolder(let path): "\(path) now leads out of the folder, so nothing was written."
-  case .seriesShared(let name): "Two folders on this Mac would back up as one: \(name)."
-  case .backupIsEmpty: "That backup holds no snapshot yet."
+    "There isn't room: it needs \(bytes(needed)), and \(bytes(available)) is free where it would go."
+  case .cannotWrite(let url):
+    "DirBuff can't write into \(url.lastPathComponent). Choose another folder to restore into."
+  case .outsideFolder(let path):
+    "\(path) now leads out of the folder, so nothing was written. Replace the link with a real folder in Finder, then try again."
+  case .seriesShared:
+    "Two folders on this Mac would carry on the same backed-up folder. A backed-up folder carries on in one folder only: take Backup off the other, or keep backing up the rest."
+  case .backupIsEmpty:
+    "That backup holds no snapshot yet, so there is nothing to take over. If Google Drive was slow to answer, try again in a moment."
   case .accountProblem(let problem): accountWords(problem)
   case .notConfirmed: "Nothing was changed: it wasn't confirmed."
   case .cannotStartAgain: "This backup can't be started again."

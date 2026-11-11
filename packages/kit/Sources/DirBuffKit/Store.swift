@@ -268,6 +268,7 @@ public struct Store: Sendable {
     registerBackupNotificationMigrations(&migrator)
     registerBackupAccountMigrations(&migrator)
     registerBackupOwnerMigrations(&migrator)
+    registerBackupSnapshotMigrations(&migrator)
     return migrator
   }
 
