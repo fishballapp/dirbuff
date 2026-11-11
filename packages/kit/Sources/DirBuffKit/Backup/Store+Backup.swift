@@ -91,6 +91,39 @@ extension Store {
     }
   }
 
+  /// Registered after the bridge's: migrations run in the order they're registered.
+  static func registerBackupOnDriveMigrations(_ migrator: inout DatabaseMigrator) {
+    migrator.registerMigration("backup on drive") { db in
+      // One row: where the Macs' backups are in Drive, and which is this Mac's, by ID, kept as
+      // soon as each is found or made.
+      try db.create(table: "backupDrive") { t in
+        t.primaryKey("id", .integer).check { $0 == 1 }
+        t.column("backupsFolderID", .text)
+        t.column("repositoryFolderID", .text)
+      }
+      try db.alter(table: "backupAccount") { t in
+        // `backupDrive` holds them, from before the repository exists.
+        t.drop(column: "driveFolderID")
+        t.drop(column: "repositoryDriveID")
+        // The repository opens with no password, or with the one the Keychain keeps: nothing
+        // is kept beside the backup any more.
+        t.drop(column: "keyCustody")
+        // The last weekly check that ran to its end, and what it found missing (nil: nothing).
+        t.add(column: "lastCheckAt", .datetime)
+        t.add(column: "lastCheckProblem", .text)
+        // The time of the snapshot the last check restored a file from, so the next takes the
+        // one after it.
+        t.add(column: "lastSampledAt", .datetime)
+        // A change of password under way: until it's finished, keys other than the Keychain's
+        // may still open the repository.
+        t.add(column: "isKeyChangePending", .boolean).notNull().defaults(to: false)
+        // This Mac took over another's repository and its password is still to move from the
+        // Keychain's staging slot.
+        t.add(column: "isAdoptionPending", .boolean).notNull().defaults(to: false)
+      }
+    }
+  }
+
   // MARK: Wear
 
   func backupWear(folderID: Int64) throws -> Wear<BackupSettings>? {
@@ -122,6 +155,43 @@ extension Store {
           ON CONFLICT (folderID) DO UPDATE SET pausedByLicence = 0
           """,
         arguments: [folderID, UUID().uuidString.lowercased(), settings.history.rawValue, now])
+    }
+  }
+
+  /// Puts Backup on the folder continuing the series `tag` of a backup it was restored from, so
+  /// what it holds is found in the repository and doesn't upload again. A folder that wears
+  /// Backup already moves to that series; its versions were of the old one.
+  func continueBackupSeries(_ series: [Int64: String], settings: BackupSettings, now: Date)
+    throws
+  {
+    try database.write { db in
+      try Self.continueBackupSeries(series, settings: settings, now: now, in: db)
+    }
+  }
+
+  private static func continueBackupSeries(
+    _ series: [Int64: String], settings: BackupSettings, now: Date, in db: Database
+  ) throws {
+    for (folderID, tag) in series {
+      try db.execute(
+        sql: """
+          INSERT INTO backup (folderID, tag, history, lastRunAt) VALUES (?, ?, ?, ?)
+          ON CONFLICT (folderID) DO UPDATE SET tag = excluded.tag, pausedByLicence = 0,
+            lastSnapshotID = NULL, lastForgetAt = NULL
+          """,
+        arguments: [folderID, tag, settings.history.rawValue, now])
+      try db.execute(sql: "DELETE FROM backupVersion WHERE folderID = ?", arguments: [folderID])
+    }
+  }
+
+  /// The first of `series` (folder → series) that two folders would share, counting the folders
+  /// that keep the series they have.
+  func sharedBackupSeries(_ series: [Int64: String]) throws -> String? {
+    try database.read { db in
+      let kept = try Row.fetchAll(db, sql: "SELECT folderID, tag FROM backup")
+        .reduce(into: [Int64: String]()) { $0[$1["folderID"]] = $1["tag"] }
+      let all = kept.merging(series) { $1 }.values.sorted()
+      return zip(all, all.dropFirst()).first { $0 == $1 }?.0
     }
   }
 
@@ -331,16 +401,29 @@ extension Store {
         db,
         sql: "SELECT * FROM backupVersion WHERE folderID = ? ORDER BY savedAt, path",
         arguments: [folderID]
-      ).map { row in
-        let change: String = row["change"]
-        guard let change = BackupVersion.Change(rawValue: change) else {
-          throw DatabaseError(message: "Unknown change \(change)")
-        }
-        return BackupVersion(
-          path: row["path"], snapshotID: row["snapshotID"], savedAt: row["savedAt"],
-          change: change, size: row["size"])
-      }
+      ).map(Self.backupVersion)
     }
+  }
+
+  /// The versions of one file, oldest first.
+  func backupVersions(folderID: Int64, path: String) throws -> [BackupVersion] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: "SELECT * FROM backupVersion WHERE folderID = ? AND path = ? ORDER BY savedAt, id",
+        arguments: [folderID, path]
+      ).map(Self.backupVersion)
+    }
+  }
+
+  private static func backupVersion(_ row: Row) throws -> BackupVersion {
+    let change: String = row["change"]
+    guard let change = BackupVersion.Change(rawValue: change) else {
+      throw DatabaseError(message: "Unknown change \(change)")
+    }
+    return BackupVersion(
+      path: row["path"], snapshotID: row["snapshotID"], savedAt: row["savedAt"],
+      change: change, size: row["size"])
   }
 
   // MARK: Left out and skipped
@@ -407,13 +490,12 @@ extension Store {
   func backupAccount() throws -> BackupAccount? {
     try database.read { db in
       try Row.fetchOne(db, sql: "SELECT * FROM backupAccount").map { row in
-        let custody: String = row["keyCustody"]
-        guard let custody = KeyCustody(rawValue: custody) else {
-          throw DatabaseError(message: "Unknown key custody \(custody)")
-        }
-        return BackupAccount(
-          host: row["host"], keyCustody: custody, lastPrunedAt: row["lastPrunedAt"],
-          createdAt: row["createdAt"])
+        BackupAccount(
+          host: row["host"], lastPrunedAt: row["lastPrunedAt"],
+          createdAt: row["createdAt"], lastCheckAt: row["lastCheckAt"],
+          lastCheckProblem: row["lastCheckProblem"], lastSampledAt: row["lastSampledAt"],
+          isKeyChangePending: row["isKeyChangePending"], isAdoptionPending: row["isAdoptionPending"]
+        )
       }
     }
   }
@@ -422,23 +504,108 @@ extension Store {
     try database.write {
       try $0.execute(
         sql: """
-          INSERT INTO backupAccount (id, host, keyCustody, createdAt) VALUES (1, ?, ?, ?)
+          INSERT INTO backupAccount (id, host, createdAt) VALUES (1, ?, ?)
           ON CONFLICT DO NOTHING
           """,
-        arguments: [host, KeyCustody.besideBackup.rawValue, now])
-    }
-  }
-
-  func setKeyCustody(_ custody: KeyCustody) throws {
-    try database.write {
-      try $0.execute(
-        sql: "UPDATE backupAccount SET keyCustody = ?", arguments: [custody.rawValue])
+        arguments: [host, now])
     }
   }
 
   func recordPrune(at date: Date) throws {
     try database.write {
       try $0.execute(sql: "UPDATE backupAccount SET lastPrunedAt = ?", arguments: [date])
+    }
+  }
+
+  /// This Mac takes over another's repository, with its snapshots' host. What
+  /// this Mac recorded of the repository it leaves (each folder's last snapshot, versions,
+  /// deletions, prunes and checks) was of that one, so it goes.
+  ///
+  /// In one write: the account, the repository it points at (`repository`, the storage's ID for
+  /// it), each folder in `series` on the series it continues, and the adoption marked pending
+  /// until the password moves into place in the Keychain.
+  func adoptBackupRepository(
+    host: String, repository: String, series: [Int64: String], settings: BackupSettings,
+    now: Date
+  ) throws {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO backupAccount (id, host, createdAt, isAdoptionPending) VALUES (1, ?, ?, 1)
+          ON CONFLICT (id) DO UPDATE SET host = excluded.host, createdAt = excluded.createdAt,
+            lastPrunedAt = NULL, lastCheckAt = NULL, lastCheckProblem = NULL,
+            lastSampledAt = NULL, isKeyChangePending = 0, isAdoptionPending = 1
+          """,
+        arguments: [host, now])
+      try db.execute(
+        sql: """
+          INSERT INTO backupDrive (id, repositoryFolderID) VALUES (1, ?)
+          ON CONFLICT (id) DO UPDATE SET repositoryFolderID = excluded.repositoryFolderID
+          """,
+        arguments: [repository])
+      try db.execute(sql: "UPDATE backup SET lastSnapshotID = NULL, lastForgetAt = NULL")
+      try db.execute(sql: "DELETE FROM backupVersion")
+      try db.execute(sql: "DELETE FROM backupDeletion")
+      try Self.continueBackupSeries(series, settings: settings, now: now, in: db)
+    }
+  }
+
+  func setKeyChangePending(_ isPending: Bool) throws {
+    try database.write {
+      try $0.execute(
+        sql: "UPDATE backupAccount SET isKeyChangePending = ?", arguments: [isPending])
+    }
+  }
+
+  func finishAdoption() throws {
+    try database.write {
+      try $0.execute(sql: "UPDATE backupAccount SET isAdoptionPending = 0")
+    }
+  }
+
+  /// A weekly check that ran to its end, and the snapshot it restored a file from, if any.
+  func recordCheck(_ check: BackupCheck, sampledAt: Date?) throws {
+    try database.write {
+      try $0.execute(
+        sql: """
+          UPDATE backupAccount SET lastCheckAt = ?, lastCheckProblem = ?,
+            lastSampledAt = coalesce(?, lastSampledAt)
+          """,
+        arguments: [check.checkedAt, check.problem, sampledAt])
+    }
+  }
+
+  // MARK: Drive
+
+  /// `DirBuff Backup` and this Mac's repository in it, each once found or made.
+  func backupDriveFolders() throws -> (backups: DriveFileID?, repository: DriveFileID?) {
+    try database.read { db in
+      let row = try Row.fetchOne(db, sql: "SELECT * FROM backupDrive")
+      let backups: String? = row?["backupsFolderID"]
+      let repository: String? = row?["repositoryFolderID"]
+      return (backups.map { DriveFileID($0) }, repository.map { DriveFileID($0) })
+    }
+  }
+
+  func saveBackupDriveFolder(_ id: DriveFileID) throws {
+    try database.write {
+      try $0.execute(
+        sql: """
+          INSERT INTO backupDrive (id, backupsFolderID) VALUES (1, ?)
+          ON CONFLICT (id) DO UPDATE SET backupsFolderID = excluded.backupsFolderID
+          """,
+        arguments: [id.rawValue])
+    }
+  }
+
+  func saveBackupDriveRepository(_ id: DriveFileID) throws {
+    try database.write {
+      try $0.execute(
+        sql: """
+          INSERT INTO backupDrive (id, repositoryFolderID) VALUES (1, ?)
+          ON CONFLICT (id) DO UPDATE SET repositoryFolderID = excluded.repositoryFolderID
+          """,
+        arguments: [id.rawValue])
     }
   }
 
@@ -501,6 +668,11 @@ struct BackupRecord: Sendable, Equatable {
 
   /// restic's tag for a folder's series.
   static func resticTag(_ tag: String) -> String { "folder=\(tag)" }
+
+  /// The series a restic tag names, if it names one.
+  static func series(_ resticTag: String) -> String? {
+    resticTag.hasPrefix("folder=") ? String(resticTag.dropFirst("folder=".count)) : nil
+  }
 }
 
 /// A `backupVersion` row, as a forget sorts them.
@@ -539,19 +711,13 @@ struct SavedVersion: Sendable, Equatable {
 /// The Mac's one repository.
 struct BackupAccount: Sendable, Equatable {
   var host: String
-  var keyCustody: KeyCustody
   var lastPrunedAt: Date?
   var createdAt: Date
-}
-
-/// Who holds the key that opens the Mac's repository.
-public enum KeyCustody: String, Sendable, Equatable {
-  /// In the repository's folder as `password.txt`, and in the login Keychain: signing in to the
-  /// account that holds the backup is enough to restore it, on any Mac.
-  case besideBackup
-  /// Private Backup: the user's recovery key, and the login Keychain. A lost key with no Mac
-  /// that still holds it is a lost backup.
-  case `private`
+  var lastCheckAt: Date?
+  var lastCheckProblem: String?
+  var lastSampledAt: Date?
+  var isKeyChangePending: Bool
+  var isAdoptionPending: Bool
 }
 
 /// A file the last backup couldn't read, so isn't in it.
@@ -579,6 +745,14 @@ public struct BackupVersion: Sendable, Equatable {
   public var change: Change
   /// Its size when saved; nil for a removal.
   public var size: Int64?
+
+  public init(path: String, snapshotID: String, savedAt: Date, change: Change, size: Int64?) {
+    self.path = path
+    self.snapshotID = snapshotID
+    self.savedAt = savedAt
+    self.change = change
+    self.size = size
+  }
 }
 
 /// What one run did to one folder, as History shows it.

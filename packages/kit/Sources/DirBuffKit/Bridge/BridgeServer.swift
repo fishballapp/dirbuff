@@ -247,6 +247,7 @@ actor BridgeServer {
     let files = try store.repositoryFiles(in: repository, at: path)
     guard !files.isEmpty else { return .notFound }
     for file in files {
+      try store.markRepositoryFileDeleting(file.driveID, in: repository)
       do {
         try await calling(.delete) { [drive] in try await drive.delete(file.driveID) }
       } catch DriveProblem.notFound {

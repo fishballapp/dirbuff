@@ -8,8 +8,8 @@ struct ResticProcess {
   var arguments: [String]
   /// Written to restic's standard input, which it reads as a password file. Never a file on
   /// disk, an argument or an environment variable: any process of the same user can read the
-  /// last two with `ps`.
-  var password: String
+  /// last two with `ps`. Nil for a repository with no password: restic reads nothing.
+  var password: String?
   /// A second password, for `key add` (`--new-password-file`). restic gets it through a named
   /// pipe in a folder only this user can open, since `Process` passes a child no descriptors but
   /// its standard ones: the bytes go from this process to restic's, and nothing is written to disk.
@@ -63,7 +63,7 @@ struct ResticProcess {
     } catch {
       throw ResticFailure.unusable("restic didn't start: \(error.localizedDescription)")
     }
-    Self.give(password, to: input.fileHandleForWriting)
+    Self.give(password ?? "", to: input.fileHandleForWriting)
     newPasswordPipe?.write(until: { hasEnded.withLock { $0 } })
 
     let supervision = Supervision(

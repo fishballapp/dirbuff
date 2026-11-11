@@ -9,10 +9,11 @@ import os
 /// never wait on each other's lock.
 public struct BackupBuff: BuffModule {
   public let engine: Engine
-  public let repository: any BackupRepository
+  /// Where the Macs' backups are, this Mac's among them.
+  public let storage: any BackupStorage
   public let keychain: any BackupKeychain
   private let executable: URL
-  /// restic's cache of the repository's index.
+  /// restic's cache of the repositories' indexes.
   private let cacheDirectory: URL
   /// Whose `Library` a backup of their home leaves out.
   private let home: URL
@@ -20,9 +21,13 @@ public struct BackupBuff: BuffModule {
   /// repository on this Mac.
   private let ownFolders: [URL]
   private let qualityOfService: QualityOfService
-  private let commands = OneAtATime()
-  private var store: Store { engine.store }
-  private static let logger = Logger(subsystem: "app.fishball.dirbuff", category: "backup")
+  /// What this Mac's snapshots are taken as when it starts a repository of its own.
+  let machineID: @Sendable () throws -> String
+  /// Bytes free on the volume of a folder, for what a restore may write.
+  let freeSpace: @Sendable (URL) throws -> Int64
+  let commands = OneAtATime()
+  var store: Store { engine.store }
+  static let logger = Logger(subsystem: "app.fishball.dirbuff", category: "backup")
 
   /// How often `maintain` prunes the repository.
   public static let pruneInterval: TimeInterval = 7 * 86_400
@@ -30,30 +35,58 @@ public struct BackupBuff: BuffModule {
   public static let pruneLimit = Duration.seconds(4 * 3_600)
 
   public init(
-    engine: Engine, repository: any BackupRepository,
+    engine: Engine, storage: any BackupStorage,
     keychain: any BackupKeychain = LoginKeychain(),
     executable: URL = Restic.bundledExecutable, cacheDirectory: URL,
     home: URL = FileManager.default.homeDirectoryForCurrentUser,
-    ownFolders: [URL] = [], qualityOfService: QualityOfService = Restic.defaultQualityOfService
+    ownFolders: [URL] = [], qualityOfService: QualityOfService = Restic.defaultQualityOfService,
+    machineID: @escaping @Sendable () throws -> String = Machine.id,
+    freeSpace: @escaping @Sendable (URL) throws -> Int64 = BackupBuff.volumeFreeSpace
   ) {
     self.engine = engine
-    self.repository = repository
+    self.storage = storage
     self.keychain = keychain
     self.executable = executable
     self.cacheDirectory = cacheDirectory
     self.home = home
     self.ownFolders = [cacheDirectory] + ownFolders
     self.qualityOfService = qualityOfService
+    self.machineID = machineID
+    self.freeSpace = freeSpace
+  }
+
+  /// What macOS would let an app the user is waiting on write to the folder's volume.
+  public static func volumeFreeSpace(of folder: URL) throws -> Int64 {
+    try folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+      .volumeAvailableCapacityForImportantUsage ?? 0
   }
 
   public enum Failure: Error, Equatable {
-    /// The repository's key is in neither the Keychain nor the repository: Private Backup is on
-    /// and this Mac lost its copy. Only the recovery key opens the backup now.
-    case keyMissing
+    /// The repository has a password, and none was given: another Mac's, or this Mac's when the
+    /// Keychain lost it.
+    case passwordNeeded
+    /// The password given, or the one the Keychain keeps, doesn't open the repository.
+    case passwordDoesNotOpen
+    /// A password must have at least `minimum` characters.
+    case passwordTooShort(minimum: Int)
+    /// restic trims a password, so one that starts or ends with a space would open as another.
+    case passwordHasSurroundingSpace
     /// A name to leave out can't hold a `/`; that's a path.
     case nameWithSlash(String)
-    /// The recovery key typed back isn't one `makeRecoveryKey` made: nothing was changed.
-    case recoveryKeyDoesNotOpen
+    /// A removal is no version of a file: there's nothing of it to restore.
+    case nothingToRestore
+    /// The snapshot doesn't hold the file or folder asked for.
+    case notInBackup(String)
+    /// The folder's volume hasn't room for what a restore would write.
+    case notEnoughRoom(needed: Int64, available: Int64)
+    /// A restore can't write into this folder; nothing was downloaded.
+    case cannotWrite(URL)
+    /// A folder on the way to where a copy would go is now a link out of the backed-up folder.
+    case outsideFolder(String)
+    /// Two folders on this Mac would back up as the one series.
+    case seriesShared(String)
+    /// The backup to take over lists no snapshot, so there's no Mac to take it over as.
+    case backupIsEmpty
   }
 
   public var buff: Buff { .backup }
@@ -337,187 +370,138 @@ public struct BackupBuff: BuffModule {
     return .path(path.split(separator: "/").joined(separator: "/"))
   }
 
-  // MARK: - The key
+  // MARK: - The password
 
-  public func keyCustody() throws -> KeyCustody? {
-    try store.backupAccount()?.keyCustody
+  /// The fewest characters a password may have.
+  public static let minimumPasswordLength = 12
+
+  /// Whether this Mac's repository opens only with a password, which the Keychain keeps. Without
+  /// one, it opens with none.
+  public func isPasswordProtected() throws -> Bool {
+    try keychain.key() != nil
   }
 
-  /// Private Backup, first step: makes a recovery key and adds it to the repository, beside the
-  /// key that opens it now. Nothing that opens the backup goes: `password.txt`, the Keychain and
-  /// the old key stay as they were, so a user who never confirms the key loses nothing.
-  public func makeRecoveryKey(now: Date = Date()) async throws -> String {
-    try await commands.run {
-      let session = try await openRepository(now: now)
-      let recoveryKey = RecoveryKey.make()
-      _ = try await restic(session) { try await $0.addKey(newPassword: recoveryKey) }
-      return recoveryKey
+  /// Protect with a Password, or change it: from now on the repository opens with `password`
+  /// and nothing else. Nothing uploads again, since restic's keys each wrap the one master key.
+  public func setPassword(_ password: String, now: Date = Date()) async throws {
+    guard password.count >= Self.minimumPasswordLength else {
+      throw Failure.passwordTooShort(minimum: Self.minimumPasswordLength)
     }
+    guard password.trimmingCharacters(in: .whitespacesAndNewlines) == password else {
+      throw Failure.passwordHasSurroundingSpace
+    }
+    try await replaceKey(with: password, now: now)
   }
 
-  /// Private Backup, second step, once the user has typed the recovery key back: checks it opens
-  /// the repository, keeps it in the Keychain, then removes `password.txt` and every other key, so
-  /// only this Mac and the user can open the backup. A key from an earlier `makeRecoveryKey` that
-  /// was never confirmed goes too.
-  public func turnOnPrivateBackup(confirming recoveryKey: String, now: Date = Date())
-    async throws
-  {
+  /// The repository opens with no password again.
+  public func removePassword(now: Date = Date()) async throws {
+    try await replaceKey(with: nil, now: now)
+  }
+
+  /// Marks the change pending, adds the new key, keeps it in the Keychain (or deletes the
+  /// Keychain's for none), then removes every other key. Cut short anywhere, the repository
+  /// opens with what the Keychain holds (before the Keychain changes the old key is there, after
+  /// it the new one) and the next `openRepository` removes every other key. Asked again for the
+  /// password it has, it finishes the change.
+  private func replaceKey(with password: String?, now: Date) async throws {
     try await commands.run {
       let session = try await openRepository(now: now)
-      let confirmed = Session(host: session.host, key: recoveryKey, custody: .private)
-      do {
-        _ = try await restic(confirmed, isRecoveringKey: false) { try await $0.keys() }
-      } catch ResticFailure.exited(.wrongPassword, _) {
-        throw Failure.recoveryKeyDoesNotOpen
+      try store.setKeyChangePending(true)
+      if session.key != password {
+        _ = try await restic(session) { try await $0.addKey(newPassword: password) }
+        if let password { try keychain.save(password) } else { try keychain.delete() }
       }
-      // Until the custody changes, the old key and `password.txt` still open the repository
-      // too, so a crash here leaves one that opens with either.
-      try keychain.save(recoveryKey)
-      try store.setKeyCustody(.private)
-      // Already private, the file is gone but the last recovery key isn't.
-      // ponytail: a crash between the Keychain and here leaves that key working until the next
-      // change of key; the user held it already. Un-park if a rotation is ever cut short.
-      try await removeKeys(otherThan: confirmed)
-      try await repository.removePasswordFile()
+      try await finishKeyChange(
+        Session(repository: session.repository, host: session.host, key: password))
     }
   }
 
-  /// Puts the key back beside the backup.
-  public func turnOffPrivateBackup(now: Date = Date()) async throws {
-    try await commands.run {
-      let session = try await openRepository(now: now)
-      try store.setKeyCustody(.besideBackup)
-      try await settleCustody(Session(host: session.host, key: session.key, custody: .besideBackup))
-    }
-  }
-
-  // MARK: - The repository
-
-  /// What every command needs: whom the snapshots belong to and the key. The key is replaced
-  /// when the Keychain's turns out stale and `password.txt` opens the repository.
-  private final class Session: Sendable {
-    let host: String
-    let custody: KeyCustody
-    private let currentKey: OSAllocatedUnfairLock<String>
-
-    init(host: String, key: String, custody: KeyCustody) {
-      self.host = host
-      self.custody = custody
-      currentKey = OSAllocatedUnfairLock(initialState: key)
-    }
-
-    var key: String { currentKey.withLock { $0 } }
-
-    func replaceKey(with key: String) {
-      currentKey.withLock { $0 = key }
-    }
-  }
-
-  /// Opens the Mac's repository, creating it on first use with its key beside it, and makes it
-  /// match the key's custody, which a crash in the middle of a change can leave half done.
-  private func openRepository(now: Date) async throws -> Session {
-    if let account = try store.backupAccount() {
-      let key = try await existingKey()
-      let session = Session(host: account.host, key: key, custody: account.keyCustody)
-      try await settleCustody(session)
-      return session
-    }
-    // The key is kept before the repository is made, so a repository never exists without it.
-    let key = try await existingKeyIfAny() ?? RecoveryKey.make()
-    try keychain.save(key)
-    let session = Session(host: try Machine.id(), key: key, custody: .besideBackup)
-    try await settleCustody(session)
-    do {
-      _ = try await restic(session) { try await $0.keys() }
-    } catch ResticFailure.exited(.repositoryMissing, _) {
-      _ = try await restic(session) { try await $0.createRepository() }
-    }
-    try store.createBackupAccount(host: session.host, now: now)
-    return session
-  }
-
-  private func existingKey() async throws -> String {
-    if let key = try keychain.key() { return key }
-    guard let key = try await repository.readPasswordFile() else { throw Failure.keyMissing }
-    try keychain.save(key)
-    return key
-  }
-
-  /// The Keychain's copy, or the one beside the backup.
-  private func existingKeyIfAny() async throws -> String? {
-    if let key = try keychain.key() { return key }
-    return try await repository.readPasswordFile()
-  }
-
-  /// Beside the backup: `password.txt` is there. Private: it isn't, and no other key opens the
-  /// repository. Other keys go first, so the file never outlives the key it holds.
-  private func settleCustody(_ session: Session) async throws {
-    let hasPasswordFile = try await repository.hasPasswordFile()
-    switch session.custody {
-    case .besideBackup:
-      guard !hasPasswordFile else { return }
-      try await repository.writePasswordFile(session.key)
-    case .private:
-      guard hasPasswordFile else { return }
-      try await removeKeys(otherThan: session)
-      try await repository.removePasswordFile()
-    }
-  }
-
-  private func removeKeys(otherThan session: Session) async throws {
+  /// Leaves only the key `session` opens the repository with.
+  private func finishKeyChange(_ session: Session) async throws {
     let keys = try await restic(session) { try await $0.keys() }
     for key in keys where !key.isCurrent {
       try await restic(session) { try await $0.removeKey(id: key.id) }
     }
+    try store.setKeyChangePending(false)
   }
 
-  /// The Keychain's key didn't open the repository. The one beside it does, if it's there and
-  /// opens it (the Keychain kept a key the repository no longer has): it replaces the Keychain's
-  /// copy. Otherwise only the recovery key can open the backup now.
-  private func recoverKey(for session: Session) async throws {
-    guard let besideKey = try await repository.readPasswordFile(), besideKey != session.key
-    else { throw Failure.keyMissing }
-    let beside = Session(host: session.host, key: besideKey, custody: session.custody)
-    do {
-      _ = try await withRestic(beside) { try await $0.keys() }
-    } catch ResticFailure.exited(.wrongPassword, _) {
-      throw Failure.keyMissing
+  // MARK: - The repository
+
+  /// What every command needs: the repository, whom the snapshots belong to, and the password,
+  /// nil when it opens with none.
+  struct Session: Sendable {
+    let repository: any BackupRepository
+    let host: String
+    let key: String?
+  }
+
+  /// Opens the Mac's repository, creating it on first use with no password. A change cut short
+  /// is finished first: a repository taken over gets its password into place, and a change of
+  /// password leaves only the Keychain's key.
+  func openRepository(now: Date) async throws -> Session {
+    if try store.backupAccount()?.isAdoptionPending == true { try finishAdoption() }
+    let repository = try await storage.thisMac()
+    if let account = try store.backupAccount() {
+      let session = Session(repository: repository, host: account.host, key: try keychain.key())
+      if account.isKeyChangePending { try await finishKeyChange(session) }
+      return session
     }
-    try keychain.save(besideKey)
-    session.replaceKey(with: besideKey)
-    Self.logger.info("The Keychain's key was stale; the one beside the backup replaced it")
+    // A repository a crash left before the database knew of it opens as it is.
+    let found = Session(repository: repository, host: try machineID(), key: try keychain.key())
+    do {
+      _ = try await restic(found) { try await $0.keys() }
+      try store.createBackupAccount(host: found.host, now: now)
+      return found
+    } catch ResticFailure.exited(.repositoryMissing, _) {
+      // A password the Keychain kept was an earlier repository's.
+      try keychain.delete()
+      let made = Session(repository: repository, host: found.host, key: nil)
+      _ = try await restic(made) { try await $0.createRepository() }
+      try store.createBackupAccount(host: made.host, now: now)
+      return made
+    }
   }
 
-  /// One restic command, against the repository as `withAddress` gives it for that command. It
-  /// runs again once when it meets:
-  /// - a lock: after `unlock`. Commands here run one at a time, so the lock is one a restic killed
-  ///   before it could remove it.
-  /// - the wrong password, unless `isRecoveringKey` is false: with the key beside the backup, if
-  ///   that one opens it (`recoverKey`).
-  private func restic<Result: Sendable>(
-    _ session: Session, isRecoveringKey: Bool = true,
-    _ command: @Sendable @escaping (Restic) async throws -> Result
+  /// Moves the password of a repository taken over from the staging slot to the Keychain's own,
+  /// or, with none staged, takes the Keychain's away: that repository opens with no password.
+  /// The staging slot is emptied last, after the database stops calling the adoption pending:
+  /// emptied before, a quit between the two would read as "none staged" and lose the password.
+  func finishAdoption() throws {
+    if let staged = try keychain.key(.staged) {
+      try keychain.save(staged)
+    } else {
+      try keychain.delete()
+    }
+    try store.finishAdoption()
+    try keychain.delete(.staged)
+  }
+
+  /// One restic command, against the session's repository. A lock it meets is one a restic
+  /// killed before it could remove it, since commands here run one at a time: it's cleared with
+  /// `unlock` and the command runs again.
+  func restic<Result: Sendable>(
+    _ session: Session, _ command: @Sendable @escaping (Restic) async throws -> Result
   ) async throws -> Result {
     do {
       return try await withRestic(session, command)
     } catch ResticFailure.exited(.lockFailed, _) {
       try await withRestic(session) { try await $0.unlock() }
       return try await withRestic(session, command)
-    } catch ResticFailure.exited(.wrongPassword, let message) {
-      guard isRecoveringKey else { throw ResticFailure.exited(.wrongPassword, message: message) }
-      try await recoverKey(for: session)
-      return try await withRestic(session, command)
     }
   }
 
-  private func withRestic<Result: Sendable>(
+  /// One restic command, as it is: no lock cleared, for a repository that may be another Mac's.
+  /// A password that doesn't open the repository is the user's to give.
+  func withRestic<Result: Sendable>(
     _ session: Session, _ command: @Sendable @escaping (Restic) async throws -> Result
   ) async throws -> Result {
-    try await repository.withAddress { [executable, cacheDirectory, qualityOfService] address in
-      try await command(
+    do {
+      return try await session.repository.serving(
         Restic(
-          executable: executable, repository: address, password: session.key,
-          cacheDirectory: cacheDirectory, qualityOfService: qualityOfService))
+          executable: executable, repository: "", password: session.key,
+          cacheDirectory: cacheDirectory, qualityOfService: qualityOfService), command)
+    } catch ResticFailure.exited(.wrongPassword, _) {
+      throw session.key == nil ? Failure.passwordNeeded : Failure.passwordDoesNotOpen
     }
   }
 }

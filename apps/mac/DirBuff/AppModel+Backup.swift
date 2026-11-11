@@ -7,10 +7,33 @@ private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "backup
 
 /// What Backup's driver (`AfterChangeDriver`) asks of the app. Backup shows nothing yet, so this
 /// reads the store and runs the module; the surfaces come with Backup's states.
+///
+/// Signed out of Google, Backup waits: no folder is followed and no upkeep runs, so nothing is
+/// owed or fails for it. Signing in has the driver reload.
 extension AppModel: AfterChangeWork {
+  /// Backup's module, against the Macs' backups in the Google Drive signed in to.
+  static func makeBackup(engine: Engine, googleSignIn: GoogleSignIn) -> BackupBuff {
+    BackupBuff(
+      engine: engine,
+      storage: DriveStorage(
+        drive: DriveClient(tokens: googleSignIn), store: engine.store, macName: Machine.name),
+      cacheDirectory: URL.cachesDirectory.appendingPathComponent("app.fishball.dirbuff/restic"))
+  }
+
   var isAllowed: Bool { licence.mayClean }
 
+  private func isSignedIn() async -> Bool {
+    do {
+      return try await googleSignIn.isSignedIn()
+    } catch {
+      logger.error(
+        "Couldn't read the Google account: \(error.localizedDescription, privacy: .public)")
+      return false
+    }
+  }
+
   func followedFolders() async -> [FollowedFolder] {
+    guard await isSignedIn() else { return [] }
     let engine = engine
     let backup = backup
     do {
@@ -59,14 +82,22 @@ extension AppModel: AfterChangeWork {
     await backupAccount.check()
   }
 
+  /// The day's upkeep, then the weekly check when it's due. A check that couldn't run is tried
+  /// at the next upkeep; what one found is kept for the states to show.
   func maintain() async -> Bool {
+    guard await isSignedIn() else { return false }
     do {
       try await backup.maintain()
-      return true
     } catch {
       logger.error("Backup's upkeep failed: \(error.localizedDescription, privacy: .public)")
       return false
     }
+    do {
+      if try backup.isCheckDue() { try await backup.check() }
+    } catch {
+      logger.error("Backup's check failed: \(error.localizedDescription, privacy: .public)")
+    }
+    return true
   }
 
   /// Sparkle's relaunch for an update waits for `block` while restic runs; false if none does.

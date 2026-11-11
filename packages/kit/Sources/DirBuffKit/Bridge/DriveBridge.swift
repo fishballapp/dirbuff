@@ -91,8 +91,11 @@ public struct DriveBridge: Sendable {
 
   /// Replaces the ID table with what Drive holds now, from a fresh listing of every file this
   /// app created: the table otherwise only knows what the bridge wrote and deleted, so a file
-  /// lost in Drive would go on being listed.
-  public func rebuildTable() async throws {
+  /// lost in Drive would go on being listed. Returns the paths of the files the table had and
+  /// Drive doesn't, but for locks, which another restic may remove.
+  @discardableResult
+  public func rebuildTable() async throws -> [String] {
+    let known = try store.repositoryFilePaths(in: repository)
     let items = try await drive.allCreated()
     let byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     // The item's path below the repository's folder, or nil when it isn't in it. The layout is
@@ -120,6 +123,8 @@ public struct DriveBridge: Sendable {
         .max { childCounts[$0.driveID, default: 0] < childCounts[$1.driveID, default: 0] }
     }
     try store.replaceRepositoryFiles(in: repository, with: found.filter { !$0.isFolder } + folders)
+    return known.subtracting(found.filter { !$0.isFolder }.map(\.path))
+      .filter { !$0.hasPrefix(RepositoryLayout.FileType.locks.rawValue + "/") }.sorted()
   }
 
   /// When an upload of `size` bytes may go, given the uploads of the last day: nil for now, or

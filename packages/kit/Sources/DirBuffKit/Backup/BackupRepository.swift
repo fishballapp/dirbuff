@@ -1,52 +1,86 @@
 import Foundation
 
-/// Where the Mac's repository is, and its `password.txt`: the key, kept beside the backup unless
-/// Private Backup is on. restic reaches it only through `withAddress`.
-public protocol BackupRepository: Sendable {
-  /// Runs one restic command against the address `-r` takes, valid until `body` returns. A bridge
-  /// to a remote store starts for each command and stops after it, so none outlives a run.
-  func withAddress<Result: Sendable>(_ body: @Sendable (String) async throws -> Result)
-    async throws -> Result
-  func hasPasswordFile() async throws -> Bool
-  /// Nil when there's none.
-  func readPasswordFile() async throws -> String?
-  func writePasswordFile(_ password: String) async throws
-  /// Deletes it for good, not to a bin from which it could be read again.
-  func removePasswordFile() async throws
+/// Where the Macs' backups are kept, one restic repository per Mac, and which of them is this
+/// Mac's.
+public protocol BackupStorage: Sendable {
+  /// This Mac's repository: found or made the first time, and remembered after, so it keeps
+  /// working wherever it's moved.
+  func thisMac() async throws -> any BackupRepository
+  /// Every Mac's repository kept here, this Mac's among them.
+  func macs() async throws -> [BackedUpMac]
+  /// One Mac's repository, listed afresh, for reading. It becomes this Mac's when the database
+  /// names `mac.id` as this Mac's repository.
+  func repository(of mac: BackedUpMac) async throws -> any BackupRepository
 }
 
-/// A repository in a folder on this Mac, laid out as restic lays out any local repository.
-public struct LocalRepository: BackupRepository {
+/// One Mac's repository.
+public protocol BackupRepository: Sendable {
+  /// Runs one restic command against the repository: `body` is given `restic` pointed at it,
+  /// valid until `body` returns. A bridge to a remote store starts for each command and stops
+  /// after it, so none outlives a run.
+  func serving<Result>(_ restic: Restic, _ body: (Restic) async throws -> Result) async throws
+    -> Result
+  /// Makes what restic is shown match what the store holds now, not what was last written to
+  /// it, and returns the files (by their path in the repository) that were written and are gone.
+  /// Locks aren't among them.
+  @discardableResult
+  func refreshListing() async throws -> [String]
+}
+
+/// A Mac's repository, as Restore from Google Drive lists them.
+public struct BackedUpMac: Sendable, Hashable {
+  /// Where the storage finds it: a Drive folder's ID, or a folder's path.
+  public var id: String
+  /// The computer's name when Backup first went on there, or what the user renamed it to.
+  public var name: String
+  public var isThisMac: Bool
+
+  public init(id: String, name: String, isThisMac: Bool) {
+    self.id = id
+    self.name = name
+    self.isThisMac = isThisMac
+  }
+}
+
+/// One repository in a folder on this Mac, laid out as restic lays out any local repository.
+/// It holds only this Mac's backup: it's for tests and for trying Backup without an account.
+public struct LocalRepository: BackupStorage, BackupRepository {
   public let folder: URL
 
   public init(folder: URL) {
     self.folder = folder
   }
 
-  private var passwordFile: URL { folder.appendingPathComponent("password.txt") }
+  public enum Failure: Error, Equatable {
+    /// A local repository is one Mac's, and can't become another's.
+    case otherMac
+  }
 
-  public func withAddress<Result: Sendable>(_ body: @Sendable (String) async throws -> Result)
+  // MARK: BackupStorage
+
+  public func thisMac() async throws -> any BackupRepository { self }
+
+  public func macs() async throws -> [BackedUpMac] {
+    guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("config").path)
+    else { return [] }
+    return [BackedUpMac(id: folder.path, name: folder.lastPathComponent, isThisMac: true)]
+  }
+
+  public func repository(of mac: BackedUpMac) async throws -> any BackupRepository {
+    guard mac.id == folder.path else { throw Failure.otherMac }
+    return self
+  }
+
+  // MARK: BackupRepository
+
+  public func serving<Result>(_ restic: Restic, _ body: (Restic) async throws -> Result)
     async throws -> Result
   {
-    try await body(folder.path)
+    var restic = restic
+    restic.repository = folder.path
+    return try await body(restic)
   }
 
-  public func hasPasswordFile() async throws -> Bool {
-    FileManager.default.fileExists(atPath: passwordFile.path)
-  }
-
-  public func readPasswordFile() async throws -> String? {
-    guard try await hasPasswordFile() else { return nil }
-    return try String(contentsOf: passwordFile, encoding: .utf8)
-  }
-
-  public func writePasswordFile(_ password: String) async throws {
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    try Data(password.utf8).write(to: passwordFile, options: .atomic)
-  }
-
-  public func removePasswordFile() async throws {
-    guard try await hasPasswordFile() else { return }
-    try FileManager.default.removeItem(at: passwordFile)
-  }
+  /// restic lists the folder itself.
+  public func refreshListing() async throws -> [String] { [] }
 }

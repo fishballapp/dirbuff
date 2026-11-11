@@ -20,6 +20,8 @@ actor InMemoryDrive: DriveFiles {
   var limitBytes: Int64?
   /// When set, the next call throws this instead of running (once).
   private var pendingFailure: DriveProblem?
+  /// When set, the call that many calls from now throws instead of running (once).
+  private var countedFailure: (remaining: Int, problem: DriveProblem)?
   /// Every call made, by name, in order.
   private(set) var calls: [String] = []
 
@@ -36,11 +38,28 @@ actor InMemoryDrive: DriveFiles {
 
   func failNextCall(with problem: DriveProblem) { pendingFailure = problem }
 
+  /// The `number`th call from now (1 is the next) throws `problem` instead of running.
+  func failCall(number: Int, with problem: DriveProblem) {
+    countedFailure = (number, problem)
+  }
+
+  /// The bytes in the file change behind the app's back, its size kept.
+  func corrupt(_ id: DriveFileID) {
+    guard let count = files[id]?.data.count else { return }
+    files[id]?.data = Data((0..<count).map { _ in UInt8.random(in: 0...255) })
+  }
+
   /// The user puts the file, and what is in it, in the Bin.
   func trash(_ id: DriveFileID) { setTrashed(true, id) }
 
   /// The user empties the Bin, or deletes the file in Drive's own page.
   func remove(_ id: DriveFileID) { removeTree(id) }
+
+  /// The user moves the file or folder into `parent` (My Drive when nil), and maybe renames it.
+  func move(_ id: DriveFileID, into parent: DriveFileID?, renaming name: String? = nil) {
+    files[id]?.item.parents = parent.map { [$0] } ?? []
+    if let name { files[id]?.item.name = name }
+  }
 
   /// The bytes a file holds, for a test to compare.
   func contents(of id: DriveFileID) -> Data? { files[id]?.data }
@@ -117,6 +136,14 @@ actor InMemoryDrive: DriveFiles {
     if let failure = pendingFailure {
       pendingFailure = nil
       throw failure
+    }
+    if let counted = countedFailure {
+      guard counted.remaining <= 1 else {
+        countedFailure = (counted.remaining - 1, counted.problem)
+        return
+      }
+      countedFailure = nil
+      throw counted.problem
     }
   }
 

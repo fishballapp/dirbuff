@@ -8,9 +8,15 @@ public struct ResticSnapshot: Equatable, Sendable, Decodable {
   public var hostname: String
   public var paths: [String]
   public var tags: [String]
+  /// The bytes of the files it holds, which a restore writes; nil from a restic before 0.17.
+  public var size: Int64?
 
   enum CodingKeys: String, CodingKey {
-    case id, shortId, time, hostname, paths, tags
+    case id, shortId, time, hostname, paths, tags, summary
+  }
+
+  private struct Summary: Decodable {
+    var totalBytesProcessed: Int64
   }
 
   public init(from decoder: any Decoder) throws {
@@ -21,7 +27,21 @@ public struct ResticSnapshot: Equatable, Sendable, Decodable {
     hostname = try values.decode(String.self, forKey: .hostname)
     paths = try values.decode([String].self, forKey: .paths)
     tags = try values.decodeIfPresent([String].self, forKey: .tags) ?? []
+    size = try values.decodeIfPresent(Summary.self, forKey: .summary)?.totalBytesProcessed
   }
+}
+
+/// A file or folder in a snapshot, as `tree` lists a folder's.
+public struct TreeNode: Equatable, Sendable, Decodable {
+  public var name: String
+  /// `file`, `dir`, `symlink` and the other kinds restic saves.
+  public var type: String
+  public var size: Int64?
+  /// A file's blobs, in order, each named by the SHA-256 of its bytes.
+  public var content: [String]?
+
+  public var isFile: Bool { type == "file" }
+  public var isFolder: Bool { type == "dir" }
 }
 
 /// The snapshots one `forget` group kept and removed.

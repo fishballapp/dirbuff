@@ -7,10 +7,13 @@ import os
 
 /// A Keychain of its own for each test: the real one is tested by `SystemTests`.
 struct TestKeychain: BackupKeychain {
-  private let stored = OSAllocatedUnfairLock<String?>(initialState: nil)
+  private let stored = OSAllocatedUnfairLock<[BackupKeychainSlot: String]>(initialState: [:])
 
-  func key() throws -> String? { stored.withLock { $0 } }
-  func save(_ key: String) throws { stored.withLock { $0 = key } }
+  func key(_ slot: BackupKeychainSlot) throws -> String? { stored.withLock { $0[slot] } }
+  func save(_ key: String, in slot: BackupKeychainSlot) throws {
+    stored.withLock { $0[slot] = key }
+  }
+  func delete(_ slot: BackupKeychainSlot) throws { stored.withLock { $0[slot] = nil } }
 }
 
 /// Backup on folders under one scratch folder: the repository, restic's cache and a home of its
@@ -28,7 +31,7 @@ struct BackupFixture {
     engine = Engine(store: try Store.inMemory())
     backup = BackupBuff(
       engine: engine,
-      repository: LocalRepository(folder: scratch.url.appendingPathComponent("repository")),
+      storage: LocalRepository(folder: scratch.url.appendingPathComponent("repository")),
       keychain: keychain,
       executable: try resticExecutable(),
       cacheDirectory: scratch.url.appendingPathComponent("cache"),
@@ -61,9 +64,9 @@ struct BackupFixture {
     try require(store.backupRecord(folderID: folderID))
   }
 
-  /// The real restic on the repository, opened with the key this Mac keeps.
+  /// The real restic on the repository, opened as this Mac opens it.
   func restic() throws -> Restic {
-    try testRestic(in: scratch, password: require(keychain.key()))
+    try testRestic(in: scratch, password: keychain.key())
   }
 
   func snapshots(_ folderID: Int64) async throws -> [ResticSnapshot] {

@@ -44,6 +44,13 @@ extension Store {
         t.column("bytes", .integer).notNull()
       }
     }
+    // A file asked of Drive to delete is marked first, so one Drive deleted while its row
+    // outlived the reply (the app killed, the reply lost) isn't later counted as lost.
+    migrator.registerMigration("drive bridge deletions") { db in
+      try db.alter(table: "repositoryFile") { t in
+        t.add(column: "isDeleting", .boolean).notNull().defaults(to: false)
+      }
+    }
   }
 
   // MARK: The ID table
@@ -75,6 +82,28 @@ extension Store {
           """,
         arguments: [repository.rawValue, folder.count + 1, folder + "/"]
       ).map(RepositoryFile.init(row:))
+    }
+  }
+
+  /// The path of every file (not folder) the table knows and no delete was asked of.
+  func repositoryFilePaths(in repository: DriveFileID) throws -> Set<String> {
+    try database.read { db in
+      Set(
+        try String.fetchAll(
+          db,
+          sql: """
+            SELECT path FROM repositoryFile
+            WHERE repositoryID = ? AND size IS NOT NULL AND NOT isDeleting
+            """,
+          arguments: [repository.rawValue]))
+    }
+  }
+
+  func markRepositoryFileDeleting(_ driveID: DriveFileID, in repository: DriveFileID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "UPDATE repositoryFile SET isDeleting = 1 WHERE repositoryID = ? AND driveID = ?",
+        arguments: [repository.rawValue, driveID.rawValue])
     }
   }
 

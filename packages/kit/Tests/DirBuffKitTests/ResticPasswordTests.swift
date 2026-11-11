@@ -33,6 +33,23 @@ import Testing
     #expect(received.trimmingCharacters(in: .whitespacesAndNewlines) == sha256(testPassword))
   }
 
+  @Test func aRepositoryWithNoPasswordIsOpenedWithNone() async throws {
+    let scratch = try Scratch()
+    let record = scratch.url.appendingPathComponent("arguments")
+    var restic = try stubRestic(
+      """
+      printf '%s\\n' "$@" > '\(record.path)'
+      echo '{"message_type":"initialized","id":"abc","repository":"r"}'
+      """, in: scratch)
+    restic.password = nil
+
+    _ = try await restic.createRepository()
+
+    let arguments = try String(contentsOf: record, encoding: .utf8)
+    #expect(arguments.contains("--insecure-no-password\n"))
+    #expect(!arguments.contains("--password-file"))
+  }
+
   @Test func aResticVariableInTheEnvironmentIsNotPassedOn() async throws {
     let scratch = try Scratch()
     let record = scratch.url.appendingPathComponent("environment")

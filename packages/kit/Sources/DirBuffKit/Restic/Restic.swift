@@ -18,8 +18,9 @@ public struct Restic: Sendable {
 
   public var executable: URL
   public var repository: String
-  /// Must not start or end with whitespace: restic trims it.
-  public var password: String
+  /// Nil for a repository that opens with no password (`--insecure-no-password`). Must not start
+  /// or end with whitespace: restic trims it.
+  public var password: String?
   /// Where restic keeps its cache of the repository's index; its own default when nil.
   public var cacheDirectory: URL?
   public var terminationGrace: Duration
@@ -34,7 +35,7 @@ public struct Restic: Sendable {
   public var restConnections: Int?
 
   public init(
-    executable: URL, repository: String, password: String, cacheDirectory: URL? = nil,
+    executable: URL, repository: String, password: String?, cacheDirectory: URL? = nil,
     terminationGrace: Duration = .seconds(30),
     qualityOfService: QualityOfService = defaultQualityOfService
   ) {
@@ -53,7 +54,7 @@ public struct Restic: Sendable {
 
   // MARK: - Commands
 
-  /// Creates the repository and returns its ID.
+  /// Creates the repository, opened by `password` or by none, and returns its ID.
   public func createRepository(wallClockLimit: Duration = defaultWallClockLimit) async throws
     -> String
   {
@@ -173,15 +174,15 @@ public struct Restic: Sendable {
     try await document([ResticKey].self, of: ["key", "list"], wallClockLimit: wallClockLimit)
   }
 
-  /// Adds a key that opens the repository with `newPassword`, beside the one `password` opens,
-  /// and returns its ID. The new password reaches restic as the current one does, never through
-  /// a file on disk, an argument or a variable.
+  /// Adds a key that opens the repository with `newPassword`, or with none when it's nil,
+  /// beside the one `password` opens, and returns its ID. The new password reaches restic as the
+  /// current one does, never through a file on disk, an argument or a variable.
   public func addKey(
-    newPassword: String, wallClockLimit: Duration = defaultWallClockLimit
+    newPassword: String?, wallClockLimit: Duration = defaultWallClockLimit
   ) async throws -> String {
     let completed = try await run(
-      ["key", "add"], source: .other, limit: .wallClock(wallClockLimit),
-      newPassword: newPassword)
+      ["key", "add"] + (newPassword == nil ? ["--new-insecure-no-password"] : []),
+      source: .other, limit: .wallClock(wallClockLimit), newPassword: newPassword)
     let saved = "saved new key with ID "
     for case .other(let line) in completed.messages where line.hasPrefix(saved) {
       return String(line.dropFirst(saved.count)).trimmingCharacters(in: .whitespaces)
@@ -207,6 +208,49 @@ public struct Restic: Sendable {
       arguments, source: .check, limit: .wallClock(wallClockLimit), accepting: [.failed])
     for case .checkSummary(let summary) in completed.messages { return summary }
     throw completed.failure
+  }
+
+  /// What the folder at `path` (`/` is the snapshot's root) of `snapshot` holds, one level deep.
+  public func tree(
+    snapshot: String, path: String = "/", wallClockLimit: Duration = defaultWallClockLimit
+  ) async throws -> [TreeNode] {
+    struct Tree: Decodable { var nodes: [TreeNode]? }
+    let address = path == "/" ? snapshot : "\(snapshot):\(path)"
+    return try await document(
+      Tree.self, of: ["cat", "tree", address], opening: "{", wallClockLimit: wallClockLimit
+    ).nodes ?? []
+  }
+
+  /// The bytes a restore of the whole of `snapshot` writes.
+  public func restoreSize(
+    of snapshot: String, wallClockLimit: Duration = defaultWallClockLimit
+  ) async throws -> Int64 {
+    struct Stats: Decodable { var totalSize: Int64 }
+    return try await document(
+      Stats.self, of: ["stats", "--mode", "restore-size", snapshot], opening: "{",
+      wallClockLimit: wallClockLimit
+    ).totalSize
+  }
+
+  /// The size of the file at `path` (from the snapshot's root, `/a/b.txt`) in `snapshot`; nil
+  /// when it holds none there. (`stats` measures only whole snapshots.)
+  public func size(
+    of path: String, in snapshot: String, wallClockLimit: Duration = defaultWallClockLimit
+  ) async throws -> Int64? {
+    struct Node: Decodable {
+      var path: String?
+      var type: String?
+      var size: Int64?
+    }
+    let completed = try await run(
+      ["ls", snapshot, path], source: .other, limit: .wallClock(wallClockLimit))
+    for case .other(let line) in completed.messages where line.hasPrefix("{") {
+      guard let node = try? ResticMessage.decodeDocument(Node.self, from: line),
+        node.path == path, node.type == "file"
+      else { continue }
+      return node.size
+    }
+    return nil
   }
 
   /// Writes `snapshot` (an ID, `latest`, or either with `:subfolder`) under `target`.
@@ -240,12 +284,14 @@ public struct Restic: Sendable {
     values.flatMap { [option, $0] }
   }
 
-  /// A command that prints its result as one JSON document, or `ifSilent` when it prints none.
+  /// A command that prints its result as one JSON document, a list unless `opening` says, or
+  /// `ifSilent` when it prints none.
   private func document<Value: Decodable>(
-    _ type: Value.Type, of arguments: [String], wallClockLimit: Duration, ifSilent: Value? = nil
+    _ type: Value.Type, of arguments: [String], opening: String = "[", wallClockLimit: Duration,
+    ifSilent: Value? = nil
   ) async throws -> Value {
     let completed = try await run(arguments, source: .other, limit: .wallClock(wallClockLimit))
-    for case .other(let line) in completed.messages where line.hasPrefix("[") {
+    for case .other(let line) in completed.messages where line.hasPrefix(opening) {
       do {
         return try ResticMessage.decodeDocument(type, from: line)
       } catch {
@@ -282,10 +328,14 @@ public struct Restic: Sendable {
   }
 
   private var globalArguments: [String] {
-    ["--json", "--repo", repository, "--password-file", "/dev/stdin"]
-      + (cacheDirectory.map { ["--cache-dir", $0.path] } ?? [])
-      + (stuckRequestTimeout.map { ["--stuck-request-timeout", "\($0.components.seconds)s"] } ?? [])
-      + (restConnections.map { ["--option", "rest.connections=\($0)"] } ?? [])
+    let opening: [String] =
+      password == nil ? ["--insecure-no-password"] : ["--password-file", "/dev/stdin"]
+    let cache: [String] = cacheDirectory.map { ["--cache-dir", $0.path] } ?? []
+    let timeout: [String] =
+      stuckRequestTimeout.map { ["--stuck-request-timeout", "\($0.components.seconds)s"] } ?? []
+    let connections: [String] =
+      restConnections.map { ["--option", "rest.connections=\($0)"] } ?? []
+    return ["--json", "--repo", repository] + opening + cache + timeout + connections
   }
 }
 

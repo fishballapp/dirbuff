@@ -36,7 +36,7 @@ import Testing
     #expect(try fixture.record(folderID).tag != tag)
   }
 
-  @Test func theFirstRunMakesTheRepositoryWithItsKeyBesideIt() async throws {
+  @Test func theFirstRunMakesTheRepositoryWithNoPassword() async throws {
     let folderID = try fixture.addWearing("docs")
     try scratch.file("docs/a.txt", bytes: 100)
     try scratch.file("docs/deep/b.txt", bytes: 200)
@@ -45,12 +45,9 @@ import Testing
     let summary = try await fixture.run(folderID, runID: runID)
 
     #expect(summary == RunSummary(items: 2, bytes: summary.bytes, failures: 0))
-    let key = try #require(try fixture.keychain.key())
-    #expect(
-      try String(
-        contentsOf: fixture.repositoryFolder.appendingPathComponent("password.txt"),
-        encoding: .utf8) == key)
-    #expect(try backup.keyCustody() == .besideBackup)
+    #expect(try fixture.keychain.key() == nil)
+    #expect(try !backup.isPasswordProtected())
+    #expect(!exists(fixture.repositoryFolder.appendingPathComponent("password.txt")))
     let snapshots = try await fixture.snapshots(folderID)
     #expect(snapshots.map(\.hostname) == [try Machine.id()])
     #expect(snapshots.map(\.id) == [try fixture.record(folderID).lastSnapshotID])
@@ -239,132 +236,108 @@ import Testing
     #expect(try fixture.store.backupAccount()?.lastPrunedAt == nextWeek)
   }
 
-  @Test func privateBackupTakesTheKeyAwayOnlyOnceTheUserConfirmsIt() async throws {
+  @Test func aPasswordProtectsTheBackupAndCanBeChangedOrRemoved() async throws {
     let folderID = try fixture.addWearing("docs")
     try scratch.file("docs/a.txt")
     try await fixture.run(folderID)
-    let besideKey = try #require(try fixture.keychain.key())
-    let passwordFile = fixture.repositoryFolder.appendingPathComponent("password.txt")
+    let first = "correct horse battery"
+    let second = "another long password"
 
-    let recoveryKey = try await backup.makeRecoveryKey()
+    try await backup.setPassword(first)
 
-    #expect(recoveryKey.wholeMatch(of: /([0-9A-HJKMNP-TV-Z]{5}-){5}[0-9A-HJKMNP-TV-Z]{5}/) != nil)
-    // Shown, not yet confirmed: everything that opened the backup still does.
-    try await expectBesideTheBackup(key: besideKey)
-
-    try await backup.turnOnPrivateBackup(confirming: recoveryKey)
-
-    #expect(try fixture.keychain.key() == recoveryKey)
-    #expect(try backup.keyCustody() == .private)
-    #expect(!exists(passwordFile))
-    #expect(try await fixture.restic().keys().count == 1)
-    await #expect {
-      try await testRestic(in: scratch, password: besideKey).snapshots()
-    } throws: { error in
-      guard case ResticFailure.exited(.wrongPassword, _) = error else { return false }
-      return true
-    }
+    #expect(try fixture.keychain.key() == first)
+    #expect(try backup.isPasswordProtected())
+    try await expectOnlyOpens(with: first)
+    try scratch.file("docs/b.txt")
     #expect(try await fixture.run(folderID).failures == 0)
 
-    try await backup.turnOffPrivateBackup()
-
-    #expect(try backup.keyCustody() == .besideBackup)
-    #expect(try String(contentsOf: passwordFile, encoding: .utf8) == recoveryKey)
-  }
-
-  @Test func aKeyThatWasNeverMadeOrIsMistypedChangesNothing() async throws {
-    let folderID = try fixture.addWearing("docs")
-    try scratch.file("docs/a.txt")
-    try await fixture.run(folderID)
-    let besideKey = try #require(try fixture.keychain.key())
-
-    // Confirmed before one was made.
-    await #expect(throws: BackupBuff.Failure.recoveryKeyDoesNotOpen) {
-      try await backup.turnOnPrivateBackup(confirming: RecoveryKey.make())
-    }
-    try await expectBesideTheBackup(key: besideKey)
-
-    // Typed back wrong.
-    let recoveryKey = try await backup.makeRecoveryKey()
-    await #expect(throws: BackupBuff.Failure.recoveryKeyDoesNotOpen) {
-      try await backup.turnOnPrivateBackup(confirming: String(recoveryKey.dropLast()) + "0")
-    }
-    try await expectBesideTheBackup(key: besideKey)
-  }
-
-  @Test func aRecoveryKeyNeverConfirmedLeavesTheBackupAsItWas() async throws {
-    let folderID = try fixture.addWearing("docs")
-    try scratch.file("docs/a.txt")
-    try await fixture.run(folderID)
-    let besideKey = try #require(try fixture.keychain.key())
-
-    let abandoned = try await backup.makeRecoveryKey()
-    try scratch.file("docs/b.txt")
-    try await fixture.run(folderID)
-    try await backup.maintain()
-
-    try await expectBesideTheBackup(key: besideKey)
-    // `password.txt` alone opens it, as on a new Mac.
-    let password = try String(
-      contentsOf: fixture.repositoryFolder.appendingPathComponent("password.txt"), encoding: .utf8)
-    #expect(try await testRestic(in: scratch, password: password).snapshots().count == 2)
-
-    // Turning it on later starts again, and the abandoned key goes with the old one.
-    let recoveryKey = try await backup.makeRecoveryKey()
-    try await backup.turnOnPrivateBackup(confirming: recoveryKey)
-    #expect(try await fixture.restic().keys().count == 1)
-    await #expect(throws: ResticFailure.self) {
-      try await testRestic(in: scratch, password: abandoned).snapshots()
-    }
-  }
-
-  @Test func aNewRecoveryKeyStopsTheOldOneOpeningTheBackup() async throws {
-    let folderID = try fixture.addWearing("docs")
-    try scratch.file("docs/a.txt")
-    try await fixture.run(folderID)
-    let first = try await backup.makeRecoveryKey()
-    try await backup.turnOnPrivateBackup(confirming: first)
-
-    let second = try await backup.makeRecoveryKey()
-    // Shown, not yet confirmed: the first still opens it, and a run doesn't take the second away.
-    try await fixture.run(folderID)
-    #expect(try await testRestic(in: scratch, password: first).keys().count == 2)
-    try await backup.turnOnPrivateBackup(confirming: second)
+    try await backup.setPassword(second)
 
     #expect(try fixture.keychain.key() == second)
-    #expect(try await fixture.restic().keys().count == 1)
+    try await expectOnlyOpens(with: second)
+    await expectWrongPassword(first)
+
+    try await backup.removePassword()
+
+    #expect(try fixture.keychain.key() == nil)
+    try await expectOnlyOpens(with: nil)
+    await expectWrongPassword(second)
+    #expect(try await fixture.snapshots(folderID).count == 2)
+  }
+
+  @Test func aPasswordTooShortOrWithSpaceAroundItChangesNothing() async throws {
+    let folderID = try fixture.addWearing("docs")
+    try scratch.file("docs/a.txt")
+    try await fixture.run(folderID)
+
+    await #expect(throws: BackupBuff.Failure.passwordTooShort(minimum: 12)) {
+      try await backup.setPassword("eleven char")
+    }
+    await #expect(throws: BackupBuff.Failure.passwordHasSurroundingSpace) {
+      try await backup.setPassword(" twelve chars or more")
+    }
+
+    #expect(try fixture.keychain.key() == nil)
+    try await expectOnlyOpens(with: nil)
+  }
+
+  @Test func aPasswordChangeCutShortStillOpensWithTheOldOrTheNew() async throws {
+    let folderID = try fixture.addWearing("docs")
+    try scratch.file("docs/a.txt")
+    try await fixture.run(folderID)
+
+    // Cut short after the key was added, before the Keychain kept it: the old one opens.
+    _ = try await fixture.restic().addKey(newPassword: "never kept anywhere")
+    try scratch.file("docs/b.txt")
+    #expect(try await fixture.run(folderID).failures == 0)
+
+    // After the Keychain kept it, before the old key went: the new one opens.
+    _ = try await fixture.restic().addKey(newPassword: "kept in the Keychain")
+    try fixture.keychain.save("kept in the Keychain")
+    try scratch.file("docs/c.txt")
+    #expect(try await fixture.run(folderID).failures == 0)
+
+    // Removing the password, cut short before the Keychain forgot it.
+    _ = try await fixture.restic().addKey(newPassword: nil)
+    try scratch.file("docs/d.txt")
+    #expect(try await fixture.run(folderID).failures == 0)
+
+    // The next change leaves only its own key.
+    try await backup.setPassword("the one to keep")
+    try await expectOnlyOpens(with: "the one to keep")
+    await expectWrongPassword("never kept anywhere")
+    #expect(try await fixture.snapshots(folderID).count == 4)
+  }
+
+  @Test func aPasswordTheKeychainLostOrGotWrongIsAskedFor() async throws {
+    let folderID = try fixture.addWearing("docs")
+    try scratch.file("docs/a.txt")
+    try await fixture.run(folderID)
+    try await backup.setPassword("correct horse battery")
+
+    try fixture.keychain.delete()
+    await #expect(throws: BackupBuff.Failure.passwordNeeded) { try await fixture.run(folderID) }
+
+    try fixture.keychain.save("a password it never had")
+    await #expect(throws: BackupBuff.Failure.passwordDoesNotOpen) {
+      try await fixture.run(folderID)
+    }
+  }
+
+  /// The repository has one key, and it's `password`'s (nil: none).
+  private func expectOnlyOpens(with password: String?) async throws {
+    let keys = try await testRestic(in: scratch, password: password).keys()
+    #expect(keys.count == 1)
+    #expect(keys.first?.isCurrent == true)
+  }
+
+  private func expectWrongPassword(_ password: String?) async {
     await #expect {
-      try await testRestic(in: scratch, password: first).snapshots()
+      try await testRestic(in: scratch, password: password).snapshots()
     } throws: { error in
       guard case ResticFailure.exited(.wrongPassword, _) = error else { return false }
       return true
     }
-  }
-
-  /// The key is beside the backup, the Keychain holds it, and it still opens the repository.
-  private func expectBesideTheBackup(key: String) async throws {
-    #expect(try backup.keyCustody() == .besideBackup)
-    #expect(try fixture.keychain.key() == key)
-    #expect(
-      try String(
-        contentsOf: fixture.repositoryFolder.appendingPathComponent("password.txt"),
-        encoding: .utf8) == key)
-    #expect(try await testRestic(in: scratch, password: key).keys().contains { $0.isCurrent })
-  }
-
-  @Test func aSwitchToPrivateCutShortIsFinishedByTheNextCommand() async throws {
-    let folderID = try fixture.addWearing("docs")
-    try scratch.file("docs/a.txt")
-    try await fixture.run(folderID)
-    // As `turnOnPrivateBackup` leaves it when the app quits just after the custody changed.
-    _ = try await fixture.restic().addKey(newPassword: "the new key")
-    try fixture.keychain.save("the new key")
-    try fixture.store.setKeyCustody(.private)
-
-    try await fixture.run(folderID)
-
-    #expect(!exists(fixture.repositoryFolder.appendingPathComponent("password.txt")))
-    #expect(try await fixture.restic().keys().count == 1)
   }
 
   @Test func runsOfTwoFoldersAtOnceTakeTurns() async throws {
@@ -402,45 +375,22 @@ import Testing
     let folderID = try fixture.addWearing("docs")
     try scratch.file("docs/a.txt")
     try await fixture.run(folderID)
-    // The repository's key is gone from the Mac and from beside the backup.
-    try fixture.keychain.save("not the key")
-    try FileManager.default.removeItem(
-      at: fixture.repositoryFolder.appendingPathComponent("password.txt"))
+    // A password the repository doesn't have.
+    try fixture.keychain.save("not the password")
     let runID = try fixture.store.beginRun(of: .backup, at: Date())
 
-    await #expect(throws: BackupBuff.Failure.keyMissing) {
+    await #expect(throws: BackupBuff.Failure.passwordDoesNotOpen) {
       try await fixture.run(folderID, runID: runID)
     }
-    await #expect(throws: BackupBuff.Failure.keyMissing) { try await fixture.run(folderID) }
+    await #expect(throws: BackupBuff.Failure.passwordDoesNotOpen) {
+      try await fixture.run(folderID)
+    }
 
     let record = try fixture.record(folderID)
     #expect(record.failedRunsInARow == 2)
     #expect(record.failingSince != nil)
-    #expect(record.lastError?.contains("keyMissing") == true)
+    #expect(record.lastError?.contains("passwordDoesNotOpen") == true)
     #expect(try fixture.store.backupRuns(runID: runID).map(\.snapshotID) == [nil])
-  }
-
-  @Test func aStaleKeychainKeyGivesWayToTheKeyBesideTheBackup() async throws {
-    let folderID = try fixture.addWearing("docs")
-    try scratch.file("docs/a.txt")
-    try await fixture.run(folderID)
-    let besideKey = try #require(try fixture.keychain.key())
-    try fixture.keychain.save("a key the repository never had")
-
-    #expect(try await fixture.run(folderID).failures == 0)
-
-    #expect(try fixture.keychain.key() == besideKey)
-    #expect(try await fixture.snapshots(folderID).count == 2)
-  }
-
-  @Test func aPrivateBackupWithAStaleKeychainKeyNeedsTheRecoveryKey() async throws {
-    let folderID = try fixture.addWearing("docs")
-    try scratch.file("docs/a.txt")
-    try await fixture.run(folderID)
-    try await backup.turnOnPrivateBackup(confirming: try await backup.makeRecoveryKey())
-    try fixture.keychain.save("a key the repository never had")
-
-    await #expect(throws: BackupBuff.Failure.keyMissing) { try await fixture.run(folderID) }
   }
 
   @Test func aRunWhoseSeriesWentWhileItRanRecordsNothing() throws {

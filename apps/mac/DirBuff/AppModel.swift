@@ -39,9 +39,11 @@ final class AppModel {
 
   let engine: Engine
   let temporary: TemporaryBuff
-  /// Backup's module. It runs against a repository in a folder here until the Drive bridge
-  /// exists; no folder can wear it yet (it is a Soon buff).
+  /// Backup's module, against the Macs' backups in the Google Drive signed in to; no folder can
+  /// wear it yet (it is a Soon buff).
   let backup: BackupBuff
+  /// The Google account Backup keeps the backups in.
+  let googleSignIn: GoogleSignIn
   /// Asked by the hourly check. Nothing, until the Google account exists.
   @ObservationIgnored var backupAccount: any BackupAccountCheck = NoBackupAccount()
   /// Where the fixes that lead to a window go. Set once at launch by the app that owns the windows
@@ -63,11 +65,8 @@ final class AppModel {
       engine = Engine(
         store: try Store(path: directory.appendingPathComponent("dirbuff.sqlite").path))
       temporary = TemporaryBuff(engine: engine)
-      let repository = directory.appendingPathComponent("Backup/Repository")
-      backup = BackupBuff(
-        engine: engine, repository: LocalRepository(folder: repository),
-        cacheDirectory: URL.cachesDirectory.appendingPathComponent("app.fishball.dirbuff/restic"),
-        ownFolders: [repository])
+      googleSignIn = GoogleSignIn(client: .fromInfoPlist(), store: KeychainRefreshTokenStore())
+      backup = Self.makeBackup(engine: engine, googleSignIn: googleSignIn)
       licenceRecord = try engine.store.licence()
       polarSettings = try PolarSettings.fromInfoPlist()
       machine = try Machine.id()

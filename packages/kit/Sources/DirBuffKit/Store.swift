@@ -263,6 +263,7 @@ public struct Store: Sendable {
     }
     registerBackupMigrations(&migrator)
     registerDriveBridgeMigrations(&migrator)
+    registerBackupOnDriveMigrations(&migrator)
     return migrator
   }
 

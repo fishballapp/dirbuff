@@ -25,7 +25,7 @@ func resticExecutable() throws -> URL {
 let testPassword = "correct horse battery staple"
 
 /// A restic over a folder repository and a cache, both inside `scratch`.
-func testRestic(in scratch: Scratch, password: String = testPassword) throws -> Restic {
+func testRestic(in scratch: Scratch, password: String? = testPassword) throws -> Restic {
   Restic(
     executable: try resticExecutable(),
     repository: scratch.url.appendingPathComponent("repository").path,

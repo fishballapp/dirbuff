@@ -16,7 +16,7 @@ struct BackupMeasureTests {
     let engine = Engine(store: try Store.inMemory())
     let backup = BackupBuff(
       engine: engine,
-      repository: LocalRepository(folder: scratch.url.appendingPathComponent("repository")),
+      storage: LocalRepository(folder: scratch.url.appendingPathComponent("repository")),
       keychain: TestKeychain(), executable: try resticExecutable(),
       cacheDirectory: scratch.url.appendingPathComponent("cache"), home: scratch.url)
     let folderID = try require(engine.add(folder).id)
