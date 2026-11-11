@@ -67,6 +67,8 @@ public struct BuffCard: Sendable, Equatable, Identifiable {
   public var meaning: String
   /// Whether What's Cleared Next… can list the folder's files: only while it can be read.
   public var canShowFiles: Bool
+  /// What only Backup's card shows; nil on another buff's.
+  public var backup: BackupCardDetail? = nil
 }
 
 /// The settings a buff's card holds, by buff.
@@ -126,6 +128,12 @@ public struct FolderPageActions {
   public var showFiles: (_ folderID: Int64) -> Void = { _ in }
   /// The History icon: pushes the runs that touched the folder.
   public var showHistory: (_ folderID: Int64) -> Void = { _ in }
+  /// Saves the folder's Backup settings; the change takes effect at once.
+  public var changeBackupSettings: (_ folderID: Int64, BackupSettings) -> Void = { _, _ in }
+  /// **Bring Back**: something the user left out goes into the folder's backups again.
+  public var bringBack: (_ folderID: Int64, LeaveOut) -> Void = { _, _ in }
+  /// Opens Google sign-in for a folder whose Backup waits for it.
+  public var signIn: (_ folderID: Int64) -> Void = { _ in }
 
   public init() {}
 }
@@ -137,12 +145,16 @@ extension FolderPageState {
   ///   - shelf: The main window's state, which holds every folder's tile and what + Buff offers.
   ///   - progress: How far the clean-up running now has got.
   ///   - backupProgress: How far the backup running now has got.
+  ///   - googleAccount: The Google account Backup goes to, when DirBuff knows it.
+  ///   - backupAttempts: The folder's latest backups, newest first (`Store.backupAttempts`).
   public init?(
     folderID: Int64,
     reports: [FolderReport],
     shelf: MainState,
     progress: RunProgress? = nil,
     backupProgress: RunProgress? = nil,
+    googleAccount: String? = nil,
+    backupAttempts: [BackupAttempt] = [],
     now: Date,
     calendar: Calendar = .current,
     binName: String = SystemBin.name,
@@ -153,7 +165,8 @@ extension FolderPageState {
     else { return nil }
     let words = CardWords(
       folderName: folder.name, volume: volumeName(report.folder.path) ?? shelf.startupVolumeName,
-      now: now, calendar: calendar, binName: binName)
+      now: now, calendar: calendar, binName: binName, folderPath: report.folder.path, home: home,
+      googleAccount: googleAccount, backupAttempts: backupAttempts)
     self.folder = folder
     self.subtitle =
       report.problem == .missing
@@ -168,6 +181,16 @@ extension FolderPageState {
     }
     self.addBuffItems = shelf.addBuffItems(for: folder)
     self.canAddBuff = shelf.mayClean
+  }
+}
+
+/// Words for what changed, for the toast after Backup's setting changes: "keeps versions for one
+/// year now".
+public func settingChange(from old: BackupSettings, to new: BackupSettings) -> String {
+  switch new.history {
+  case .forever: "keeps every version now"
+  case .oneYear: "keeps versions for one year now"
+  case .thirtyDays: "keeps versions for 30 days now"
   }
 }
 
@@ -200,6 +223,10 @@ struct CardWords {
   var now: Date
   var calendar: Calendar
   var binName: String
+  var folderPath: String = ""
+  var home: String = NSHomeDirectory()
+  var googleAccount: String? = nil
+  var backupAttempts: [BackupAttempt] = []
 
   func card(
     _ row: BuffRow, _ reading: BuffReading, drive: DriveState, progress: RunProgress?

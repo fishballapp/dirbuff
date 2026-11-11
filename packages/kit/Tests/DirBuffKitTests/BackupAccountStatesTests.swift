@@ -35,6 +35,19 @@ import Testing
     #expect(after.lastError == nil)
   }
 
+  @Test func nothingIsBackedUpOrMadeInDriveBeforeTheAccountIsConfirmed() async throws {
+    let mac = try DriveMac("Jo's MacBook", host: "mac-a", drive: drive, isConfirmed: false)
+    let folderID = try mac.addWearing("docs")
+    try mac.write("first", to: "docs/a.txt")
+    await #expect(throws: BackupBuff.Failure.accountProblem(.unconfirmed)) {
+      try await mac.run(folderID)
+    }
+    #expect(await drive.itemCount == 0)
+    try await DriveAccount(drive: drive, store: mac.store).confirmSignedInAccount()
+    try await mac.run(folderID)
+    #expect(await drive.itemCount > 0)
+  }
+
   func expectNoProblem(_ mac: DriveMac) async throws {
     #expect(try await DriveAccount(drive: drive, store: mac.store).check() == [])
   }

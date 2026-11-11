@@ -12,8 +12,8 @@ public struct FinderMenu: Sendable, Equatable {
     self.items = items
   }
 
-  /// **DirBuff: Add Buff ›** on a folder that wears no buff. Temporary stays enabled even while
-  /// the licence doesn't allow cleaning: choosing it opens DirBuff's Settings window in front.
+  /// **DirBuff: Add Buff ›** on a folder that wears no buff. A shipped buff stays enabled even
+  /// while the licence doesn't allow cleaning: choosing it opens DirBuff's Settings window in front.
   public static func addBuff(
     folderName: String,
     isProtected: Bool,
@@ -23,7 +23,7 @@ public struct FinderMenu: Sendable, Equatable {
       title: "DirBuff: Add Buff",
       items: [
         temporaryAddItem(folderName: folderName, isProtected: isProtected, binName: binName),
-        soonItem(.backup),
+        backupAddItem,
         soonItem(.organise),
         soonItem(.search),
       ]
@@ -34,6 +34,7 @@ public struct FinderMenu: Sendable, Equatable {
   public static func buffs(
     folderName: String,
     worn: [FinderBuff],
+    isProtected: Bool = false,
     binName: String = SystemBin.name
   ) -> FinderMenu {
     var items: [FinderMenuItem] = [.sectionHeader("\(folderName) wears")]
@@ -54,6 +55,10 @@ public struct FinderMenu: Sendable, Equatable {
           FinderMenuItem(title: "What's Cleared Next\u{2026}", action: .whatsClearedNext))
         items.append(FinderMenuItem(title: "Take Temporary Off", action: .takeTemporaryOff))
       }
+      if entry.buff == .backup {
+        items.append(FinderMenuItem(title: "Change\u{2026}", action: .change))
+        items.append(FinderMenuItem(title: "Take Backup Off\u{2026}", action: .takeBackupOff))
+      }
     }
 
     let wornSet = Set(worn.map(\.buff))
@@ -62,7 +67,13 @@ public struct FinderMenu: Sendable, Equatable {
       items.append(.separator)
       items.append(.sectionHeader("Add"))
       for buff in remaining {
-        items.append(soonItem(buff))
+        switch buff {
+        case .temporary:
+          items.append(
+            temporaryAddItem(folderName: folderName, isProtected: isProtected, binName: binName))
+        case .backup: items.append(backupAddItem)
+        case .organise, .search: items.append(soonItem(buff))
+        }
       }
     }
 
@@ -94,6 +105,15 @@ public struct FinderMenu: Sendable, Equatable {
       isEnabled: true
     )
   }
+
+  /// Backup goes on any folder, protected or not: Home leaves out its Library.
+  private static let backupAddItem = FinderMenuItem(
+    title: Buff.backup.name,
+    subtitle: "To your Google Drive, every version kept",
+    buff: .backup,
+    action: .addBackup,
+    isEnabled: true
+  )
 
   private static func soonItem(_ buff: Buff) -> FinderMenuItem {
     FinderMenuItem(

@@ -117,7 +117,17 @@ private struct AddedBuffCardPopover: ViewModifier {
 
   func body(content: Content) -> some View {
     content.popover(isPresented: isShown, arrowEdge: .bottom) {
-      if let added = host.added {
+      if let added = host.added, added.buff == .backup {
+        AddedBackupCard(
+          folderName: folder.name,
+          folderPath: folder.path,
+          account: host.backupAccount,
+          onUndo: {
+            host.added = nil
+            onUndo(added.buff)
+          },
+          onDone: { host.added = nil })
+      } else if let added = host.added {
         AddedBuffCard(
           folderName: folder.name,
           folderPath: folder.path,
@@ -131,6 +141,67 @@ private struct AddedBuffCardPopover: ViewModifier {
       }
     }
   }
+}
+
+/// The card by a folder Backup was just dropped on, once the Google account is confirmed: where
+/// its files go, with Undo, which takes it straight back off, and Done.
+public struct AddedBackupCard: View {
+  let folderName: String
+  let folderPath: String
+  let account: String?
+  let onUndo: () -> Void
+  let onDone: () -> Void
+
+  public init(
+    folderName: String, folderPath: String, account: String?, onUndo: @escaping () -> Void,
+    onDone: @escaping () -> Void
+  ) {
+    self.folderName = folderName
+    self.folderPath = folderPath
+    self.account = account
+    self.onUndo = onUndo
+    self.onDone = onDone
+  }
+
+  public var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 10) {
+        BuffSymbol(.backup, size: .card)
+          .foregroundStyle(Palette.ink)
+        HStack(spacing: 5) {
+          Text("\(Buff.backup.name) is on")
+            .font(.headline)
+          FolderPill(folderName, path: folderPath)
+        }
+        // The folder's name in full, the card growing for it.
+        .fixedSize()
+      }
+      Text(addedBackupLine(account: account))
+        .font(.subheadline)
+        .foregroundStyle(Palette.inkSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+      HStack(spacing: 6) {
+        Spacer(minLength: 0)
+        Button("Undo", action: onUndo)
+        Button("Done", action: onDone)
+          .buttonStyle(.borderedProminent)
+          .tint(Palette.accentBlue)
+          .keyboardShortcut(.defaultAction)
+      }
+    }
+    .controlSize(.small)
+    .foregroundStyle(Palette.ink)
+    .padding(.top, 14)
+    .padding(.horizontal, 14)
+    .padding(.bottom, 12)
+    .frame(minWidth: 268, maxWidth: 360, alignment: .leading)
+    .fixedSize(horizontal: true, vertical: false)
+  }
+}
+
+/// Where a folder Backup just went on sends its files.
+func addedBackupLine(account: String?) -> String {
+  "Every file goes to \(account.map { "\($0)’s" } ?? "your") Google Drive, every version kept."
 }
 
 extension Disposal {

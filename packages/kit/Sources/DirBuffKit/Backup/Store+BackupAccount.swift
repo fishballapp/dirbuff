@@ -8,6 +8,11 @@ import GRDB
 public enum DriveAccountProblem: String, Sendable, Equatable, Hashable, CaseIterable {
   /// Google no longer honours DirBuff's access (`invalid_grant`).
   case signedOut
+  /// The account signed in isn't the one this Mac's backup lives in (`Store.backupOwner`).
+  case otherAccount
+  /// Signed in, but the user hasn't yet confirmed the account, and there is no backup to say
+  /// whose it is: nothing is backed up or made in Drive until they do.
+  case unconfirmed
   /// The repository's folder, or its `config`, is deleted from Drive.
   case backupGone
   /// The repository's folder, or its `config`, is in Drive's Bin.
@@ -79,8 +84,10 @@ extension Store {
   /// yet) becomes this Mac's, in one write, and nothing the database recorded of the old
   /// repository is left to be mistaken for the new one's. The folders keep their series and their
   /// settings; each is owed a backup at once, as when Backup first went on. History's runs stay.
+  ///
+  /// With `owner`, the new repository is that account's: Start a New Backup in another account.
   func startAgainBackupRepository(
-    repository: String, host: String, now: Date
+    repository: String, host: String, now: Date, owner: BackupOwner? = nil
   ) throws {
     try database.write { db in
       if let old = try String.fetchOne(
@@ -113,6 +120,7 @@ extension Store {
         arguments: [
           DriveAccountProblem.backupGone.rawValue, DriveAccountProblem.backupInBin.rawValue,
         ])
+      if let owner { try saveBackupOwner(owner, in: db) }
     }
   }
 }

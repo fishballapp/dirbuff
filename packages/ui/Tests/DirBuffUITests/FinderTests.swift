@@ -210,10 +210,10 @@ private func makeSnapshot(
         ),
         FinderMenuItem(
           title: "Backup",
-          subtitle: "Soon",
+          subtitle: "To your Google Drive, every version kept",
           buff: .backup,
-          action: nil,
-          isEnabled: false
+          action: .addBackup,
+          isEnabled: true
         ),
         FinderMenuItem(
           title: "Organise",
@@ -287,10 +287,10 @@ private func makeSnapshot(
         .sectionHeader("Add"),
         FinderMenuItem(
           title: "Backup",
-          subtitle: "Soon",
+          subtitle: "To your Google Drive, every version kept",
           buff: .backup,
-          action: nil,
-          isEnabled: false
+          action: .addBackup,
+          isEnabled: true
         ),
         FinderMenuItem(
           title: "Organise",
@@ -309,6 +309,22 @@ private func makeSnapshot(
         .separator,
         FinderMenuItem(title: "Open in DirBuff", action: .openFolder),
       ])
+  }
+
+  @Test func protectedFolderStillTakesBackup() throws {
+    let folders = try TestFolders()
+    defer { folders.cleanUp() }
+
+    let library = folders.plain.deletingLastPathComponent().appendingPathComponent("Library")
+    let menu = makeSnapshot([], protected: [library]).menu(for: library)
+    #expect(menu.items[1].action == .addBackup)
+    #expect(menu.items[1].isEnabled)
+  }
+
+  @Test func addingBackupWhileEveryBuffIsPausedOpensSettings() {
+    #expect(FinderAction.addBackup.opensSettings(under: .trialEnded))
+    #expect(!FinderAction.addBackup.opensSettings(under: .licensed))
+    #expect(!FinderAction.takeBackupOff.opensSettings(under: .trialEnded))
   }
 
   @Test func needsYouFolderShowsProblemInBuffRow() throws {

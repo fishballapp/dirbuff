@@ -45,13 +45,16 @@ public struct Engine: Sendable {
     try store.deleteFolder(id: try require(folder.id))
   }
 
-  /// Points a missing folder at where the user found it. Refuses a protected folder, and one in
-  /// the Bin, which would still be missing.
+  /// Points a missing folder at where the user found it. Refuses one in the Bin, which would
+  /// still be missing, and a protected folder for one that wears Temporary, which never clears
+  /// there; Backup only copies, so a folder wearing nothing else may be Home or a drive's top.
   public func relocate(folderID: Int64, to url: URL) throws {
     guard var folder = try store.folder(id: folderID) else {
       throw Failure.folderNotFound(id: folderID)
     }
-    guard !System.isProtected(url) else { throw Failure.protectedFolder }
+    if try store.temporaryWear(folderID: folderID) != nil, System.isProtected(url) {
+      throw Failure.protectedFolder
+    }
     let path = try canonicalPath(of: url)
     guard !Self.isInBin(path) else { throw Failure.folderInBin }
     guard try store.folder(path: path).map({ $0.id == folderID }) ?? true else {

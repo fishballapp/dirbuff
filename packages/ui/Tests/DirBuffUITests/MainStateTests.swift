@@ -141,10 +141,10 @@ private func mainState(
       report(2, name: "Screenshots", wearsTemporary: false),
     ])
     let downloads = state.shelfFolders.first { $0.name == "Downloads" }!
-    // Downloads already wears Temporary, so only Soon buffs remain.
+    // Downloads already wears Temporary, so Backup and the Soon buffs remain.
     #expect(
       state.addBuffItems(for: downloads) == [
-        AddBuffItem(buff: .backup, isEnabled: false, subtitle: "Soon"),
+        AddBuffItem(buff: .backup, isEnabled: true),
         AddBuffItem(buff: .organise, isEnabled: false, subtitle: "Soon"),
         AddBuffItem(buff: .search, isEnabled: false, subtitle: "Soon"),
       ])
@@ -163,6 +163,8 @@ private func mainState(
           buff: .temporary,
           isEnabled: false,
           subtitle: "Library is protected. DirBuff never clears it."))
+    // Backup only copies, so a protected folder takes it: Home leaves out its Library.
+    #expect(state.addBuffItems(for: library)[1] == AddBuffItem(buff: .backup, isEnabled: true))
     let desktop = FolderState(
       id: 98, name: "Desktop", path: "\(home)/Desktop", location: "~/Desktop", mark: .atRest,
       buffs: [])

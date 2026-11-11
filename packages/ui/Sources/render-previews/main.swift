@@ -226,7 +226,7 @@ func main() {
       // Each surface's states are in its own file.
     ] + menuBarPreviews() + mainWindowPreviews() + finderPreviews() + folderPagePreviews()
     + filesPreviews() + historyPreviews() + welcomePreviews()
-    + settingsPreviews() + backupPreviews()
+    + settingsPreviews() + backupPreviews() + backupLivePreviews()
 
   renderAll(states, into: targetDir)
 }

@@ -27,11 +27,18 @@ public struct DriveAccount: Sendable {
     self.now = now
   }
 
-  /// A token refresh and `about.get`, then a look at this Mac's repository in Drive (its folder
-  /// and its `config`, each a `files.get`). Returns what is wrong afterwards, the one to fix
-  /// first at the front.
+  /// A token refresh and `about.get`, then whether the account is the one this Mac's backup is in
+  /// (`settleOwner`), and if it is, a look at the repository in Drive (its folder and its
+  /// `config`, each a `files.get`). Returns what is wrong afterwards, the one to fix first at the
+  /// front.
+  ///
+  /// With no account confirmed and no backup made, nothing may be backed up whatever Google
+  /// answers, so that is decided first, offline too.
   @discardableResult
   public func check() async throws -> [DriveAccountProblem] {
+    if try store.backupOwner() == nil, try store.backupDriveFolders().repository == nil {
+      try store.recordAccountProblem(.unconfirmed, at: now())
+    }
     do {
       let about = try await drive.about()
       try store.clearAccountProblems([.signedOut])
@@ -40,7 +47,7 @@ public struct DriveAccount: Sendable {
       } else {
         try store.clearAccountProblems([.full])
       }
-      try await lookAtRepository()
+      if try settleOwner(about) { try await lookAtRepository() }
     } catch let problem as DriveProblem {
       // A problem Backup has no state for, the network's among them, changes nothing.
       _ = try record(problem)
@@ -55,7 +62,8 @@ public struct DriveAccount: Sendable {
   public func note(_ error: any Error) async throws -> [DriveAccountProblem] {
     guard let problem = Self.problem(in: error) else { return try standing() }
     do {
-      if try record(problem) == .repository { try await lookAtRepository() }
+      // In an account that isn't the backup's, a 404 says nothing about the backup.
+      if try record(problem) == .repository, try !isElsewhere() { try await lookAtRepository() }
     } catch is DriveProblem {
       // The look couldn't be made; the next check makes it.
     }

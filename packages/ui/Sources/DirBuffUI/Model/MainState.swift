@@ -105,7 +105,7 @@ public struct MainState: Sendable, Equatable {
       if let reason = folder.unreachableReason {
         return AddBuffItem(buff: buff, isEnabled: false, subtitle: reason)
       }
-      if isProtected(path: folder.path) {
+      if buff.refusesProtectedFolders, isProtected(path: folder.path) {
         return AddBuffItem(
           buff: buff,
           isEnabled: false,

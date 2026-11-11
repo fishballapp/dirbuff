@@ -11,7 +11,8 @@ struct DirBuffApp: App {
     app.appModel.connectBuffDrops(openSettings: { app.windows.openSettings() })
     app.appModel.connectFixes(
       showFolderPage: { app.windows.openMain(at: MainNavigation(.folder($0))) },
-      showSettings: { app.windows.openSettings() })
+      showSettings: { app.windows.openSettings() },
+      showMain: { app.windows.openMain(at: $0) })
   }
 
   /// The menu bar is an `NSStatusItem` the delegate owns, so the app has no window scene. The

@@ -11,6 +11,7 @@ public struct BuffCardView: View {
   var actions: ShelfActions
   var pageActions: FolderPageActions
   var onChangeSettings: (TemporarySettings) -> Void
+  var onChangeBackupSettings: (BackupSettings) -> Void
 
   public init(
     card: BuffCard,
@@ -18,7 +19,8 @@ public struct BuffCardView: View {
     binName: String,
     actions: ShelfActions,
     pageActions: FolderPageActions,
-    onChangeSettings: @escaping (TemporarySettings) -> Void
+    onChangeSettings: @escaping (TemporarySettings) -> Void,
+    onChangeBackupSettings: @escaping (BackupSettings) -> Void = { _ in }
   ) {
     self.card = card
     self.folder = folder
@@ -26,6 +28,7 @@ public struct BuffCardView: View {
     self.actions = actions
     self.pageActions = pageActions
     self.onChangeSettings = onChangeSettings
+    self.onChangeBackupSettings = onChangeBackupSettings
   }
 
   @Environment(\.colorScheme) private var colorScheme
@@ -48,6 +51,15 @@ public struct BuffCardView: View {
         .padding(.trailing, 22)
         .padding(.top, 14)
         .padding(.bottom, 18)
+
+      if let backup = card.backup {
+        Palette.rule.frame(height: 1)
+        BackupCardSections(detail: backup) { pageActions.bringBack(folder.id, $0) }
+          .padding(.leading, Self.summaryInset)
+          .padding(.trailing, 22)
+          .padding(.top, 14)
+          .padding(.bottom, 18)
+      }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Palette.card)
@@ -75,7 +87,13 @@ public struct BuffCardView: View {
         onChange: onChangeSettings
       )
     case .backup(let settings):
-      BackupSettingView(settings: settings, meaning: card.meaning)
+      BackupSettingView(
+        settings: settings,
+        meaning: card.meaning,
+        account: card.backup?.account,
+        folderName: folder.name,
+        onChange: onChangeBackupSettings
+      )
     }
   }
 
@@ -143,8 +161,16 @@ public struct BuffCardView: View {
           if fix == .locate {
             Button("Remove from DirBuff") { actions.removeFolder(folder.id) }
           }
+          if fix == .backUpNow, card.backup?.hasDetails == true {
+            Button(Fix.showDetails.title) { actions.fix(folder.id, .showDetails) }
+          }
         }
         .padding(.top, 14)
+      }
+
+      if card.backup?.canSignIn == true {
+        Button("Sign In with Google…") { pageActions.signIn(folder.id) }
+          .padding(.top, 14)
       }
     }
     .padding(.leading, Self.summaryInset)

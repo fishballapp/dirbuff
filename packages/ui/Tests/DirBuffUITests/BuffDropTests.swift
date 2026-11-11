@@ -90,3 +90,20 @@ private func folder(_ name: String, in state: MainState) throws -> FolderState {
     #expect(TemporarySettings.ageDayChoices(including: nil) == [7, 14, 30, 90])
   }
 }
+
+@MainActor
+@Suite struct BackupDropCard {
+  @Test func signedOutTheSignInSheetFollowsInsteadOfACard() {
+    let host = AddBuffHost()
+    #expect(host.showsCard(after: .temporary))
+    #expect(!host.showsCard(after: .backup))
+    host.backupAccount = "mei@example.com"
+    #expect(host.showsCard(after: .backup))
+  }
+
+  @Test func backupsCardSaysWhereTheFilesGo() {
+    #expect(
+      addedBackupLine(account: "mei@example.com")
+        == "Every file goes to mei@example.com’s Google Drive, every version kept.")
+  }
+}

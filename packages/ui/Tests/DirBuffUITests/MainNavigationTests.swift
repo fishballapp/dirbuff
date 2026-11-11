@@ -36,6 +36,9 @@ import Testing
   @Test func findersHandoffOpensAFolderOrItsFiles() {
     #expect(MainNavigation(.folder(3)).path.isEmpty)
     #expect(MainNavigation(opening: .files(3)) == MainNavigation(.folder(3), path: [.files(3)]))
+    #expect(
+      MainNavigation(opening: .unreadFiles(3))
+        == MainNavigation(.folder(3), path: [.unreadFiles(3)]))
   }
 
   @Test func aNotificationOpensItsRunOverHistory() {

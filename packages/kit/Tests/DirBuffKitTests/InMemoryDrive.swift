@@ -79,7 +79,9 @@ actor InMemoryDrive: DriveFiles {
 
   func about() throws -> DriveAbout {
     try begin("about")
-    return DriveAbout(email: email, usedBytes: usedBytes, limitBytes: limitBytes)
+    // Google's permission ID, which stays when the address changes; here, made from it.
+    return DriveAbout(
+      email: email, usedBytes: usedBytes, limitBytes: limitBytes, permissionID: "id-\(email)")
   }
 
   func createFolder(named name: String, in parent: DriveFileID?) throws -> DriveItem {

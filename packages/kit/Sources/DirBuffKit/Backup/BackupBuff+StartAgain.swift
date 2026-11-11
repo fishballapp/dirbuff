@@ -9,9 +9,13 @@ extension BackupBuff {
   /// The new repository keeps the password the old one had, so Private Backup stays private.
   /// It is made and set up before the database switches to it, in one write: cut short, the old
   /// repository is still this Mac's, still reported gone, and Start Again can be taken again.
-  public func startAgain(confirmingHistoryIsLost isConfirmed: Bool, now: Date = Date())
-    async throws
-  {
+  ///
+  /// With `owner`, the account signed in while the backup is in another's (`otherAccount`): the
+  /// new backup is made in this account's Drive and becomes this Mac's, and the old one stays in
+  /// the other account's Drive, untouched.
+  public func startAgain(
+    confirmingHistoryIsLost isConfirmed: Bool, as owner: BackupOwner? = nil, now: Date = Date()
+  ) async throws {
     guard isConfirmed else { throw Failure.notConfirmed }
     try await noticingAccount {
       try await commands.run {
@@ -19,7 +23,7 @@ extension BackupBuff {
         let (id, repository) = try await storage.makeNewRepository()
         let session = Session(repository: repository, host: host, key: try keychain.key())
         _ = try await restic(session) { try await $0.createRepository() }
-        try store.startAgainBackupRepository(repository: id, host: host, now: now)
+        try store.startAgainBackupRepository(repository: id, host: host, now: now, owner: owner)
       }
     }
   }

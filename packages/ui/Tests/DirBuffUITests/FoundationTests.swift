@@ -12,8 +12,9 @@ import Testing
     #expect(MarkState.allCases == [.atRest, .working, .needsYou])
   }
 
-  @Test func onlyTemporaryCanBePutOnInThisBuild() {
-    #expect(Buff.allCases.filter(\.isAvailable) == [.temporary])
+  @Test func temporaryAndBackupCanBePutOnInThisBuild() {
+    #expect(Buff.allCases.filter(\.isAvailable) == [.temporary, .backup])
+    #expect(Buff.allCases.filter(\.refusesProtectedFolders) == [.temporary])
   }
 
   @MainActor

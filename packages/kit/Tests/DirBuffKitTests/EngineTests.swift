@@ -68,6 +68,24 @@ import Testing
     #expect(try temporary.run(folderID: id, now: later).items == 1)
   }
 
+  @Test func aFolderWearingOnlyBackupIsLocatedAtAProtectedPlaceToo() throws {
+    // Backup only copies, so it goes on Home and a drive's top, and Locate… finds them there.
+    let id = try require(engine.add(try scratch.folder("Inbox")).id)
+    try engine.store.putOnBackup(folderID: id, settings: BackupSettings(), now: later)
+    let home = FileManager.default.homeDirectoryForCurrentUser
+
+    try engine.relocate(folderID: id, to: home)
+
+    #expect(try engine.store.folder(id: id)?.path == (try canonicalPath(of: home)))
+  }
+
+  @Test func aFolderWearingTemporaryIsNeverLocatedAtAProtectedPlace() throws {
+    let id = try temporary.addWearing(try scratch.folder("Inbox"), deleting)
+    #expect(throws: Engine.Failure.protectedFolder) {
+      try engine.relocate(folderID: id, to: FileManager.default.homeDirectoryForCurrentUser)
+    }
+  }
+
   @Test func locatingRefusesAFolderInABin() throws {
     let id = try temporary.addWearing(try scratch.folder("Inbox"), deleting)
     let binned = try scratch.folder(".Trash/Inbox")

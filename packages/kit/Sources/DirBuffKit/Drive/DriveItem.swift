@@ -95,19 +95,28 @@ public struct DriveAbout: Sendable, Equatable, Decodable {
   public var usedBytes: Int64
   /// Bytes the account may use; nil when the account has no limit.
   public var limitBytes: Int64?
+  /// Google's ID for the account, which stays when its address changes; nil if Google gave none.
+  public var permissionID: String?
+
+  /// What tells one account from another: the permission ID, or the address without one.
+  public var accountID: String { permissionID ?? email }
 
   public var freeBytes: Int64? { limitBytes.map { max(0, $0 - usedBytes) } }
 
-  public init(email: String, usedBytes: Int64, limitBytes: Int64?) {
+  public init(email: String, usedBytes: Int64, limitBytes: Int64?, permissionID: String? = nil) {
     self.email = email
     self.usedBytes = usedBytes
     self.limitBytes = limitBytes
+    self.permissionID = permissionID
   }
 
-  static let fields = "user(emailAddress),storageQuota(limit,usage)"
+  static let fields = "user(emailAddress,permissionId),storageQuota(limit,usage)"
 
   private struct Wire: Decodable {
-    struct User: Decodable { var emailAddress: String }
+    struct User: Decodable {
+      var emailAddress: String
+      var permissionId: String?
+    }
     struct Quota: Decodable {
       var limit: String?
       var usage: String?
@@ -119,6 +128,7 @@ public struct DriveAbout: Sendable, Equatable, Decodable {
   public init(from decoder: any Decoder) throws {
     let wire = try Wire(from: decoder)
     email = wire.user.emailAddress
+    permissionID = wire.user.permissionId
     usedBytes = wire.storageQuota.usage.flatMap { Int64($0) } ?? 0
     limitBytes = wire.storageQuota.limit.flatMap { Int64($0) }
   }

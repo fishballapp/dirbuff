@@ -26,6 +26,15 @@ public final class AddBuffHost {
   /// The folder under the dragged buff.
   public var dropFolderID: Int64?
   public var added: Added?
+  /// The Google account Backup goes to, once confirmed; nil before, when putting Backup on asks
+  /// for sign-in instead of showing a card. Set by the app.
+  public var backupAccount: String?
+
+  /// Whether a buff just dropped on a tile gets the card: not Backup before an account is
+  /// confirmed, since the sign-in sheet follows.
+  public func showsCard(after buff: Buff) -> Bool {
+    buff != .backup || backupAccount != nil
+  }
 
   /// Puts a buff dropped on a folder in Finder on that folder.
   @ObservationIgnored public var addToFinderFolder: (Buff, URL) -> Void = { _, _ in }

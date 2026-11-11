@@ -118,6 +118,7 @@ import Testing
   @Test func noRepositoryYetMeansNothingToLookAt() async throws {
     let fresh = try Store.inMemory()
     let account = DriveAccount(drive: drive, store: fresh)
+    try await account.confirmSignedInAccount()
     #expect(try await account.check() == [])
   }
 

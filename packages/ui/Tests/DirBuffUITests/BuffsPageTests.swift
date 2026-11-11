@@ -23,7 +23,7 @@ private let reports = [
   @Test func listsEveryBuffWithHowManySoon() {
     let state = page(reports)
     #expect(state.cards.map(\.buff) == [.temporary, .backup, .organise, .search])
-    #expect(state.subtitle == "4 buffs · 3 soon")
+    #expect(state.subtitle == "4 buffs · 2 soon")
   }
 
   @Test func namesTheFoldersThatWearABuffAToZ() throws {
@@ -34,10 +34,11 @@ private let reports = [
     #expect(page([report(1)]).cards.first?.wornBy == "On 1 folder")
   }
 
-  @Test func saysHowTemporaryStarts() {
+  @Test func saysHowEachShippedBuffStarts() {
     let cards = page(reports).cards
     #expect(cards.first?.startsAs == "Default: older than 90 days, to the Bin.")
-    #expect(cards.dropFirst().allSatisfy { $0.startsAs == nil })
+    #expect(cards[1].startsAs == "Default: every version, thinning with age.")
+    #expect(cards.dropFirst(2).allSatisfy { $0.startsAs == nil })
   }
 
   @Test func offersTheFoldersThatDontWearIt() throws {
@@ -52,8 +53,15 @@ private let reports = [
     #expect(temporary.canAdd)
   }
 
+  @Test func offersBackupToProtectedFoldersToo() throws {
+    let backup = try #require(page(reports).cards.first { $0.buff == .backup })
+    #expect(backup.canAdd)
+    #expect(!backup.targets.contains { !$0.isEnabled })
+    #expect(backup.targets.map(\.title) == ["Downloads", "Library", "Scratch", "Screenshots"])
+  }
+
   @Test func addsNothingSoonOrWhileEveryBuffIsPaused() {
-    #expect(page(reports).cards.dropFirst().allSatisfy { !$0.canAdd })
+    #expect(page(reports).cards.dropFirst(2).allSatisfy { !$0.canAdd })
     #expect(page(reports, licence: .trialEnded).cards.allSatisfy { !$0.canAdd })
   }
 }

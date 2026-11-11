@@ -12,6 +12,8 @@ public struct SettingsState: Sendable, Equatable {
   public var canCheckForUpdates: Bool
   public var licence: Licence
   public var licenceKey: String?
+  /// Settings › Backup.
+  public var backup: BackupAccountSettings
 
   /// What the Licence section says and offers.
   public var licenceSettings: LicenceSettings { licence.settings(key: licenceKey) }
@@ -24,7 +26,8 @@ public struct SettingsState: Sendable, Equatable {
     version: String,
     canCheckForUpdates: Bool = true,
     licence: Licence,
-    licenceKey: String? = nil
+    licenceKey: String? = nil,
+    backup: BackupAccountSettings = BackupAccountSettings(isSignedIn: false)
   ) {
     self.openAtLogin = openAtLogin
     self.openAtLoginRequiresApproval = openAtLoginRequiresApproval
@@ -34,5 +37,6 @@ public struct SettingsState: Sendable, Equatable {
     self.canCheckForUpdates = canCheckForUpdates
     self.licence = licence
     self.licenceKey = licenceKey
+    self.backup = backup
   }
 }

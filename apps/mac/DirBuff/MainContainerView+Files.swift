@@ -1,4 +1,5 @@
 import DirBuffUI
+import Foundation
 import SwiftUI
 
 extension MainContainerView {
@@ -14,6 +15,20 @@ extension MainContainerView {
         onShowInFinder: appModel.showInFinder,
         onFix: { appModel.perform($0, on: id) },
         onShowHistory: { windowState.navigation.open(.folderHistory(id)) }
+      )
+    }
+  }
+
+  /// Show Files: what the last backup of a folder couldn't read, each with Leave Out.
+  @ViewBuilder
+  func unreadFilesPage(_ id: Int64) -> some View {
+    if let folder = appModel.folder(id: id) {
+      UnreadFilesPage(
+        state: appModel.unreadFiles(folderID: id),
+        folderName: URL(fileURLWithPath: folder.path).lastPathComponent,
+        folderPath: folder.path,
+        onLeaveOut: { file in Task { await appModel.leaveOut(file, folderID: id) } },
+        onShowInFinder: appModel.showInFinder
       )
     }
   }

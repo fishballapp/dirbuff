@@ -4,7 +4,7 @@ import DirBuffUI
 import Foundation
 
 /// Backup's made-up folders, at `pageMoment` (Sun 25 Oct 2026, 13:37 UTC) in the folder page's
-/// home. The buff isn't wearable in the app yet, so these states exist only here and in tests.
+/// home. The app wears these states only once something real produces them.
 extension Samples {
   private static func ago(_ seconds: TimeInterval) -> Date {
     pageMoment.addingTimeInterval(-seconds)

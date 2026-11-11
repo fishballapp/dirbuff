@@ -44,6 +44,11 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
     public enum Problem: String, Codable, Equatable, Sendable {
       /// Google no longer accepts DirBuff's access; the user has to sign in again.
       case signedOut
+      /// Signed in to a Google account that isn't the one this Mac's backup is in.
+      case otherAccount
+      /// Signed in, but the user hasn't confirmed the account yet: nothing is backed up until
+      /// they do.
+      case unconfirmed
       /// Google Drive is full or within 1 GB of it.
       case driveFull
       /// The backup was deleted in Google Drive.
@@ -54,6 +59,8 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
       init(_ problem: DriveAccountProblem) {
         switch problem {
         case .signedOut: self = .signedOut
+        case .otherAccount: self = .otherAccount
+        case .unconfirmed: self = .unconfirmed
         case .full: self = .driveFull
         case .backupGone: self = .backupGone
         case .backupInBin: self = .backupInBin

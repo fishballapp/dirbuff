@@ -10,21 +10,32 @@ extension AppModel {
       progress: runProgress, licence: licence, now: now)
   }
 
-  /// Opens the place where the fix is made.
+  /// Makes the fix, or opens the place where it's made.
   func perform(_ fix: Fix, on folderID: Int64) {
     switch fix {
     case .giveAccess: openFilesAndFoldersSettings()
     case .locate: Task { await locate(folderID: folderID) }
-    // Backup isn't wearable yet, so none of these shows. Ticket 8 gives each its own action.
-    case .backUpNow, .showFiles, .showDetails: showFolderPage(folderID)
-    case .signInAgain, .makeRoom, .startAgain, .putBackFromDriveBin: showSettings()
+    case .backUpNow: perform(BackupCommand.backUpNow)
+    case .showFiles: showMain(MainNavigation(opening: .unreadFiles(folderID)))
+    case .showDetails: showBackupDetails(folderID: folderID)
+    // Signed in to another account, the sheet opens at the step that says whose Drive it is in.
+    case .signInAgain, .chooseAccount:
+      showFolderPage(folderID)
+      askToSignIn(.signInAgain)
+    case .putBackFromDriveBin: Task { await putBackBackup() }
+    case .makeRoom: makeRoom()
+    case .startAgain: Task { await confirmStartAgain() }
     }
   }
 
   /// Sets where the fixes that open a window lead.
-  func connectFixes(showFolderPage: @escaping (Int64) -> Void, showSettings: @escaping () -> Void) {
+  func connectFixes(
+    showFolderPage: @escaping (Int64) -> Void, showSettings: @escaping () -> Void,
+    showMain: @escaping (MainNavigation?) -> Void
+  ) {
     self.showFolderPage = showFolderPage
     self.showSettings = showSettings
+    self.showMain = showMain
   }
 
   /// Privacy & Security's Files and Folders, where a folder's access is given back to DirBuff.

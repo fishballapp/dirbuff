@@ -7,7 +7,7 @@ import os
 private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "backup")
 
 /// What Backup's driver (`AfterChangeDriver`) asks of the app: the folders to follow, a backup,
-/// the upkeep and the checks. Backup isn't wearable yet; the surfaces come with the buff.
+/// the upkeep and the checks. What the surfaces need is in `AppModel+BackupSurfaces`.
 ///
 /// Signed out of Google, Backup waits: no folder is followed and no upkeep runs, so nothing is
 /// owed or fails for it. Signing in has the driver reload.
@@ -33,8 +33,10 @@ extension AppModel: AfterChangeWork {
     }
   }
 
+  /// None until the user has confirmed the Google account (Start Backup): a wrong account in the
+  /// browser mustn't get a `DirBuff Backup` folder or an upload before they can say no.
   func followedFolders() async -> [FollowedFolder] {
-    guard await isSignedIn() else { return [] }
+    guard await isSignedIn(), !isAwaitingAccountConfirmation() else { return [] }
     let engine = engine
     let backup = backup
     do {
@@ -209,7 +211,8 @@ extension AppModel: AfterChangeWork {
       driveState = state
       return
     }
-    guard await isSignedIn() else {
+    // Signed in but not yet confirmed (Start Backup) waits as not signed in does.
+    guard await isSignedIn(), !isAwaitingAccountConfirmation() else {
       driveState = .notSignedIn
       return
     }
@@ -226,8 +229,8 @@ extension AppModel: AfterChangeWork {
 
   // MARK: - Show Files
 
-  /// The files the last backup of the folder couldn't read; nil when it read them all. Backup's
-  /// page shows it when the buff goes live.
+  /// The files the last backup of the folder couldn't read; nil when it read them all: Show
+  /// Files.
   func unreadFiles(folderID: Int64) -> UnreadFilesState? {
     report(id: folderID).flatMap(UnreadFilesState.init)
   }

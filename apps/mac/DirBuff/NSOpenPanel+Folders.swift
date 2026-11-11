@@ -35,6 +35,22 @@ extension NSOpenPanel {
   }
 }
 
+extension NSOpenPanel {
+  /// Asks which folder to back up: from Backup's Add to Folder › Other Folder…. Any folder can be;
+  /// Home leaves out its Library.
+  @MainActor
+  static func chooseFolderToBackUp() -> URL? {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.treatsFilePackagesAsDirectories = false
+    panel.message = "Choose a folder to back up to your Google Drive"
+    panel.prompt = "Back Up"
+    return panel.runModal() == .OK ? panel.url : nil
+  }
+}
+
 /// Refuses a protected folder when Add is clicked, so the panel stays open and says why. Disabling
 /// it instead would also stop the user opening it, and Downloads is inside the home folder.
 private final class ProtectedFolderRefusal: NSObject, NSOpenSavePanelDelegate {

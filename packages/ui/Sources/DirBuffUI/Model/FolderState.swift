@@ -118,6 +118,9 @@ public enum Fix: Sendable, Equatable {
   case locate
   /// Backup: opens Google sign-in again.
   case signInAgain
+  /// Backup: signed in to another account than the backup's; opens the sheet that offers the
+  /// backup's account, or a new backup in this one.
+  case chooseAccount
   /// Backup: opens Google One's storage page, where the user frees or buys room.
   case makeRoom
   /// Backup: opens the files the last backup couldn't read, each with why and Leave Out.
@@ -136,6 +139,7 @@ public enum Fix: Sendable, Equatable {
     case .giveAccess: "Give Access…"
     case .locate: "Locate…"
     case .signInAgain: "Sign In Again…"
+    case .chooseAccount: "Choose Account…"
     case .makeRoom: "Make Room…"
     case .showFiles: "Show Files…"
     case .backUpNow: "Back Up Now"
@@ -149,7 +153,8 @@ public enum Fix: Sendable, Equatable {
   /// account or the one backup in it: the popover names them in one callout.
   public var isSharedByFolders: Bool {
     switch self {
-    case .signInAgain, .makeRoom, .putBackFromDriveBin, .startAgain, .showDetails: true
+    case .signInAgain, .chooseAccount, .makeRoom, .putBackFromDriveBin, .startAgain, .showDetails:
+      true
     case .giveAccess, .locate, .showFiles, .backUpNow: false
     }
   }

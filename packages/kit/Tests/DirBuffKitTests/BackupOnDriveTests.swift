@@ -14,7 +14,11 @@ struct DriveMac {
   let storage: DriveStorage
   let backup: BackupBuff
 
-  init(_ name: String, host: String, drive: InMemoryDrive, freeSpace: Int64? = nil) throws {
+  /// With `isConfirmed` false, the user hasn't yet said to back up to the account signed in.
+  init(
+    _ name: String, host: String, drive: InMemoryDrive, freeSpace: Int64? = nil,
+    isConfirmed: Bool = true
+  ) throws {
     scratch = try Scratch()
     engine = Engine(store: try Store.inMemory())
     storage = DriveStorage(drive: drive, store: engine.store, macName: name)
@@ -26,6 +30,12 @@ struct DriveMac {
       qualityOfService: .userInitiated, machineID: { host },
       freeSpace: { folder in try freeSpace ?? BackupBuff.volumeFreeSpace(of: folder) })
     try scratch.folder("home")
+    // The user confirmed the account on the sign-in sheet (Start Backup), as the app has them do
+    // before anything is backed up.
+    if isConfirmed {
+      try engine.store.confirmBackupOwner(
+        BackupOwner(accountID: "id-\(drive.email)", email: drive.email))
+    }
   }
 
   var store: Store { engine.store }

@@ -7,6 +7,10 @@ extension AppModel {
   /// Takes a buff off a folder after asking, from its card, its tile or Finder: its settings will
   /// be forgotten, so adding it again starts from the defaults.
   func confirmTakeOff(_ buff: Buff, on folderID: Int64) async {
+    if buff == .backup {
+      await confirmTakeBackupOff(folderID: folderID)
+      return
+    }
     guard buff == .temporary, let folder = folder(id: folderID) else { return }
     let name = URL(fileURLWithPath: folder.path).lastPathComponent
     let alert = NSAlert()

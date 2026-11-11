@@ -12,6 +12,8 @@ public enum DriveState: Sendable, Equatable {
   case notSignedIn
   /// Google no longer accepts DirBuff's access (revoked, or a token unused for six months).
   case signedOut
+  /// Signed in to a Google account that isn't the one this Mac's backup is in, `owner`.
+  case otherAccount(owner: String)
   /// Drive is full or within 1 GB of it.
   case full
   /// The repository's folder, or its `config`, was deleted in Drive.
@@ -43,5 +45,11 @@ public enum DriveState: Sendable, Equatable {
       case .lowBattery: self = .power
       }
     }
+  }
+
+  /// The account the backup is in, while signed in to another.
+  public var owner: String? {
+    if case .otherAccount(let owner) = self { return owner }
+    return nil
   }
 }

@@ -136,6 +136,8 @@ final class FinderSyncExtension: FIFinderSync {
     switch action {
     case .addTemporary: #selector(addTemporaryAction(_:))
     case .takeTemporaryOff: #selector(takeTemporaryOffAction(_:))
+    case .addBackup: #selector(addBackupAction(_:))
+    case .takeBackupOff: #selector(takeBackupOffAction(_:))
     case .change: #selector(changeAction(_:))
     case .whatsClearedNext: #selector(whatsClearedNextAction(_:))
     case .openFolder: #selector(openFolderAction(_:))
@@ -168,6 +170,14 @@ final class FinderSyncExtension: FIFinderSync {
 
   @objc private func addTemporaryAction(_ sender: AnyObject?) {
     perform(.addTemporary)
+  }
+
+  @objc private func addBackupAction(_ sender: AnyObject?) {
+    perform(.addBackup)
+  }
+
+  @objc private func takeBackupOffAction(_ sender: AnyObject?) {
+    perform(.takeBackupOff)
   }
 
   @objc private func takeTemporaryOffAction(_ sender: AnyObject?) {

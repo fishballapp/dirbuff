@@ -12,7 +12,16 @@ extension CardWords {
     var card = BuffCard(
       buff: row.buff, state: row.state, headline: FolderSentence(row.status), detail: nil,
       gauge: nil, settings: .backup(settings), meaning: backupMeaning(settings),
-      canShowFiles: false)
+      canShowFiles: false,
+      backup: BackupCardDetail(
+        account: googleAccount,
+        leftOut: backupLeftOut(folder: folderPath, home: home),
+        userLeftOut: (status?.leftOut ?? []).map(LeftOutItem.init),
+        recent: backupAttempts.prefix(BackupCardDetail.recentCount).map {
+          BackupRunLine($0, now: now, calendar: calendar)
+        },
+        canSignIn: drive == .notSignedIn && row.state.isWaiting,
+        hasDetails: drive == .partMissing || status?.lastError != nil))
     switch row.state {
     case .atRest:
       card.detail = FolderSentence(atRestDetail(status))
@@ -43,7 +52,7 @@ extension CardWords {
           "Backup goes on once you sign in to Google. Your files stay where they are until then.")
       }
     case .needsYou(let fix):
-      card.detail = needsYouDetail(fix, row: row, status: status)
+      card.detail = needsYouDetail(fix, row: row, status: status, drive: drive)
       if fix == .locate { card.headline = FolderSentence(row.status, pill: .after) }
     }
     return card
@@ -60,7 +69,9 @@ extension CardWords {
     return "Changes are backed up within an hour of being made." + cloudOnly
   }
 
-  private func needsYouDetail(_ fix: Fix, row: BuffRow, status: BackupStatus?) -> FolderSentence? {
+  private func needsYouDetail(
+    _ fix: Fix, row: BuffRow, status: BackupStatus?, drive: DriveState
+  ) -> FolderSentence? {
     switch fix {
     case .giveAccess:
       FolderSentence("\(row.setting). Give DirBuff its access back in Privacy & Security.")
@@ -74,6 +85,10 @@ extension CardWords {
     case .makeRoom:
       FolderSentence(
         "Your Google Drive has no room left, so new files can't be backed up. Free some up, or get more from Google. Backup carries on by itself."
+      )
+    case .chooseAccount:
+      FolderSentence(
+        "This Mac's backup is in \(drive.owner.map { "\($0)’s" } ?? "another account's") Google Drive, and DirBuff is signed in to another account, so nothing is backed up. Sign in to that account, or start a new backup in this one."
       )
     case .putBackFromDriveBin:
       FolderSentence(

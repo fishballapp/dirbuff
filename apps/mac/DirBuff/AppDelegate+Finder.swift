@@ -16,6 +16,9 @@ extension AppDelegate {
       return
     }
     guard let (action, folderURL) = FinderAction.parse(url) else { return }
+    // Any app or web page can open a `dirbuff://` URL: a buff goes only on a folder the user can
+    // see, as a drop's does.
+    if action == .addTemporary || action == .addBackup, !isFolderForABuff(folderURL) { return }
     if action.opensSettings(under: appModel.licence) {
       windows.openSettings()
       return
@@ -23,10 +26,24 @@ extension AppDelegate {
     switch action {
     case .addTemporary:
       Task { await appModel.addBuff(.temporary, toFolderAt: folderURL) }
-    case .takeTemporaryOff:
+    case .addBackup:
+      // It starts uploading the folder, so it asks first, before anything is added.
+      guard appModel.report(for: folderURL)?.backupWear == nil else { return }
+      NSApp.activate(ignoringOtherApps: true)
+      let alert = BackupAlert.addBackup(folderName: folderURL.lastPathComponent).makeAlert()
+      guard alert.runModal() == .alertFirstButtonReturn else { return }
+      Task {
+        // Open at the folder first: putting Backup on while signed out asks on the main window.
+        if appModel.report(for: folderURL) == nil {
+          guard await appModel.addFolder(folderURL) != nil else { return }
+        }
+        windows.openMain(selecting: folderURL)
+        await appModel.addBuff(.backup, toFolderAt: folderURL)
+      }
+    case .takeTemporaryOff, .takeBackupOff:
       Task {
         guard let id = appModel.report(for: folderURL)?.folder.id else { return }
-        await appModel.confirmTakeOff(.temporary, on: id)
+        await appModel.confirmTakeOff(action == .takeBackupOff ? .backup : .temporary, on: id)
       }
     case .change, .whatsClearedNext, .openFolder:
       Task {

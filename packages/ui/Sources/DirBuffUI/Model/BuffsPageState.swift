@@ -19,7 +19,7 @@ public struct BuffsPageCard: Sendable, Equatable, Identifiable {
   public var buff: Buff
   /// The folders that wear it, A to Z, each a pill that opens its page.
   public var folders: [SidebarFolder]
-  /// Temporary's default setting: "Default: older than 90 days, to the Bin."
+  /// Its default setting: "Default: older than 90 days, to the Bin."
   public var startsAs: String?
   /// Add to Folder's items: every folder that doesn't wear it yet, A to Z.
   public var targets: [AddToFolderItem]
@@ -55,9 +55,9 @@ extension MainState {
         BuffsPageCard(
           buff: buff,
           folders: rows.filter { $0.folder.wears(buff) },
-          startsAs: buff == .temporary
-            ? "Default: \(lowercasingFirst(temporarySetting(TemporarySettings(), binName: binName)))."
-            : nil,
+          startsAs: defaultSetting(of: buff, binName: binName).map {
+            "Default: \(lowercasingFirst($0))."
+          },
           targets: rows.compactMap { row in
             guard let item = addBuffItems(for: row.folder).first(where: { $0.buff == buff })
             else { return nil }
@@ -67,6 +67,15 @@ extension MainState {
           },
           canAdd: buff.isAvailable && mayClean)
       })
+  }
+}
+
+/// A shipped buff's starting setting in words; nil for one that is Soon.
+func defaultSetting(of buff: Buff, binName: String) -> String? {
+  switch buff {
+  case .temporary: temporarySetting(TemporarySettings(), binName: binName)
+  case .backup: backupSetting(BackupSettings())
+  case .organise, .search: nil
   }
 }
 

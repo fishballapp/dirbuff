@@ -24,5 +24,14 @@ extension Buff {
   }
 
   /// Whether this build can put it on a folder. The rest are listed, greyed, as Soon.
-  public var isAvailable: Bool { self == .temporary }
+  public var isAvailable: Bool {
+    switch self {
+    case .temporary, .backup: true
+    case .organise, .search: false
+    }
+  }
+
+  /// Whether a protected folder (`MainState.isProtected`) refuses it. Only Temporary clears
+  /// things; Backup goes on Home too, which leaves out its Library instead.
+  public var refusesProtectedFolders: Bool { self == .temporary }
 }

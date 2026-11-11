@@ -8,10 +8,12 @@ extension AppModel {
   /// Main-window state with live working folders and resolved protected roots.
   func shelfState(now: Date) -> MainState {
     MainState(
-      reports: reports,
+      reports: reportsWithDrive,
       licence: licence(now: now),
       working: working,
       progress: runProgress,
+      backingUp: backingUp,
+      backupProgress: backupProgress,
       now: now,
       protectedPaths: Set(System.protectedFolderPaths())
     )

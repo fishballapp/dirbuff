@@ -7,6 +7,10 @@ public enum FinderAction: String, Sendable, Equatable, CaseIterable {
   case addTemporary = "add-temporary"
   /// Takes Temporary off, forgetting its settings; the folder stays, wearing nothing.
   case takeTemporaryOff = "take-temporary-off"
+  /// Adds the folder if needed and puts Backup on, asking to sign in to Google first if need be.
+  case addBackup = "add-backup"
+  /// Takes Backup off after asking, and whether to delete its backup from Google Drive too.
+  case takeBackupOff = "take-backup-off"
   /// Opens the folder in DirBuff to change its buff settings.
   case change = "change"
   /// Opens the folder in DirBuff to see what is cleared next.
@@ -40,9 +44,9 @@ public enum FinderAction: String, Sendable, Equatable, CaseIterable {
   /// nothing and brings Settings to the front, where the Licence section is at the top.
   public func opensSettings(under licence: Licence) -> Bool {
     switch self {
-    case .addTemporary:
+    case .addTemporary, .addBackup:
       !licence.mayClean
-    case .takeTemporaryOff, .change, .whatsClearedNext, .openFolder:
+    case .takeTemporaryOff, .takeBackupOff, .change, .whatsClearedNext, .openFolder:
       false
     }
   }

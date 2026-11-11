@@ -11,6 +11,8 @@ public struct FolderPage: View {
   public var pageActions: FolderPageActions
 
   @State private var toast: SettingsToast?
+  /// An Undo that would shorten Backup's history, waiting for the user to confirm.
+  @State private var shorterUndo: SettingsToast?
 
   @Environment(\.addBuffHost) private var host
 
@@ -30,7 +32,7 @@ public struct FolderPage: View {
 
   private var folder: FolderState { state.folder }
 
-  private var wearsTemporary: Bool { state.cards.contains { $0.buff == .temporary } }
+  private var wornBuffs: [Buff] { state.cards.map(\.buff) }
 
   public var body: some View {
     ScrollView {
@@ -57,6 +59,9 @@ public struct FolderPage: View {
               pageActions: pageActions,
               onChangeSettings: {
                 if let previous = card.settings.temporary { change(to: $0, from: previous) }
+              },
+              onChangeBackupSettings: {
+                if let previous = card.settings.backup { change(to: $0, from: previous) }
               }
             )
           }
@@ -85,9 +90,27 @@ public struct FolderPage: View {
     .onChange(of: folder.id) {
       toast = nil
     }
-    .onChange(of: wearsTemporary) {
+    .onChange(of: wornBuffs) {
       // Take Off forgets the settings, so there is nothing left for Undo to put back.
-      if !wearsTemporary { toast = nil }
+      if let toast, !wornBuffs.contains(toast.buff) { self.toast = nil }
+    }
+    .alert(
+      shorterUndo?.previous.backup.map {
+        ShorterHistoryWords(history: $0.history, folderName: folder.name).title
+      } ?? "",
+      isPresented: Binding(get: { shorterUndo != nil }, set: { if !$0 { shorterUndo = nil } }),
+      presenting: shorterUndo
+    ) { toast in
+      if let history = toast.previous.backup?.history {
+        Button(ShorterHistoryWords(history: history, folderName: folder.name).button) {
+          undo(toast)
+        }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: { toast in
+      if let history = toast.previous.backup?.history {
+        Text(ShorterHistoryWords(history: history, folderName: folder.name).message)
+      }
     }
     .navigationTitle(folder.name)
     .toolbar {
@@ -217,10 +240,21 @@ public struct FolderPage: View {
       change: settingChange(from: previous, to: settings, binName: binName), previous: previous)
   }
 
+  private func change(to settings: BackupSettings, from previous: BackupSettings) {
+    pageActions.changeBackupSettings(folder.id, settings)
+    toast = SettingsToast(
+      change: settingChange(from: previous, to: settings), previous: .backup(previous))
+  }
+
   private func settingsToast(_ toast: SettingsToast) -> some View {
     Toast(actionTitle: "Undo") {
-      pageActions.changeSettings(folder.id, toast.previous)
-      self.toast = nil
+      if let current = state.cards.first(where: { $0.buff == toast.buff })?.settings,
+        toast.undoShortensHistory(from: current)
+      {
+        shorterUndo = toast
+        return
+      }
+      undo(toast)
     } message: {
       HStack(spacing: 10) {
         FolderPill(folder.name, path: folder.path)
@@ -229,9 +263,17 @@ public struct FolderPage: View {
     }
   }
 
+  private func undo(_ toast: SettingsToast) {
+    switch toast.previous {
+    case .temporary(let settings): pageActions.changeSettings(folder.id, settings)
+    case .backup(let settings): pageActions.changeBackupSettings(folder.id, settings)
+    }
+    self.toast = nil
+  }
+
   /// "older than 30 days now · nothing to clear tomorrow": what changed, then the card's new line.
   private func toastLine(_ toast: SettingsToast) -> String {
-    guard let headline = state.cards.first(where: { $0.buff == .temporary })?.headline.text,
+    guard let headline = state.cards.first(where: { $0.buff == toast.buff })?.headline.text,
       let first = headline.first
     else { return toast.change }
     return "\(toast.change) · \(first.lowercased())\(headline.dropFirst())"
@@ -243,10 +285,31 @@ public struct SettingsToast: Sendable, Equatable, Identifiable {
   public let id = UUID()
   /// "older than 30 days now".
   public var change: String
-  public var previous: TemporarySettings
+  public var previous: CardSettings
 
-  public init(change: String, previous: TemporarySettings) {
+  public init(change: String, previous: CardSettings) {
     self.change = change
     self.previous = previous
+  }
+
+  public init(change: String, previous: TemporarySettings) {
+    self.init(change: change, previous: .temporary(previous))
+  }
+
+  /// Whether Undo, from `current`, would shorten Backup's history, which deletes versions: it
+  /// asks first, as the pop-up does.
+  func undoShortensHistory(from current: CardSettings) -> Bool {
+    guard case .backup(let previous) = previous, case .backup(let current) = current else {
+      return false
+    }
+    return previous.history.keepsLess(than: current.history)
+  }
+
+  /// The buff whose setting changed.
+  var buff: Buff {
+    switch previous {
+    case .temporary: .temporary
+    case .backup: .backup
+    }
   }
 }

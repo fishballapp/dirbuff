@@ -16,16 +16,27 @@ extension AppModel {
   /// Where **Make Room…** goes: Google One's page for the account's storage.
   nonisolated static let googleStorageURL = URL(string: "https://one.google.com/storage")
 
-  private var driveAccount: DriveAccount {
+  var driveAccount: DriveAccount {
     DriveAccount(drive: DriveClient(tokens: googleSignIn), store: engine.store)
   }
 
-  /// Nothing is backed up or kept up while the account can't be used; the hourly check goes on and
-  /// lets go of the hold when its cause is gone.
+  /// Nothing is backed up or kept up while the account can't be used, or isn't confirmed yet; the
+  /// hourly check goes on and lets go of the hold when its cause is gone.
   var isAccountHeld: Bool {
     switch driveState {
-    case .signedOut, .full, .backupGone, .backupInBin: true
-    case .ready, .notSignedIn, .partMissing, .waiting: false
+    case .signedOut, .otherAccount, .notSignedIn, .full, .backupGone, .backupInBin: true
+    case .ready, .partMissing, .waiting: false
+    }
+  }
+
+  /// Whether nothing may be backed up until the user confirms the account on the sign-in sheet.
+  func isAwaitingAccountConfirmation() -> Bool {
+    do {
+      return try driveAccount.isAwaitingConfirmation()
+    } catch {
+      logger.error(
+        "Couldn't read the account's owner: \(error.localizedDescription, privacy: .public)")
+      return true
     }
   }
 
@@ -45,6 +56,10 @@ extension AppModel {
     }
     return switch first {
     case .signedOut: .signedOut
+    case .otherAccount:
+      .otherAccount(owner: (try? engine.store.backupOwner()?.email) ?? "another account")
+    // Signed in, waiting for Start Backup: as the row says, waiting for Google sign-in.
+    case .unconfirmed: .notSignedIn
     case .backupGone: .backupGone
     case .backupInBin: .backupInBin
     case .full: .full

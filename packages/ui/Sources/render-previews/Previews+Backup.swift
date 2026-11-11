@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Backup in every state it can be in, on every surface that shows a buff: the shelf's tiles and
 /// the sidebar's symbols (windows, each with a folder per state), a folder's page, the popover and
-/// Finder's menu. Backup isn't wearable in the app yet, so these are the only places it's drawn.
+/// Finder's menu. What only a wearable Backup has is in `Previews+BackupLive`.
 @MainActor
 func backupPreviews() -> [Preview] {
   let full = CGSize(width: 1240, height: 800)

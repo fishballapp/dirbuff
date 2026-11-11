@@ -10,7 +10,14 @@ extension AppModel {
   /// Returns whether this put the buff on.
   @discardableResult
   func addBuff(_ buff: Buff, toFolderAt url: URL) async -> Bool {
-    guard buff == .temporary else { return false }
+    switch buff {
+    case .temporary: break
+    case .backup:
+      if report(for: url)?.backupWear != nil { return false }
+      guard let folder = await addFolder(url) else { return false }
+      return await setBackup(folder, true)
+    case .organise, .search: return false
+    }
     if let wear = report(for: url)?.temporaryWear, !wear.isPausedByLicence { return false }
     if let refusal = temporary.refusal(for: url) {
       alert("Can't add Temporary to \(url.lastPathComponent)", AppModel.explain(refusal))
@@ -20,10 +27,25 @@ extension AppModel {
     return await setTemporary(folder, true)
   }
 
+  /// Puts a buff on a folder DirBuff knows; returns whether it went on.
+  @discardableResult
+  func addBuff(_ buff: Buff, on folderID: Int64) async -> Bool {
+    guard let folder = folder(id: folderID) else { return false }
+    switch buff {
+    case .temporary: return await setTemporary(folder, true)
+    case .backup: return await setBackup(folder, true)
+    case .organise, .search: return false
+    }
+  }
+
   /// Takes a buff straight back off right after it was added, from the drop card's Undo.
   func undoAddBuff(_ buff: Buff, on folderID: Int64) async {
-    guard buff == .temporary, let folder = folder(id: folderID) else { return }
-    await setTemporary(folder, false)
+    guard let folder = folder(id: folderID) else { return }
+    switch buff {
+    case .temporary: await setTemporary(folder, false)
+    case .backup: await setBackup(folder, false)
+    case .organise, .search: break
+    }
   }
 
   /// Sets how old things get before they are cleared, from the drop card's pop-up.

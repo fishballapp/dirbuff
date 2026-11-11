@@ -69,7 +69,7 @@ struct FolderTileView: View {
     .buffDrop(on: folder.id, verdict: dropVerdict) { buff in
       Task {
         // The card says what the buff does there, so it shows only once the buff is on.
-        guard await actions.addBuff(folder.id, buff) else { return }
+        guard await actions.addBuff(folder.id, buff), host.showsCard(after: buff) else { return }
         host.added = AddBuffHost.Added(buff: buff, folderID: folder.id)
       }
     }

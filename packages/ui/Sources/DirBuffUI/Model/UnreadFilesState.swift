@@ -52,8 +52,7 @@ func unreadReason(_ message: String) -> String {
   let line = message.split(whereSeparator: \.isNewline).first.map(String.init) ?? message
   let cause = (line.split(separator: ":").last.map(String.init) ?? line)
     .trimmingCharacters(in: .whitespaces)
-    .lowercased()
-  switch cause {
+  switch cause.lowercased() {
   case "permission denied", "operation not permitted": return "DirBuff may not read it"
   case "resource busy", "text file busy", "resource temporarily unavailable":
     return "Another app has it open"

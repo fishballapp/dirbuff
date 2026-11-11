@@ -381,8 +381,9 @@ private func row(
     let titles = menu.items.map(\.title)
     #expect(titles.contains("Backup · Every version, thinning with age"))
     #expect(titles.contains("Backing up · 1.2 of 3.4 GB"))
-    // Backup is worn, so it isn't offered to add.
-    #expect(!menu.items.contains { $0.buff == .backup && $0.subtitle == "Soon" })
+    // Backup is worn, so it isn't offered to add; it can be changed or taken off.
+    #expect(!menu.items.contains { $0.action == .addBackup })
+    #expect(menu.items.contains { $0.action == .takeBackupOff })
     let needs = FinderSnapshot(
       folders: states([backup(drive: .signedOut)]), licence: .licensed, protectedFolderPaths: [],
       binName: "Bin")
@@ -390,10 +391,22 @@ private func row(
     #expect(needs.folders.first?.buffs.first?.nextEvent == "Signed out of Google Drive")
   }
 
-  @Test func offersBackupAsSoonOnAFolderThatDoesntWearIt() {
-    let menu = FinderMenu.addBuff(folderName: "Scratch", isProtected: false)
-    #expect(menu.items.first { $0.buff == .backup }?.subtitle == "Soon")
-    #expect(!Buff.backup.isAvailable)
+  @Test func offersBackupOnAFolderThatDoesntWearIt() {
+    let menu = FinderMenu.addBuff(folderName: "Scratch", isProtected: true)
+    let item = menu.items.first { $0.buff == .backup }
+    #expect(item?.action == .addBackup)
+    #expect(item?.isEnabled == true)
+    #expect(Buff.backup.isAvailable)
+  }
+
+  @Test func offersTemporaryOnAFolderThatWearsOnlyBackup() {
+    let menu = FinderMenu.buffs(
+      folderName: "Home",
+      worn: [FinderBuff(buff: .backup, setting: "Every version", nextEvent: "Backed up")],
+      isProtected: true)
+    let temporary = menu.items.first { $0.buff == .temporary && $0.action != .openFolder }
+    #expect(temporary?.isEnabled == false)
+    #expect(temporary?.subtitle == "Home is protected. DirBuff never clears it.")
   }
 }
 

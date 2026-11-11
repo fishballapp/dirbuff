@@ -56,6 +56,9 @@ func backupRow(
     return row(.paused(.waiting(waiting)), waiting, setting: "Backup goes on once you sign in")
   case .signedOut:
     return row(.needsYou(.signInAgain), "Signed out of Google Drive", setting: sinceLine)
+  case .otherAccount:
+    return row(
+      .needsYou(.chooseAccount), "Signed in to another Google account", setting: sinceLine)
   case .full:
     return row(.needsYou(.makeRoom), "Google Drive is full", setting: sinceLine)
   case .backupGone:

@@ -55,6 +55,7 @@ extension Fix {
     case .giveAccess: "giveAccess"
     case .locate: "locate"
     case .signInAgain: "signInAgain"
+    case .chooseAccount: "chooseAccount"
     case .makeRoom: "makeRoom"
     case .showFiles: "showFiles"
     case .backUpNow: "backUpNow"

@@ -128,10 +128,11 @@ public struct FinderSnapshot: Sendable, Equatable, Codable {
   public func menu(for folder: URL) -> FinderMenu {
     let path = resolvedFinderPath(folder.path)
     let name = folder.lastPathComponent
-    if let match = folders.first(where: { $0.path == path }), !match.buffs.isEmpty {
-      return .buffs(folderName: name, worn: match.buffs, binName: binName)
-    }
     let isProtected = protectedFolderPaths.contains(path)
+    if let match = folders.first(where: { $0.path == path }), !match.buffs.isEmpty {
+      return .buffs(
+        folderName: name, worn: match.buffs, isProtected: isProtected, binName: binName)
+    }
     return .addBuff(folderName: name, isProtected: isProtected, binName: binName)
   }
 }

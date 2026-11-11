@@ -9,6 +9,8 @@ public struct BuffPiece: View {
   let buff: Buff
   let isEnabled: Bool
   let isLifted: Bool
+  /// Whether it drags at all; one that doesn't still reads as available.
+  let isDraggable: Bool
   let onClick: () -> Void
 
   @Environment(\.colorScheme) private var colorScheme
@@ -16,21 +18,30 @@ public struct BuffPiece: View {
 
   /// - Parameter isEnabled: Whether it can go on the folder a click adds it to; a disabled piece is
   ///   Quiet and stays put, as a Soon one does.
-  public init(_ buff: Buff, isEnabled: Bool = true, onClick: @escaping () -> Void = {}) {
-    self.init(buff, isEnabled: isEnabled, isLifted: false, onClick: onClick)
+  ///   `isDraggable` false keeps it in place though it's available, where nothing takes it.
+  public init(
+    _ buff: Buff, isEnabled: Bool = true, isDraggable: Bool = true,
+    onClick: @escaping () -> Void = {}
+  ) {
+    self.init(
+      buff, isEnabled: isEnabled, isLifted: false, isDraggable: isDraggable, onClick: onClick)
   }
 
-  init(_ buff: Buff, isEnabled: Bool = true, isLifted: Bool, onClick: @escaping () -> Void = {}) {
+  init(
+    _ buff: Buff, isEnabled: Bool = true, isLifted: Bool, isDraggable: Bool = true,
+    onClick: @escaping () -> Void = {}
+  ) {
     self.buff = buff
     self.isEnabled = isEnabled
     self.isLifted = isLifted
+    self.isDraggable = isDraggable
     self.onClick = onClick
   }
 
   private var isActive: Bool { buff.isAvailable && isEnabled }
 
   public var body: some View {
-    if isActive && !isLifted {
+    if isActive && !isLifted && isDraggable {
       piece.buffDragSource(buff, onClick: onClick, onHover: { isHovered = $0 })
     } else {
       piece

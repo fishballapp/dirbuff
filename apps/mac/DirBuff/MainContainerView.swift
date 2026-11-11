@@ -15,6 +15,23 @@ struct MainContainerView: View {
     TimelineView(CountdownSchedule()) { timeline in
       mainView(now: timeline.date)
     }
+    .sheet(item: signInSheet) { sheet in
+      GoogleSignInSheet(
+        state: sheet,
+        onSignIn: appModel.signInWithGoogle,
+        onDismiss: appModel.dismissSignIn,
+        onConfirm: appModel.confirmSignIn,
+        onUseAnotherAccount: appModel.useAnotherGoogleAccount,
+        onStartNewBackup: appModel.startNewBackupHere)
+    }
+  }
+
+  /// The Google sign-in sheet while the app asks for it. Closing it any other way is Not Now.
+  private var signInSheet: Binding<GoogleSignInState?> {
+    let appModel = appModel
+    return Binding(
+      get: { appModel.signInSheet },
+      set: { if $0 == nil, appModel.signInSheet != nil { appModel.dismissSignIn() } })
   }
 
   private func mainView(now: Date) -> some View {
@@ -30,6 +47,7 @@ struct MainContainerView: View {
         case .files(let id): AnyView(filesPage(id, state: state, now: now))
         case .folderHistory(let id): AnyView(historyPage(folderID: id, now: now))
         case .run(let id): AnyView(runPage(id, now: now))
+        case .unreadFiles(let id): AnyView(unreadFilesPage(id))
         }
       }
     )
@@ -41,10 +59,7 @@ struct MainContainerView: View {
     var actions = ShelfActions()
     actions.addFolder = addFolder
     actions.chooseFolderForBuff = chooseFolderForBuff
-    actions.addBuff = { id, buff in
-      guard buff == .temporary, let folder = appModel.folder(id: id) else { return false }
-      return await appModel.setTemporary(folder, true)
-    }
+    actions.addBuff = { id, buff in await appModel.addBuff(buff, on: id) }
     actions.undoAddBuff = { id, buff in Task { await appModel.undoAddBuff(buff, on: id) } }
     actions.takeOff = { id, buff in Task { await appModel.confirmTakeOff(buff, on: id) } }
     actions.fix = { id, fix in appModel.perform(fix, on: id) }
@@ -72,10 +87,15 @@ struct MainContainerView: View {
   }
 
   private func chooseFolderForBuff(_ buff: Buff) {
-    guard buff == .temporary else { return }
-    guard let url = NSOpenPanel.chooseFolderToMakeTemporary() else { return }
+    let chosen: URL? =
+      switch buff {
+      case .temporary: NSOpenPanel.chooseFolderToMakeTemporary()
+      case .backup: NSOpenPanel.chooseFolderToBackUp()
+      case .organise, .search: nil
+      }
+    guard let url = chosen else { return }
     Task {
-      await appModel.addBuff(.temporary, toFolderAt: url)
+      await appModel.addBuff(buff, toFolderAt: url)
       guard let id = appModel.report(for: url)?.folder.id else { return }
       windowState.navigation = MainNavigation(.folder(id))
     }

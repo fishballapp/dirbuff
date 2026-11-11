@@ -162,7 +162,7 @@ private func backupLine(_ reports: [FolderReport], now: Date, calendar: Calendar
   case .waiting(let wait):
     return [wait.words(calendar: calendar), lastBackup.map(lowercasingFirst)]
       .compactMap(\.self).joined(separator: " · ")
-  case .ready, .signedOut, .full, .backupGone, .backupInBin, .partMissing:
+  case .ready, .signedOut, .otherAccount, .full, .backupGone, .backupInBin, .partMissing:
     return lastBackup ?? "No backup yet"
   }
 }
@@ -177,7 +177,8 @@ private func needingYou(_ folder: FolderState, now: Date) -> NeedsYou? {
       case .giveAccess: (lead, accessReason(row, lostAt: folder.accessLostAt, now: now))
       // The row's setting says since when it has been missing.
       case .locate: (row.status, row.setting)
-      case .signInAgain, .makeRoom, .showFiles, .backUpNow, .putBackFromDriveBin, .startAgain,
+      case .signInAgain, .chooseAccount, .makeRoom, .showFiles, .backUpNow, .putBackFromDriveBin,
+        .startAgain,
         .showDetails:
         (lead, row.status)
       }

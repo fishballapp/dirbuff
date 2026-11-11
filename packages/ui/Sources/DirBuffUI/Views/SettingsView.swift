@@ -10,6 +10,7 @@ public struct SettingsView: View {
   public var onOpenLoginItemsSettings: () -> Void
   public var onOpenSetup: () -> Void
   public var onLicenceAction: (LicenceSettings.Action) -> Void
+  public var onBackupAction: (BackupAccountSettings.Action) -> Void
 
   public init(
     state: SettingsState,
@@ -19,7 +20,8 @@ public struct SettingsView: View {
     onCheckForUpdates: @escaping () -> Void = {},
     onOpenLoginItemsSettings: @escaping () -> Void = {},
     onOpenSetup: @escaping () -> Void = {},
-    onLicenceAction: @escaping (LicenceSettings.Action) -> Void = { _ in }
+    onLicenceAction: @escaping (LicenceSettings.Action) -> Void = { _ in },
+    onBackupAction: @escaping (BackupAccountSettings.Action) -> Void = { _ in }
   ) {
     self.state = state
     self.onToggleOpenAtLogin = onToggleOpenAtLogin
@@ -29,6 +31,7 @@ public struct SettingsView: View {
     self.onOpenLoginItemsSettings = onOpenLoginItemsSettings
     self.onOpenSetup = onOpenSetup
     self.onLicenceAction = onLicenceAction
+    self.onBackupAction = onBackupAction
   }
 
   public var body: some View {
@@ -66,6 +69,8 @@ public struct SettingsView: View {
         }
       }
 
+      backupSection
+
       Section {
         LabeledContent("DirBuff \(state.version)") {
           Button("Check for Updates…", action: onCheckForUpdates)
@@ -90,6 +95,48 @@ public struct SettingsView: View {
     .scrollContentBackground(.hidden)
     .background(Palette.paper)
     .frame(width: 520)
+  }
+
+  private var backupSection: some View {
+    let backup = state.backup
+    return Section {
+      LabeledContent {
+        if backup.isSignedIn {
+          Button("Sign Out…") { onBackupAction(.signOut) }
+        } else {
+          Button("Sign In with Google…") { onBackupAction(.signIn) }
+        }
+      } label: {
+        labelled("Google Drive", backup.accountLine)
+      }
+
+      LabeledContent {
+        if backup.isPasswordProtected {
+          HStack(spacing: 8) {
+            Button("Change Password…") { onBackupAction(.changePassword) }
+            Button("Remove Password…") { onBackupAction(.removePassword) }
+          }
+          .disabled(!backup.isSignedIn)
+        } else {
+          Button("Protect with a Password…") { onBackupAction(.setPassword) }
+            .disabled(!backup.isSignedIn)
+        }
+      } label: {
+        labelled("Password", backup.passwordLine)
+      }
+    } header: {
+      SectionHead("Backup")
+    }
+  }
+
+  private func labelled(_ title: String, _ detail: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title)
+      Text(detail)
+        .font(.subheadline)
+        .foregroundStyle(Palette.inkTertiary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
   }
 
   private var licenceSection: some View {

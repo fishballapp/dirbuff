@@ -36,6 +36,18 @@ final class AppModel {
   var backupProgress: RunProgress?
   /// Where the Mac's Google Drive stands, which every folder wearing Backup shares.
   var driveState: DriveState = .ready
+  /// What Backup's surfaces read beyond the folders, kept by `refreshBackupSurfaces` in
+  /// `AppModel+BackupSurfaces`: whether DirBuff holds a Google sign-in, the account's address once
+  /// Google has said it, whether the backup has a password, and each folder's latest backups.
+  var isSignedInToGoogle = false
+  var googleAccount: String?
+  var isBackupPasswordProtected = false
+  var backupAttempts: [Int64: [BackupAttempt]] = [:]
+  /// The Google sign-in sheet, on the main window while it's asked for (`AppModel+GoogleSignIn`).
+  var signInSheet: GoogleSignInState?
+  @ObservationIgnored var signInTask: Task<Void, Never>?
+  /// When Make Room…'s return last checked the account (`checkForRoomIfFull`).
+  @ObservationIgnored var lastRoomCheckAt: Date?
   /// Goes up whenever History changes (a clean-up, a Put Back, trimming or clearing), so open
   /// History pages read it again. Set only by `historyDidChange()` in `AppModel+History`, which
   /// is why it can't be `private(set)` here.
@@ -43,8 +55,7 @@ final class AppModel {
 
   let engine: Engine
   let temporary: TemporaryBuff
-  /// Backup's module, against the Macs' backups in the Google Drive signed in to; no folder can
-  /// wear it yet (it is a Soon buff).
+  /// Backup's module, against the Macs' backups in the Google Drive signed in to.
   let backup: BackupBuff
   /// The Google account Backup keeps the backups in.
   let googleSignIn: GoogleSignIn
@@ -52,6 +63,8 @@ final class AppModel {
   /// (`connectFixes`).
   @ObservationIgnored var showFolderPage: (Int64) -> Void = { _ in }
   @ObservationIgnored var showSettings: () -> Void = {}
+  /// Opens the main window at a place, or where it was left.
+  @ObservationIgnored var showMain: (MainNavigation?) -> Void = { _ in }
   /// Why Backup's owed runs are waiting, if they are.
   private(set) var backupHold: BackupHold?
   private let polar: PolarLicensing
@@ -110,14 +123,19 @@ final class AppModel {
     Licence(licenceRecord, now: now, release: releaseDay)
   }
 
+  /// The folders as last read, each with where the Mac's Google Drive stands.
+  var reportsWithDrive: [FolderReport] {
+    reports.map { report in
+      var report = report
+      report.drive = driveState
+      return report
+    }
+  }
+
   /// Every folder as the shelf, sidebar, popover and Finder show it.
   func folders(now: Date) -> [FolderState] {
     FolderState.all(
-      reports.map { report in
-        var report = report
-        report.drive = driveState
-        return report
-      }, licence: licence(now: now), working: working, progress: runProgress,
+      reportsWithDrive, licence: licence(now: now), working: working, progress: runProgress,
       backingUp: backingUp, backupProgress: backupProgress, now: now)
   }
 
@@ -211,6 +229,7 @@ final class AppModel {
         }
       }.value
       self.reports = reports
+      await refreshBackupSurfaces()
       await refreshDriveState()
       publishForFinder()
       await scheduler?.afterChange.reload()
@@ -368,7 +387,8 @@ final class AppModel {
     case let failure as Engine.Failure: explain(failure)
     case let failure as TemporaryBuff.Failure: explain(failure)
     case let refusal as Refusal: explain(refusal)
-    default: error.localizedDescription
+    // Backup's (Drive, the bridge, restic, the password, sign-in) in one place.
+    default: backupErrorWords(error) ?? error.localizedDescription
     }
   }
 
@@ -536,10 +556,17 @@ final class AppModel {
 
   /// Makes every Temporary folder plain once the trial or licence has ended. Folders already plain
   /// are skipped, so it does its work once per end.
+  /// Said once per end: Temporary's folders are paused here, and Backup's stop at the gate
+  /// (decision 95), which has no flag of its own to mark that it was told.
+  static let licenceEndNotifiedKey = "notified.licenceEnded"
+
   private func makeFoldersPlain(_ licence: Licence) async {
     let temporary = temporary
     let wearing = reports.compactMap(\.temporaryWear).filter { !$0.isPausedByLicence }
-    guard !wearing.isEmpty else { return }
+    let isBackupStopping =
+      reports.contains { $0.backupWear != nil }
+      && !UserDefaults.standard.bool(forKey: Self.licenceEndNotifiedKey)
+    guard !wearing.isEmpty || isBackupStopping else { return }
     for wear in wearing {
       do {
         try await Task.detached {
@@ -555,12 +582,13 @@ final class AppModel {
     case .trialEnded:
       await notify(
         id: "licence.ended", title: "DirBuff's trial has ended",
-        body: "Your folders are plain folders again. Support DirBuff to turn them back on.")
+        body: "Every buff on your folders has stopped. Support DirBuff to turn them back on.")
     default:
       await notify(
         id: "licence.ended", title: "Your DirBuff licence ended before this version",
-        body: "Your folders are plain folders again. Renew DirBuff to use this version.")
+        body: "Every buff on your folders has stopped. Renew DirBuff to use this version.")
     }
+    UserDefaults.standard.set(true, forKey: Self.licenceEndNotifiedKey)
   }
 
   // MARK: - Running the buffs
@@ -596,7 +624,16 @@ final class AppModel {
     // whenever one of its windows becomes key: back from System Settings, the warning must be gone.
     NotificationCenter.default.addObserver(
       forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
-    ) { _ in Task { @MainActor in self.refreshSystemStatus() } }
+    ) { _ in
+      Task { @MainActor in
+        self.refreshSystemStatus()
+        self.checkForRoomIfFull()
+      }
+    }
+    // Back from Google One's page after Make Room…, DirBuff looks for the room it made.
+    NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+    ) { _ in Task { @MainActor in self.checkForRoomIfFull() } }
   }
 
   /// Runs each buff whose schedule fell due.
@@ -614,6 +651,8 @@ final class AppModel {
     let licence = licence(now: now)
     if licence.plainsFolders {
       await makeFoldersPlain(licence)
+    } else if licence.mayClean {
+      UserDefaults.standard.removeObject(forKey: Self.licenceEndNotifiedKey)
     }
     if licence == .trial(daysLeft: 1) {
       await notifyOncePerDay(

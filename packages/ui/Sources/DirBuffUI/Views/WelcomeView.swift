@@ -89,7 +89,10 @@ public struct WelcomeView: View {
   private var pieces: some View {
     HStack(spacing: 10) {
       ForEach(Buff.allCases, id: \.self) { buff in
-        BuffPiece(buff).fixedSize()
+        // The tiles teach Temporary; Backup goes on from the main window or Finder, where the
+        // Google sign-in it asks for follows.
+        BuffPiece(buff, isDraggable: buff != .backup).fixedSize()
+          .help(buff == .backup ? "Add Backup from DirBuff's window, or a folder in Finder." : "")
       }
     }
   }
@@ -271,7 +274,12 @@ private struct TemporaryDrop: ViewModifier {
   @Environment(\.addBuffHost) private var host
 
   func body(content: Content) -> some View {
-    content.onDrop(of: [.dirbuffBuff], isTargeted: $isTargeted) { _ in
+    // Lit only under Temporary, the one buff a tile takes.
+    content.onDrop(
+      of: [.dirbuffBuff],
+      isTargeted: Binding(
+        get: { isTargeted }, set: { isTargeted = $0 && host.draggedBuff == .temporary })
+    ) { _ in
       guard host.draggedBuff == .temporary else { return false }
       onDrop()
       return true
