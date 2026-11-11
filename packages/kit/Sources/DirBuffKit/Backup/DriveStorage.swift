@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The Macs' backups in the user's Google Drive, each restic repository reached through a
 /// `DriveBridge`:
@@ -18,6 +19,7 @@ public struct DriveStorage: BackupStorage {
   public let store: Store
   /// What a new repository's folder is called: the computer's name.
   public let macName: String
+  static let logger = Logger(subsystem: "app.fishball.dirbuff", category: "backup")
   private let makeBridge: @Sendable (DriveFileID) -> DriveBridge
 
   public init(drive: any DriveFiles, store: Store, macName: String) {
@@ -36,6 +38,9 @@ public struct DriveStorage: BackupStorage {
     self.makeBridge = makeBridge
   }
 
+  /// What Drive tells of the Google account: signed out, full, the backup gone or in the Bin.
+  var account: DriveAccount { DriveAccount(drive: drive, store: store) }
+
   // MARK: BackupStorage
 
   /// A new repository gets a folder of its own, never another Mac's of the same name: that one
@@ -45,6 +50,12 @@ public struct DriveStorage: BackupStorage {
       return DriveRepository(bridge: makeBridge(id))
     }
     let backups = try await backupsFolder()
+    let folder = try await drive.createFolder(named: try await uniqueName(in: backups), in: backups)
+    try store.saveBackupDriveRepository(folder.id)
+    return DriveRepository(bridge: makeBridge(folder.id))
+  }
+
+  private func uniqueName(in backups: DriveFileID) async throws -> String {
     let taken = Set(try await drive.allChildren(of: backups).map(\.name))
     var name = macName
     var number = 1
@@ -52,9 +63,7 @@ public struct DriveStorage: BackupStorage {
       number += 1
       name = "\(macName) (\(number))"
     }
-    let folder = try await drive.createFolder(named: name, in: backups)
-    try store.saveBackupDriveRepository(folder.id)
-    return DriveRepository(bridge: makeBridge(folder.id))
+    return name
   }
 
   public func macs() async throws -> [BackedUpMac] {
@@ -80,6 +89,41 @@ public struct DriveStorage: BackupStorage {
     let bridge = makeBridge(id)
     try await bridge.rebuildTable()
     return DriveRepository(bridge: bridge)
+  }
+
+  // MARK: The account
+
+  public func confirmUsable() async throws {
+    if let problem = try await account.check().first {
+      throw BackupBuff.Failure.accountProblem(problem)
+    }
+  }
+
+  public func noteFailure(_ error: any Error) async {
+    do {
+      try await account.note(error)
+    } catch {
+      Self.logger.error(
+        "Couldn't keep the account's problem: \(String(describing: error), privacy: .public)")
+    }
+  }
+
+  /// Folder IDs are what the database keeps, so a `DirBuff Backup` the user deleted would fail
+  /// the new folder's creation for ever: it is forgotten, and made again, first.
+  public func makeNewRepository() async throws -> (id: String, repository: any BackupRepository) {
+    if let kept = try store.backupDriveFolders().backups {
+      let isUsable: Bool
+      do {
+        isUsable = try await !drive.metadata(of: kept).isTrashed
+      } catch DriveProblem.notFound {
+        isUsable = false
+      }
+      if !isUsable { try store.clearBackupDriveFolder() }
+    }
+    let backups = try await backupsFolder()
+    let folder = try await drive.createFolder(
+      named: try await uniqueName(in: backups), in: backups)
+    return (folder.id.rawValue, DriveRepository(bridge: makeBridge(folder.id)))
   }
 
   // MARK: DirBuff Backup

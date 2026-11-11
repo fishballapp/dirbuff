@@ -22,6 +22,9 @@ actor InMemoryDrive: DriveFiles {
   private var pendingFailure: DriveProblem?
   /// When set, the call that many calls from now throws instead of running (once).
   private var countedFailure: (remaining: Int, problem: DriveProblem)?
+  /// Calls (by name) that fail every time until told to stop: Google signing the user out, the
+  /// account filling up, the network going.
+  private var failingCalls: [String: DriveProblem] = [:]
   /// Every call made, by name, in order.
   private(set) var calls: [String] = []
 
@@ -42,6 +45,9 @@ actor InMemoryDrive: DriveFiles {
   func failCall(number: Int, with problem: DriveProblem) {
     countedFailure = (number, problem)
   }
+
+  /// Every call to `call` ("about", "upload", …) throws `problem`, or none if it's nil, from now on.
+  func failCalls(to call: String, with problem: DriveProblem?) { failingCalls[call] = problem }
 
   /// The bytes in the file change behind the app's back, its size kept.
   func corrupt(_ id: DriveFileID) {
@@ -133,6 +139,7 @@ actor InMemoryDrive: DriveFiles {
 
   private func begin(_ call: String) throws {
     calls.append(call)
+    if let failure = failingCalls[call] { throw failure }
     if let failure = pendingFailure {
       pendingFailure = nil
       throw failure

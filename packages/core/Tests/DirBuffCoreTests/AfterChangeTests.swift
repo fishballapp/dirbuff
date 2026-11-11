@@ -31,10 +31,11 @@ private func following(_ ids: Int64..., lastRun ago: TimeInterval = 2 * hour) ->
   return timer
 }
 
-private func step(_ timer: AfterChangeTimer, at now: Date, _ conditions: BackupConditions = .clear)
-  -> AfterChangeStep
-{
-  timer.next(now: now, conditions: conditions, calendar: utc)
+private func step(
+  _ timer: AfterChangeTimer, at now: Date, _ conditions: BackupConditions = .clear,
+  isAccountHeld: Bool = false
+) -> AfterChangeStep {
+  timer.next(now: now, conditions: conditions, isAccountHeld: isAccountHeld, calendar: utc)
 }
 
 @Suite struct AfterChange {
@@ -364,6 +365,43 @@ private func step(_ timer: AfterChangeTimer, at now: Date, _ conditions: BackupC
     #expect(
       step(timer, at: noon, lowPower) == .wait(until: noon.addingTimeInterval(hour), heldBy: nil))
     #expect(step(timer, at: noon) == .maintain)
+  }
+
+  // MARK: The account
+
+  @Test func anOwedRunWaitsWhileTheAccountIsHeldAndRunsWhenItIsNot() {
+    var timer = following(1)
+    timer.changed(1, at: noon)
+    let later = noon.addingTimeInterval(10 * minute)
+    #expect(
+      step(timer, at: later, isAccountHeld: true)
+        == .wait(until: noon.addingTimeInterval(hour), heldBy: nil))
+    #expect(step(timer, at: later) == .run(folderID: 1, dueAt: noon.addingTimeInterval(300)))
+  }
+
+  @Test func theCheckGoesOnWhileTheAccountIsHeld() {
+    var timer = following(1)
+    timer.changed(1, at: noon)
+    #expect(step(timer, at: noon.addingTimeInterval(hour), isAccountHeld: true) == .check)
+  }
+
+  @Test func maintenanceWaitsWhileTheAccountIsHeld() {
+    var timer = timer(lastMaintainedAt: nil)
+    timer.follow([.init(folderID: 1, lastRunAt: noon)])
+    timer.checked(at: noon)
+    #expect(
+      step(timer, at: noon, isAccountHeld: true)
+        == .wait(until: noon.addingTimeInterval(hour), heldBy: nil))
+    #expect(step(timer, at: noon) == .maintain)
+  }
+
+  @Test func anAccountHoldDoesNotHideTheMacsOwn() {
+    var timer = following(1)
+    timer.changed(1, at: noon)
+    let offline = BackupConditions(network: .offline, isLowPowerMode: false, power: .mains)
+    #expect(
+      step(timer, at: noon.addingTimeInterval(10 * minute), offline, isAccountHeld: true)
+        == .wait(until: noon.addingTimeInterval(hour), heldBy: .offline))
   }
 
   // MARK: The schedule

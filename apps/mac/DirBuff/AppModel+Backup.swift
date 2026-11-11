@@ -23,7 +23,7 @@ extension AppModel: AfterChangeWork {
 
   var isAllowed: Bool { licence.mayClean }
 
-  private func isSignedIn() async -> Bool {
+  func isSignedIn() async -> Bool {
     do {
       return try await googleSignIn.isSignedIn()
     } catch {
@@ -109,20 +109,21 @@ extension AppModel: AfterChangeWork {
     }
   }
 
+  /// The hourly check, change or not.
   func checkAccount() async {
-    await backupAccount.check()
-    await refresh()
-    await backupDidChange()
+    await checkBackupAccount()
+    await backupAccountDidChange()
   }
 
   /// The day's upkeep, then the weekly check when it's due. A check that couldn't run is tried
   /// at the next upkeep; what one found is kept for the states to show.
   func maintain() async -> Bool {
-    guard await isSignedIn() else { return false }
+    guard await isSignedIn(), !isAccountHeld else { return false }
     do {
       try await backup.maintain()
     } catch {
-      logger.error("Backup's upkeep failed: \(error.localizedDescription, privacy: .public)")
+      logger.error("Backup's upkeep failed: \(String(describing: error), privacy: .public)")
+      await backupAccountDidChange()
       return false
     }
     await check(onlyIfDue: true)
@@ -131,7 +132,7 @@ extension AppModel: AfterChangeWork {
 
   /// `dirbuff://check-now`: the weekly check, due or not.
   func checkNow() async {
-    guard await isSignedIn() else { return }
+    guard await isSignedIn(), !isAccountHeld else { return }
     await check(onlyIfDue: false)
   }
 
@@ -162,7 +163,7 @@ extension AppModel: AfterChangeWork {
 
   /// After a run, a check or the account's check: the status file says what happened, and a
   /// cause that needs the user is told once a day.
-  private func backupDidChange() async {
+  func backupDidChange() async {
     await writeBackupStatus()
     await notifyBackupNeedsYou()
   }
@@ -196,11 +197,16 @@ extension AppModel: AfterChangeWork {
     }
   }
 
-  /// Where the Mac's Google Drive stands, as far as DirBuff knows: signed in, whether the last
-  /// weekly check found something missing, and what holds an owed run.
+  /// Where the Mac's Google Drive stands, as far as DirBuff knows: what the account checks and
+  /// failed runs found (`AppModel+BackupAccount`), signed in, whether the last weekly check found
+  /// something missing, and what holds an owed run.
   func refreshDriveState() async {
     guard reports.contains(where: { $0.backupWear != nil }) else {
       driveState = .ready
+      return
+    }
+    if let state = accountDriveState() {
+      driveState = state
       return
     }
     guard await isSignedIn() else {

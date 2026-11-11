@@ -87,6 +87,14 @@ public struct BackupBuff: BuffModule {
     case seriesShared(String)
     /// The backup to take over lists no snapshot, so there's no Mac to take it over as.
     case backupIsEmpty
+    /// The Google account can't be used until the user fixes this (kept for the states); the
+    /// command didn't run, and nothing was recorded as a failed backup.
+    case accountProblem(DriveAccountProblem)
+    /// Start Again deletes nothing, but it leaves the old history behind for good, so the caller
+    /// must say the user knows.
+    case notConfirmed
+    /// This storage can't make a second repository.
+    case cannotStartAgain
   }
 
   public var buff: Buff { .backup }
@@ -176,6 +184,8 @@ public struct BackupBuff: BuffModule {
     }
     // Every write names the series this run backs up, so a run that outlives it (Backup taken
     // off, and maybe put on again, meanwhile) records nothing over the new one.
+    // A held backup isn't a failed one: it records nothing and waits for the account.
+    try await storage.confirmUsable()
     try store.recordBackupStarted(record, at: now)
     do {
       let session = try await openRepository(now: now)
@@ -213,6 +223,7 @@ public struct BackupBuff: BuffModule {
         items: saved.filesNew + saved.filesChanged, bytes: saved.bytesAdded,
         failures: saved.skipped.count)
     } catch {
+      await storage.noteFailure(error)
       do {
         try store.recordBackupFailure(
           String(describing: error), for: record, runID: context.runID, at: Date())
@@ -283,30 +294,43 @@ public struct BackupBuff: BuffModule {
   /// Thins each Backup folder's history once a day, deletes the backups of folders Backup came
   /// off with "also delete its backup", and prunes the data none of it uses any more once a week.
   public func maintain(now: Date = Date(), calendar: Calendar = .current) async throws {
-    try await commands.run {
-      // Nothing was ever backed up on this Mac.
-      guard let account = try store.backupAccount() else { return }
-      let session = try await openRepository(now: now)
-      for wear in try store.backupWearers() where !wear.isPausedByLicence {
-        guard let record = try store.backupRecord(folderID: wear.folderID),
-          record.lastSuccessAt != nil,
-          record.lastForgetAt.map({ !calendar.isDate($0, inSameDayAs: now) }) ?? true
-        else { continue }
-        try await forget(record, session: session, now: now)
-      }
-      let deletions = try store.pendingBackupDeletions()
-      for tag in deletions {
-        let snapshots = try await restic(session) {
-          try await $0.snapshots(tags: [BackupRecord.resticTag(tag)], host: session.host)
+    try await noticingAccount {
+      try await commands.run {
+        // Nothing was ever backed up on this Mac.
+        guard let account = try store.backupAccount() else { return }
+        try await storage.confirmUsable()
+        let session = try await openRepository(now: now)
+        for wear in try store.backupWearers() where !wear.isPausedByLicence {
+          guard let record = try store.backupRecord(folderID: wear.folderID),
+            record.lastSuccessAt != nil,
+            record.lastForgetAt.map({ !calendar.isDate($0, inSameDayAs: now) }) ?? true
+          else { continue }
+          try await forget(record, session: session, now: now)
         }
-        try await restic(session) { try await $0.forget(snapshotIDs: snapshots.map(\.id)) }
+        let deletions = try store.pendingBackupDeletions()
+        for tag in deletions {
+          let snapshots = try await restic(session) {
+            try await $0.snapshots(tags: [BackupRecord.resticTag(tag)], host: session.host)
+          }
+          try await restic(session) { try await $0.forget(snapshotIDs: snapshots.map(\.id)) }
+        }
+        let isPruneDue =
+          now.timeIntervalSince(account.lastPrunedAt ?? account.createdAt) >= Self.pruneInterval
+        guard !deletions.isEmpty || isPruneDue else { return }
+        try await prune(session)
+        try store.recordPrune(at: now)
+        try store.finishBackupDeletions(deletions)
       }
-      let isPruneDue =
-        now.timeIntervalSince(account.lastPrunedAt ?? account.createdAt) >= Self.pruneInterval
-      guard !deletions.isEmpty || isPruneDue else { return }
-      try await prune(session)
-      try store.recordPrune(at: now)
-      try store.finishBackupDeletions(deletions)
+    }
+  }
+
+  /// Runs `body`; if it fails because of the Google account, keeps the reason for the states.
+  func noticingAccount<Result>(_ body: () async throws -> Result) async throws -> Result {
+    do {
+      return try await body()
+    } catch {
+      await storage.noteFailure(error)
+      throw error
     }
   }
 

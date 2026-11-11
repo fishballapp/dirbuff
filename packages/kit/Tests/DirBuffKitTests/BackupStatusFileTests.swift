@@ -61,6 +61,28 @@ import Testing
     #expect(try BackupStatusFile.decoded(from: Data(json.utf8)) == file)
   }
 
+  @Test func anAccountProblemIsAKeyOfItsOwn() throws {
+    let file = BackupStatusFile(
+      writtenAt: now, check: nil,
+      account: .init(problem: .driveFull, since: now.addingTimeInterval(-3_600)), folders: [])
+
+    let json = try #require(String(data: try file.encoded(), encoding: .utf8))
+
+    #expect(json.contains("\"account\" : {\n    \"problem\" : \"driveFull\",\n    \"since\" :"))
+    #expect(try BackupStatusFile.decoded(from: Data(json.utf8)) == file)
+  }
+
+  @Test func theFileNamesTheAccountProblemToFixFirst() async throws {
+    let fixture = try BackupFixture()
+    #expect(try fixture.backup.statusFile(now: now).account == nil)
+    try fixture.store.recordAccountProblem(.full, at: now.addingTimeInterval(-60))
+    try fixture.store.recordAccountProblem(.backupInBin, at: now.addingTimeInterval(-120))
+
+    let account = try #require(try fixture.backup.statusFile(now: now).account)
+
+    #expect(account == .init(problem: .backupInBin, since: now.addingTimeInterval(-120)))
+  }
+
   @Test func theStateIsTheFoldersOwnRecordRead() {
     #expect(state(status(failedRuns: 3, error: "boom")) == .failing)
     #expect(state(status(lastSuccess: nil)) == .neverBackedUp)

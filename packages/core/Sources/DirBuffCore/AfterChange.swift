@@ -209,9 +209,14 @@ public struct AfterChangeTimer: Sendable, Equatable {
 
   /// What to do at `now`. A check waits only for a connection; a run or `maintain` waits for
   /// every condition. `maintain` comes when no folder is owed, so it follows the day's backups.
-  public func next(now: Date, conditions: BackupConditions, calendar: Calendar = .current)
-    -> AfterChangeStep
-  {
+  ///
+  /// While the Google account is held (`isAccountHeld`: signed out, Drive full, the backup gone
+  /// or in the Bin) no run or `maintain` starts, and none is wasted failing: they stay owed, and
+  /// the check, which finds the cause gone, goes on, after which they run.
+  public func next(
+    now: Date, conditions: BackupConditions, isAccountHeld: Bool = false,
+    calendar: Calendar = .current
+  ) -> AfterChangeStep {
     let nextCheck = entries.isEmpty ? nil : lastCheckAt.map { $0.addingTimeInterval(check) }
     let isCheckDue = !entries.isEmpty && (nextCheck.map { $0 <= now } ?? true)
     if isCheckDue, conditions.network != .offline { return .check }
@@ -226,10 +231,11 @@ public struct AfterChangeTimer: Sendable, Equatable {
     let hold = conditions.hold
     if let first = owed(at: now).first {
       guard hold == nil else { return .wait(until: wake, heldBy: hold) }
+      guard !isAccountHeld else { return .wait(until: wake, heldBy: nil) }
       return .run(folderID: first.folderID, dueAt: first.dueAt)
     }
     guard maintenance == .now else { return .wait(until: wake, heldBy: nil) }
-    return hold == nil ? .maintain : .wait(until: wake, heldBy: nil)
+    return hold == nil && !isAccountHeld ? .maintain : .wait(until: wake, heldBy: nil)
   }
 
   private enum Maintenance: Equatable {

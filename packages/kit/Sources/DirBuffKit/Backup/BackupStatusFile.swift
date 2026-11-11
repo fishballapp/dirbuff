@@ -17,14 +17,49 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
   public var writtenAt: Date
   /// The last weekly check that ran to its end; absent before the first.
   public var check: Check?
+  /// What stops Backup using the Google account, when something does; absent otherwise.
+  public var account: Account?
   /// Every folder that wears Backup.
   public var folders: [Folder]
 
-  public init(writtenAt: Date, check: Check?, folders: [Folder]) {
+  public init(writtenAt: Date, check: Check?, account: Account? = nil, folders: [Folder]) {
     version = Self.currentVersion
     self.writtenAt = writtenAt
     self.check = check
+    self.account = account
     self.folders = folders
+  }
+
+  /// A problem with the account every folder shares. No backup runs while one stands, so none
+  /// fails either: this is how a reader outside DirBuff learns why nothing is being backed up.
+  public struct Account: Codable, Equatable, Sendable {
+    public var problem: Problem
+    public var since: Date
+
+    public init(problem: Problem, since: Date) {
+      self.problem = problem
+      self.since = since
+    }
+
+    public enum Problem: String, Codable, Equatable, Sendable {
+      /// Google no longer accepts DirBuff's access; the user has to sign in again.
+      case signedOut
+      /// Google Drive is full or within 1 GB of it.
+      case driveFull
+      /// The backup was deleted in Google Drive.
+      case backupGone
+      /// The backup is in Google Drive's Bin.
+      case backupInBin
+
+      init(_ problem: DriveAccountProblem) {
+        switch problem {
+        case .signedOut: self = .signedOut
+        case .full: self = .driveFull
+        case .backupGone: self = .backupGone
+        case .backupInBin: self = .backupInBin
+        }
+      }
+    }
   }
 
   public struct Check: Codable, Equatable, Sendable {
@@ -173,7 +208,14 @@ extension BackupBuff {
           folderID: wear.folderID, limit: BackupStatusFile.attemptLimit),
         now: now)
     }
+    let problems = try store.accountProblems()
+    let account = DriveAccountProblem.allCases.lazy.compactMap { problem in
+      problems[problem].map {
+        BackupStatusFile.Account(problem: .init(problem), since: $0)
+      }
+    }.first
     return BackupStatusFile(
-      writtenAt: now, check: try lastCheck().map(BackupStatusFile.Check.init), folders: folders)
+      writtenAt: now, check: try lastCheck().map(BackupStatusFile.Check.init), account: account,
+      folders: folders)
   }
 }

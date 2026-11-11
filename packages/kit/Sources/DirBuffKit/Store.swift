@@ -266,6 +266,7 @@ public struct Store: Sendable {
     registerBackupOnDriveMigrations(&migrator)
     registerOpenRunMigrations(&migrator)
     registerBackupNotificationMigrations(&migrator)
+    registerBackupAccountMigrations(&migrator)
     return migrator
   }
 

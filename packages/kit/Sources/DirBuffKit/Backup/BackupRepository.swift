@@ -11,6 +11,24 @@ public protocol BackupStorage: Sendable {
   /// One Mac's repository, listed afresh, for reading. It becomes this Mac's when the database
   /// names `mac.id` as this Mac's repository.
   func repository(of mac: BackedUpMac) async throws -> any BackupRepository
+
+  /// Before a command that uses the storage for a backup: throws
+  /// `BackupBuff.Failure.accountProblem` if what the storage lives in can't be used, with the
+  /// reason kept for the states to show. Not being able to find out (offline) is no problem.
+  func confirmUsable() async throws
+  /// After a command on the storage failed, in case the account was why: keeps its reason.
+  func noteFailure(_ error: any Error) async
+  /// A new, empty repository beside this Mac's, which the database doesn't know yet: `id` is
+  /// what it will name as this Mac's, as `BackedUpMac.id` does. Nothing is deleted.
+  func makeNewRepository() async throws -> (id: String, repository: any BackupRepository)
+}
+
+extension BackupStorage {
+  public func confirmUsable() async throws {}
+  public func noteFailure(_ error: any Error) async {}
+  public func makeNewRepository() async throws -> (id: String, repository: any BackupRepository) {
+    throw BackupBuff.Failure.cannotStartAgain
+  }
 }
 
 /// One Mac's repository.

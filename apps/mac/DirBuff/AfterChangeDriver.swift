@@ -18,6 +18,9 @@ struct FollowedFolder: Sendable {
 protocol AfterChangeWork: AnyObject {
   /// Backup's licence gate, the one Temporary has: nothing runs, or is checked, while it's shut.
   var isAllowed: Bool { get }
+  /// The Google account can't be used until the user fixes something (signed out, Drive full, the
+  /// backup gone or in the Bin): no run or upkeep starts, and the hourly check goes on.
+  var isAccountHeld: Bool { get }
   /// The folders that wear Backup and aren't paused, found now; an unplugged one is left out.
   func followedFolders() async -> [FollowedFolder]
   /// Backs the folder up; whether it did. `startedAt` is when the run begins.
@@ -214,7 +217,7 @@ final class AfterChangeDriver {
         return
       }
     }
-    switch timer.next(now: now, conditions: conditions) {
+    switch timer.next(now: now, conditions: conditions, isAccountHeld: work.isAccountHeld) {
     case .wait(let until, let heldBy):
       setHold(heldBy)
       if let until { arm(at: until) }

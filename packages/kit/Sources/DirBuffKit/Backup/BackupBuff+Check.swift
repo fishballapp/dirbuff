@@ -42,24 +42,26 @@ extension BackupBuff {
   /// out, a password the Keychain lost) or was stopped throws, and records nothing.
   @discardableResult
   public func check(now: Date = Date()) async throws -> BackupCheck? {
-    try await commands.run {
-      guard let account = try store.backupAccount() else { return nil }
-      let session = try await openRepository(now: now)
-      let missing = try await session.repository.refreshListing()
-      guard missing.isEmpty else {
-        let problem =
-          "\(missing.count) files are missing from the backup's storage: "
-          + missing.prefix(5).joined(separator: ", ") + (missing.count > 5 ? ", …" : "")
-        return try record(BackupCheck(checkedAt: now, problem: problem), sampledAt: nil)
-      }
-      do {
-        let (problem, sampledAt) = try await checkRepository(session, account: account)
-        return try record(BackupCheck(checkedAt: now, problem: problem), sampledAt: sampledAt)
-      } catch ResticFailure.exited(let exit, let message)
-        where exit != .lockFailed && exit != .cancelled
-      {
-        let problem = "restic couldn't read the backup: \(message)"
-        return try record(BackupCheck(checkedAt: now, problem: problem), sampledAt: nil)
+    try await noticingAccount {
+      try await commands.run {
+        guard let account = try store.backupAccount() else { return nil }
+        let session = try await openRepository(now: now)
+        let missing = try await session.repository.refreshListing()
+        guard missing.isEmpty else {
+          let problem =
+            "\(missing.count) files are missing from the backup's storage: "
+            + missing.prefix(5).joined(separator: ", ") + (missing.count > 5 ? ", …" : "")
+          return try record(BackupCheck(checkedAt: now, problem: problem), sampledAt: nil)
+        }
+        do {
+          let (problem, sampledAt) = try await checkRepository(session, account: account)
+          return try record(BackupCheck(checkedAt: now, problem: problem), sampledAt: sampledAt)
+        } catch ResticFailure.exited(let exit, let message)
+          where exit != .lockFailed && exit != .cancelled
+        {
+          let problem = "restic couldn't read the backup: \(message)"
+          return try record(BackupCheck(checkedAt: now, problem: problem), sampledAt: nil)
+        }
       }
     }
   }
