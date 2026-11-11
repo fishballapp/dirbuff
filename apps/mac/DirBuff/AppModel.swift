@@ -30,12 +30,16 @@ final class AppModel {
   }
   /// How far the folder a clean-up is running in now has got; nil between runs.
   private(set) var runProgress: RunProgress?
+  /// The folders a backup is running in now, and how far it has got. Set by the backup driver's
+  /// work, in `AppModel+Backup`.
+  var backingUp: Set<Int64> = []
+  var backupProgress: RunProgress?
+  /// Where the Mac's Google Drive stands, which every folder wearing Backup shares.
+  var driveState: DriveState = .ready
   /// Goes up whenever History changes (a clean-up, a Put Back, trimming or clearing), so open
   /// History pages read it again. Set only by `historyDidChange()` in `AppModel+History`, which
   /// is why it can't be `private(set)` here.
   var historyRevision = 0
-  /// The run a clean-up is writing to now, which Clear History keeps; nil between clean-ups.
-  private(set) var openRunID: Int64?
 
   let engine: Engine
   let temporary: TemporaryBuff
@@ -75,6 +79,13 @@ final class AppModel {
       Self.quit(because: error)
     }
     polar = PolarLicensing(api: polarSettings.api, organizationID: polarSettings.organizationID)
+    // This process is the only one that can have a run open, so any found now was cut short by a
+    // quit: it must not stay running for ever.
+    do {
+      try engine.store.closeInterruptedRuns(at: Date())
+    } catch {
+      logger.error("Couldn't close the runs: \(error.localizedDescription, privacy: .public)")
+    }
     refreshSystemStatus()
     startScheduler()
   }
@@ -104,7 +115,12 @@ final class AppModel {
   /// Every folder as the shelf, sidebar, popover and Finder show it.
   func folders(now: Date) -> [FolderState] {
     FolderState.all(
-      reports, licence: licence(now: now), working: working, progress: runProgress, now: now)
+      reports.map { report in
+        var report = report
+        report.drive = driveState
+        return report
+      }, licence: licence(now: now), working: working, progress: runProgress,
+      backingUp: backingUp, backupProgress: backupProgress, now: now)
   }
 
   /// The folder at `url`, matched by canonical path: the store keeps `/private/var/…`
@@ -181,11 +197,12 @@ final class AppModel {
   func refresh() async {
     let engine = engine
     let temporary = temporary
+    let backup = backup
     do {
       let reports = try await Task.detached {
         var found: [Int64: (location: Result<URL, FolderProblem>, buffs: [BuffReading])] = [:]
         for id in try engine.store.folders().compactMap(\.id) {
-          found[id] = try await Self.read(id, engine: engine, temporary: temporary)
+          found[id] = try await Self.read(id, engine: engine, temporary: temporary, backup: backup)
         }
         // Finding a folder can change its record (a renamed folder's path), and so does recording
         // its access, so the records are fetched after.
@@ -196,6 +213,7 @@ final class AppModel {
         }
       }.value
       self.reports = reports
+      await refreshDriveState()
       publishForFinder()
       await scheduler?.afterChange.reload()
     } catch {
@@ -206,9 +224,9 @@ final class AppModel {
   /// Finds the folder and reads each buff it wears. One unreadable folder (an unplugged drive)
   /// mustn't hide the others. Records whether macOS let DirBuff in, so a folder that needs the
   /// user can say since when.
-  nonisolated private static func read(_ id: Int64, engine: Engine, temporary: TemporaryBuff)
-    async throws -> (location: Result<URL, FolderProblem>, buffs: [BuffReading])
-  {
+  nonisolated private static func read(
+    _ id: Int64, engine: Engine, temporary: TemporaryBuff, backup: BackupBuff
+  ) async throws -> (location: Result<URL, FolderProblem>, buffs: [BuffReading]) {
     let located: Result<LocatedFolder, FolderProblem>
     do {
       located = .success(try engine.locate(folderID: id))
@@ -218,7 +236,8 @@ final class AppModel {
     }
     // Read after finding it: taking a folder's old tag off can put Temporary on.
     let buffs = [
-      try await read(temporary, located, folderID: id).map { BuffReading.temporary($0, $1) }
+      try await read(temporary, located, folderID: id).map { BuffReading.temporary($0, $1) },
+      try await read(backup, located, folderID: id).map { BuffReading.backup($0, $1) },
     ].compactMap(\.self)
     let location = located.map(\.url)
     let problem = FolderProblem(location: location, buffs: buffs)
@@ -551,9 +570,14 @@ final class AppModel {
   /// The model lives as long as the app, so the observers below hold it strongly.
   private func startScheduler() {
     Task { await settleLicence(now: Date()) }
+    Task { await writeBackupStatus() }
     guard
       let afterChange = AfterChangeDriver(
-        schedule: backup.schedule, work: self, onHoldChange: { self.backupHold = $0 })
+        schedule: backup.schedule, work: self,
+        onHoldChange: {
+          self.backupHold = $0
+          Task { await self.refreshDriveState() }
+        })
     else { Self.quit(because: SchedulerFailure.backupIsNotAfterChange) }
     let scheduler = BuffScheduler(afterChange: afterChange) { schedule, date in
       await self.runDue(schedule, at: date)
@@ -620,7 +644,6 @@ final class AppModel {
       logger.error("Couldn't open a run: \(error.localizedDescription, privacy: .public)")
       runID = nil
     }
-    openRunID = runID
     // One the licence paused runs too, removing nothing, so its run times stay current.
     let folderIDs: [Int64]
     do {
@@ -653,10 +676,9 @@ final class AppModel {
         logger.error("Run of folder \(id) failed: \(error.localizedDescription, privacy: .public)")
       }
     }
-    openRunID = nil
     if let runID {
       do {
-        try engine.store.dropRunIfEmpty(id: runID)
+        try engine.store.endRun(id: runID)
       } catch {
         logger.error("Couldn't close the run: \(error.localizedDescription, privacy: .public)")
       }

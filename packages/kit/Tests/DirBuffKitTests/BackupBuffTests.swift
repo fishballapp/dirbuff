@@ -56,6 +56,7 @@ import Testing
         "a.txt", "deep/b.txt",
       ])
     // History keeps the run: opening the next one drops only empty runs.
+    try fixture.store.endRun(id: runID)
     _ = try fixture.store.beginRun(of: .backup, at: Date())
     let recorded = try fixture.store.backupRuns(runID: runID)
     #expect(recorded.map(\.snapshotID) == snapshots.map(\.id))

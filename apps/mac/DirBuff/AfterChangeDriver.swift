@@ -25,6 +25,8 @@ protocol AfterChangeWork: AnyObject {
   func checkAccount() async
   /// Thins the histories and prunes; whether it did.
   func maintain() async -> Bool
+  /// The weekly check, due or not (`dirbuff://check-now`).
+  func checkNow() async
 }
 
 /// Times Backup's runs (`BuffSchedule.afterChange`): an FSEvents stream per Backup folder marks it
@@ -49,6 +51,12 @@ final class AfterChangeDriver {
   private var wakeTimer: Timer?
   private var holdsUntil: Date?
   private var isWorking = false
+  /// When `dirbuff://back-up-now` came before the folders were read (the request that launched
+  /// DirBuff), and when `dirbuff://check-now` came and hasn't run yet. Each is honoured for a
+  /// minute: a request that waits for hours would be a surprise.
+  private var backUpNowAskedAt: Date?
+  private var checkNowAskedAt: Date?
+  private static let requestLifetime: TimeInterval = 60
   private var sleepAssertion: SleepAssertion?
   private var idleCallbacks: [@MainActor () -> Void] = []
   private let onHoldChange: @MainActor (BackupHold?) -> Void
@@ -117,6 +125,10 @@ final class AfterChangeDriver {
   func reload() async {
     let folders = await work.followedFolders()
     timer.follow(folders.map { .init(folderID: $0.folderID, lastRunAt: $0.lastRunAt) })
+    if let asked = backUpNowAskedAt {
+      backUpNowAskedAt = nil
+      if now().timeIntervalSince(asked) < Self.requestLifetime { timer.owedNow() }
+    }
     let wanted = Dictionary(
       folders.compactMap { folder in
         (try? canonicalPath(of: folder.url)).map { (folder.folderID, $0) }
@@ -155,6 +167,29 @@ final class AfterChangeDriver {
     evaluate()
   }
 
+  // MARK: - Asked from outside
+
+  /// `dirbuff://back-up-now`: every folder wearing Backup is owed a run now. It waits for the
+  /// Mac's conditions like any run, and does nothing while a backup runs, with the licence shut,
+  /// or with no folder followed (signed out).
+  func backUpNow() {
+    guard work.isAllowed, !isRunningRestic else { return }
+    guard timer.followsAny else {
+      backUpNowAskedAt = now()
+      return
+    }
+    timer.owedNow()
+    evaluate()
+  }
+
+  /// `dirbuff://check-now`: the weekly check runs once nothing else does. A check or a backup
+  /// already running makes it a no-op.
+  func checkNow() {
+    guard work.isAllowed, !isRunningRestic else { return }
+    checkNowAskedAt = now()
+    evaluate()
+  }
+
   // MARK: - Doing
 
   /// Asks the timer what is owed and does it, or sleeps until something is.
@@ -169,6 +204,15 @@ final class AfterChangeDriver {
     guard work.isAllowed else {
       setHold(nil)
       return
+    }
+    if let asked = checkNowAskedAt {
+      if now.timeIntervalSince(asked) >= Self.requestLifetime {
+        checkNowAskedAt = nil
+      } else if conditions.network != .offline {
+        checkNowAskedAt = nil
+        perform(isRunningRestic: true) { await self.work.checkNow() }
+        return
+      }
     }
     switch timer.next(now: now, conditions: conditions) {
     case .wait(let until, let heldBy):

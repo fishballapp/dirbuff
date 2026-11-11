@@ -75,6 +75,7 @@ import Testing
       let run = try store.beginRun(
         of: .temporary, at: nine.addingTimeInterval(Double(hour) * 3_600))
       try entry("item\(hour)", folderID: downloads, runID: run)
+      try store.endRun(id: run)
       return run
     }
     let eachRun = try store.historySize() / 4
@@ -104,6 +105,7 @@ import Testing
     let downloads = try folder("Downloads")
     let run = try store.beginRun(of: .temporary, at: nine)
     try entry("a", folderID: downloads, runID: run)
+    try store.endRun(id: run)
 
     try store.clearHistory()
 
@@ -116,11 +118,12 @@ import Testing
     let downloads = try folder("Downloads")
     let finished = try store.beginRun(of: .temporary, at: nine)
     try entry("a", folderID: downloads, runID: finished)
+    try store.endRun(id: finished)
     try entry("old", folderID: downloads, runID: nil)
     let open = try store.beginRun(of: .temporary, at: nine.addingTimeInterval(3_600))
     try entry("b", folderID: downloads, runID: open)
 
-    try store.clearHistory(keeping: open)
+    try store.clearHistory()
     try entry("c", folderID: downloads, runID: open)
 
     #expect(try store.runs().map(\.id) == [open])

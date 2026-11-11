@@ -99,14 +99,16 @@ import Testing
     #expect(try temporary.run(folderID: id, now: later).items == 1)
   }
 
-  @Test func openingARunDropsRunsLeftEmpty() throws {
-    let stale = try engine.store.beginRun(of: .temporary, at: takenOff)
+  @Test func openingARunDropsRunsLeftEmptyButNotOpenOnes() throws {
+    let open = try engine.store.beginRun(of: .backup, at: takenOff)
+    let ended = try engine.store.beginRun(of: .temporary, at: takenOff)
+    try engine.store.endRun(id: ended)
     let fresh = try engine.store.beginRun(of: .temporary, at: later)
-    #expect(stale != fresh)
+    #expect(open != fresh)
     let runs = try engine.store.database.read {
       try Row.fetchAll($0, sql: "SELECT buff FROM run").map { $0["buff"] as String }
     }
-    #expect(runs == [Buff.temporary.rawValue])
+    #expect(runs == [Buff.backup.rawValue, Buff.temporary.rawValue])
   }
 
   @Test func missingSinceKeepsTheFirstTimeAndClearsOnceFound() throws {

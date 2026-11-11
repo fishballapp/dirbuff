@@ -166,10 +166,10 @@ import Testing
     try scratch.file("old")
     let id = try temporary.addWearing(scratch.url, deleting)
     let empty = try engine.store.beginRun(of: .temporary, at: later)
-    try engine.store.dropRunIfEmpty(id: empty)
+    try engine.store.endRun(id: empty)
     let full = try engine.store.beginRun(of: .temporary, at: later)
     try temporary.run(folderID: id, now: later, runID: full)
-    try engine.store.dropRunIfEmpty(id: full)
+    try engine.store.endRun(id: full)
 
     #expect(try engine.store.journal(folderID: id).first?.runID == full)
   }

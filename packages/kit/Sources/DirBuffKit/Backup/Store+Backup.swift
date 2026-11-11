@@ -91,6 +91,17 @@ extension Store {
     }
   }
 
+  /// The day each cause last had its notification (once per cause per day), kept so a
+  /// relaunch doesn't send it again. Registered after the open runs'.
+  static func registerBackupNotificationMigrations(_ migrator: inout DatabaseMigrator) {
+    migrator.registerMigration("backup notifications") { db in
+      try db.create(table: "backupNotified") { t in
+        t.primaryKey("cause", .text)
+        t.column("day", .text).notNull()
+      }
+    }
+  }
+
   /// Registered after the bridge's: migrations run in the order they're registered.
   static func registerBackupOnDriveMigrations(_ migrator: inout DatabaseMigrator) {
     migrator.registerMigration("backup on drive") { db in
@@ -329,6 +340,38 @@ extension Store {
           INSERT OR REPLACE INTO backupRun (runID, folderID, error, endedAt) VALUES (?, ?, ?, ?)
           """,
         arguments: [runID, folderID, error, date])
+    }
+  }
+
+  /// Opens a History run for a backup of the folder. Its `backupRun` row exists from the start,
+  /// with no outcome: the attempt is running until the backup records one, or `endRun` or the
+  /// next launch (`closeInterruptedRuns`) settles it.
+  public func beginBackupRun(folderID: Int64, at date: Date) throws -> Int64 {
+    try database.write { db in
+      let runID = try Self.openRun(of: .backup, at: date, in: db)
+      try db.execute(
+        sql: "INSERT INTO backupRun (runID, folderID, endedAt) VALUES (?, ?, ?)",
+        arguments: [runID, folderID, date])
+      return runID
+    }
+  }
+
+  /// The folder's latest attempts to back up, newest first: those with a History run.
+  public func backupAttempts(folderID: Int64, limit: Int) throws -> [BackupAttempt] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT run.startedAt, backupRun.* FROM backupRun JOIN run ON run.id = backupRun.runID
+          WHERE backupRun.folderID = ? ORDER BY run.startedAt DESC, run.id DESC LIMIT ?
+          """,
+        arguments: [folderID, limit]
+      ).map { row in
+        BackupAttempt(
+          startedAt: row["startedAt"], endedAt: row["endedAt"], snapshotID: row["snapshotID"],
+          filesNew: row["filesNew"], filesChanged: row["filesChanged"],
+          bytesAdded: row["bytesAdded"], skippedCount: row["skippedCount"], error: row["error"])
+      }
     }
   }
 
@@ -575,6 +618,39 @@ extension Store {
     }
   }
 
+  // MARK: Notifications
+
+  /// Whether the notification for `cause` went out on `now`'s day.
+  public func wasNotified(cause: String, on now: Date, calendar: Calendar) throws -> Bool {
+    try database.read { db in
+      try String.fetchOne(
+        db, sql: "SELECT day FROM backupNotified WHERE cause = ?", arguments: [cause])
+        == Self.dayKey(now, calendar: calendar)
+    }
+  }
+
+  /// Records that the notification for `cause` went out on `now`'s day, and forgets the days
+  /// before it.
+  public func recordNotified(cause: String, on now: Date, calendar: Calendar) throws {
+    let day = Self.dayKey(now, calendar: calendar)
+    try database.write { db in
+      try db.execute(sql: "DELETE FROM backupNotified WHERE day < ?", arguments: [day])
+      try db.execute(
+        sql: """
+          INSERT INTO backupNotified (cause, day) VALUES (?, ?)
+          ON CONFLICT (cause) DO UPDATE SET day = excluded.day
+          """,
+        arguments: [cause, day])
+    }
+  }
+
+  /// "2026-11-11": sorts as dates do.
+  static func dayKey(_ date: Date, calendar: Calendar) -> String {
+    let parts = calendar.dateComponents([.year, .month, .day], from: date)
+    return String(
+      format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+  }
+
   // MARK: Drive
 
   /// `DirBuff Backup` and this Mac's repository in it, each once found or made.
@@ -720,6 +796,47 @@ struct BackupAccount: Sendable, Equatable {
   var isAdoptionPending: Bool
 }
 
+/// One attempt to back a folder up, as the status file and History tell it.
+public struct BackupAttempt: Sendable, Equatable {
+  public enum Outcome: String, Sendable, Equatable, Codable {
+    /// No outcome yet.
+    case running
+    /// A snapshot was saved, with or without files it couldn't read.
+    case saved
+    case failed
+  }
+
+  public var startedAt: Date
+  /// When the outcome was recorded; nil while it is running.
+  public var endedAt: Date?
+  public var snapshotID: String?
+  public var filesNew: Int
+  public var filesChanged: Int
+  public var bytesAdded: Int64
+  public var skippedCount: Int
+  public var error: String?
+
+  public var outcome: Outcome {
+    if error != nil { return .failed }
+    return snapshotID == nil ? .running : .saved
+  }
+
+  public init(
+    startedAt: Date, endedAt: Date?, snapshotID: String?, filesNew: Int, filesChanged: Int,
+    bytesAdded: Int64, skippedCount: Int, error: String?
+  ) {
+    self.startedAt = startedAt
+    // The row's time before an outcome is only the start's placeholder.
+    self.endedAt = snapshotID != nil || error != nil ? endedAt : nil
+    self.snapshotID = snapshotID
+    self.filesNew = filesNew
+    self.filesChanged = filesChanged
+    self.bytesAdded = bytesAdded
+    self.skippedCount = skippedCount
+    self.error = error
+  }
+}
+
 /// A file the last backup couldn't read, so isn't in it.
 public struct SkippedFile: Sendable, Equatable {
   /// Inside the folder.
@@ -757,6 +874,9 @@ public struct BackupVersion: Sendable, Equatable {
 
 /// What one run did to one folder, as History shows it.
 public struct BackupRunRecord: Sendable, Equatable {
+  /// The outcome of a backup a quit cut short.
+  public static let interruptedMessage = "DirBuff quit before this backup finished"
+
   public var folderID: Int64
   /// Nil when it failed.
   public var snapshotID: String?

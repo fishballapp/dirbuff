@@ -142,6 +142,15 @@ public struct AfterChangeTimer: Sendable, Equatable {
 
   public func follows(_ folderID: Int64) -> Bool { entries[folderID] != nil }
 
+  /// Whether the timer follows any folder yet.
+  public var followsAny: Bool { !entries.isEmpty }
+
+  /// Every folder it follows is owed a run now, whatever it last did: `dirbuff://back-up-now`.
+  /// The runs still wait for the Mac's conditions, and go oldest owed first, one at a time.
+  public mutating func owedNow() {
+    for id in entries.keys { entries[id] = Entry(lastRunAt: nil, lastChangeAt: .distantPast) }
+  }
+
   /// The folder changed at `date`. A folder the timer doesn't follow is ignored.
   public mutating func changed(_ folderID: Int64, at date: Date) {
     guard var entry = entries[folderID] else { return }

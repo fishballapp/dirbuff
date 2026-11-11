@@ -264,6 +264,8 @@ public struct Store: Sendable {
     registerBackupMigrations(&migrator)
     registerDriveBridgeMigrations(&migrator)
     registerBackupOnDriveMigrations(&migrator)
+    registerOpenRunMigrations(&migrator)
+    registerBackupNotificationMigrations(&migrator)
     return migrator
   }
 
@@ -325,29 +327,55 @@ public struct Store: Sendable {
   }
 
   /// Opens a run: one buff's run across every folder that wears it, as History lists it. Returns
-  /// its id for the buff's runs to record under. Runs left empty (one cut short by a quit, or a
-  /// removed folder's only run) are dropped first.
+  /// its id for the buff's runs to record under. The run stays open until `endRun`, or until the
+  /// next launch closes it (`closeInterruptedRuns`), and no other run's begin drops it. Runs left
+  /// empty (a removed folder's only run) are dropped first.
   public func beginRun(of buff: Buff, at date: Date) throws -> Int64 {
+    try database.write { try Self.openRun(of: buff, at: date, in: $0) }
+  }
+
+  static func openRun(of buff: Buff, at date: Date, in db: Database) throws -> Int64 {
+    try db.execute(sql: "DELETE FROM run WHERE \(Self.isEmptyRun)")
+    try db.execute(
+      sql: "INSERT INTO run (buff, startedAt, isOpen) VALUES (?, ?, 1)",
+      arguments: [buff.rawValue, date])
+    return db.lastInsertedRowID
+  }
+
+  /// Closes a run that has finished, and drops it if it did nothing, so History lists only runs
+  /// that did something. A backup that never reached an outcome (its folder came off Backup
+  /// meanwhile) did nothing.
+  public func endRun(id: Int64) throws {
     try database.write { db in
-      try db.execute(sql: "DELETE FROM run WHERE \(Self.isEmptyRun)")
       try db.execute(
-        sql: "INSERT INTO run (buff, startedAt) VALUES (?, ?)",
-        arguments: [buff.rawValue, date])
-      return db.lastInsertedRowID
+        sql: "DELETE FROM backupRun WHERE runID = ? AND snapshotID IS NULL AND error IS NULL",
+        arguments: [id])
+      try db.execute(sql: "UPDATE run SET isOpen = 0 WHERE id = ?", arguments: [id])
+      try db.execute(sql: "DELETE FROM run WHERE id = ? AND \(Self.isEmptyRun)", arguments: [id])
     }
   }
 
-  /// Drops a run that did nothing, so History lists only runs that did something.
-  public func dropRunIfEmpty(id: Int64) throws {
-    try database.write {
-      try $0.execute(sql: "DELETE FROM run WHERE id = ? AND \(Self.isEmptyRun)", arguments: [id])
+  /// Closes the runs a quit cut short, at launch, when no run of this process can be open. A
+  /// backup that hadn't reached an outcome says so as its outcome; a run that did nothing goes.
+  public func closeInterruptedRuns(at date: Date) throws {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          UPDATE backupRun SET error = ?, endedAt = ?
+          WHERE snapshotID IS NULL AND error IS NULL
+            AND runID IN (SELECT id FROM run WHERE isOpen)
+          """,
+        arguments: [BackupRunRecord.interruptedMessage, date])
+      try db.execute(sql: "UPDATE run SET isOpen = 0 WHERE isOpen")
+      try db.execute(sql: "DELETE FROM run WHERE \(Self.isEmptyRun)")
     }
   }
 
   /// SQL true for a `run` row nothing was recorded under: no file a clean-up removed, no folder a
-  /// backup ran on.
-  private static let isEmptyRun = """
-    NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)
+  /// backup ran on, and no run still going.
+  static let isEmptyRun = """
+    NOT run.isOpen
+      AND NOT EXISTS (SELECT 1 FROM journalEntry WHERE runID = run.id)
       AND NOT EXISTS (SELECT 1 FROM backupRun WHERE runID = run.id)
     """
 

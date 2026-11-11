@@ -11,6 +11,10 @@ extension AppDelegate {
   }
 
   private func handleFinder(_ url: URL) {
+    if let command = BackupCommand.parse(url) {
+      appModel.perform(command)
+      return
+    }
     guard let (action, folderURL) = FinderAction.parse(url) else { return }
     if action.opensSettings(under: appModel.licence) {
       windows.openSettings()

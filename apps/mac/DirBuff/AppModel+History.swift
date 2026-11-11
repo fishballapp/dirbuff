@@ -50,8 +50,8 @@ extension AppModel {
     historyDidChange()
   }
 
-  /// Forgets every finished run after asking. The run a clean-up is writing now stays, and shows
-  /// once it finishes. What's in the Bin stays there.
+  /// Forgets every finished run after asking. A run going now stays, and shows once it finishes.
+  /// What's in the Bin stays there.
   func clearHistoryAsking() {
     let alert = NSAlert()
     alert.messageText = "Clear History?"
@@ -60,10 +60,8 @@ extension AppModel {
     alert.addButton(withTitle: "Clear History")
     alert.addButton(withTitle: "Cancel")
     guard alert.runModal() == .alertFirstButtonReturn else { return }
-    // On the main actor, where a clean-up opens its run, so none can start between reading which
-    // run is open and clearing the rest.
     do {
-      try engine.store.clearHistory(keeping: openRunID)
+      try engine.store.clearHistory()
     } catch {
       show(error, doing: "clear History")
     }

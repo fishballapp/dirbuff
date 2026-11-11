@@ -97,3 +97,26 @@ extension AppModel {
     }
   }
 }
+
+/// Posts a Backup notification to the system. Active, not passive: a backup's failure costs most
+/// when nobody looks. Its identifier is the cause, so one cause's notification replaces its last.
+struct SystemBackupNotifier: BackupNotifying {
+  /// What the notification carries, so choosing it opens the folder.
+  static let folderIDKey = "backupFolderID"
+
+  func post(_ notification: BackupNotification) async -> Bool {
+    let content = UNMutableNotificationContent()
+    content.title = notification.title
+    content.body = notification.body
+    content.threadIdentifier = "backup"
+    content.userInfo = [Self.folderIDKey: notification.folderID]
+    do {
+      try await UNUserNotificationCenter.current().add(
+        UNNotificationRequest(identifier: notification.cause, content: content, trigger: nil))
+      return true
+    } catch {
+      logger.error("Notification failed: \(error.localizedDescription, privacy: .public)")
+      return false
+    }
+  }
+}

@@ -558,3 +558,177 @@ private func row(
     #expect(state.glyph == .atRest)
   }
 }
+
+@Suite struct BackupNotifications {
+  private func notifications(_ reports: [FolderReport]) -> [BackupNotification] {
+    BackupNotification.all(states(reports))
+  }
+
+  @Test func saysNothingWhileNothingNeedsYou() {
+    #expect(notifications([backup(), backup(2, drive: .waiting(.internet))]).isEmpty)
+    #expect(
+      notifications([backup(drive: .notSignedIn), backup(2, isPausedByLicence: true)]).isEmpty)
+  }
+
+  @Test func oneNotificationForACauseTheFoldersShare() {
+    let all = notifications([
+      backup(1, name: "Documents", drive: .signedOut),
+      backup(2, name: "Pictures", drive: .signedOut),
+      backup(3, name: "Projects", drive: .signedOut),
+    ])
+    #expect(all.count == 1)
+    #expect(all.first?.cause == "backup.signInAgain")
+    #expect(all.first?.title == "Can't back up Documents and 2 more")
+    #expect(all.first?.body == "Signed out of Google Drive")
+    #expect(all.first?.folderID == 1)
+  }
+
+  @Test func oneForEachFolderForACauseThatIsItsOwn() {
+    let skipped = [SkippedFile(path: "a", reason: "open")]
+    let all = notifications([
+      backup(1, name: "Documents", status: status(skipped: skipped)),
+      backup(2, name: "Pictures", status: status(skipped: skipped)),
+    ])
+    #expect(all.map(\.cause) == ["backup.showFiles.1", "backup.showFiles.2"])
+    #expect(all.map(\.title) == ["Can't back up Documents", "Can't back up Pictures"])
+    #expect(all.first?.body == "1 file couldn't be backed up")
+  }
+
+  @Test func differentCausesAreNotJoined() {
+    let all = notifications([
+      backup(1, name: "Documents", drive: .full), backup(2, name: "Pictures", drive: .partMissing),
+    ])
+    #expect(all.map(\.cause) == ["backup.makeRoom", "backup.showDetails"])
+  }
+
+  @Test func aMissingFolderNamesItself() {
+    let all = notifications([backup(1, name: "Projects", problem: .missing)])
+    #expect(all.first?.body == "Can't find Projects")
+  }
+
+  @Test func aCleanUpsNeedsYouIsNotBackups() {
+    #expect(notifications([report(1, name: "Downloads", problem: .noAccess)]).isEmpty)
+  }
+}
+
+@Suite struct UnreadFiles {
+  @Test func listsEachFileWithWhy() {
+    let skipped = [
+      SkippedFile(path: "Taxes/2025.numbers", reason: "open /x/Taxes/2025.numbers: resource busy"),
+      SkippedFile(path: "Notes.sqlite", reason: "open /x/Notes.sqlite: permission denied"),
+      SkippedFile(path: "odd", reason: "lstat /x/odd: input/output error"),
+    ]
+    let state = UnreadFilesState(backup(1, name: "Documents", status: status(skipped: skipped)))
+
+    #expect(state?.title == "3 files couldn't be backed up")
+    #expect(state?.folderName == "Documents")
+    #expect(state?.files.map(\.name) == ["2025.numbers", "Notes.sqlite", "odd"])
+    #expect(state?.files.map(\.parent) == ["Taxes", "", ""])
+    #expect(
+      state?.files.map(\.reason) == [
+        "Another app has it open", "DirBuff may not read it", "Input/output error",
+      ])
+  }
+
+  @Test func leavingOutAFileLeavesOutItsPath() {
+    let skipped = [SkippedFile(path: "Taxes/2025.numbers", reason: "permission denied")]
+    let file = UnreadFilesState(backup(status: status(skipped: skipped)))?.files.first
+    #expect(file?.leaveOut == .path("Taxes/2025.numbers"))
+  }
+
+  @Test func hasNothingWhenEveryFileWasRead() {
+    #expect(UnreadFilesState(backup()) == nil)
+    #expect(UnreadFilesState(report(1)) == nil)
+  }
+}
+
+/// A notifier that posts nothing: it only remembers what it was asked.
+actor RecordingNotifier: BackupNotifying {
+  private(set) var posted: [BackupNotification] = []
+  var isRefusing = false
+
+  func refuse(_ isRefusing: Bool) { self.isRefusing = isRefusing }
+
+  func post(_ notification: BackupNotification) -> Bool {
+    guard !isRefusing else { return false }
+    posted.append(notification)
+    return true
+  }
+}
+
+@Suite struct BackupAlertsOncePerDay {
+  let store: Store
+  let notifier = RecordingNotifier()
+
+  init() throws {
+    store = try Store.inMemory()
+  }
+
+  private func deliver(_ reports: [FolderReport], at date: Date = now) async throws {
+    try await BackupAlerts.deliver(
+      states(reports), store: store, notifier: notifier, now: date, calendar: calendar)
+  }
+
+  @Test func postsACauseOnceADayAndAgainTheNextDayWhileItLasts() async throws {
+    let signedOut = [backup(1, name: "Documents", drive: .signedOut)]
+
+    try await deliver(signedOut)
+    try await deliver(signedOut, at: now.addingTimeInterval(3 * 3_600))
+    #expect(await notifier.posted.map(\.cause) == ["backup.signInAgain"])
+
+    try await deliver(signedOut, at: now.addingTimeInterval(oneDay))
+    #expect(await notifier.posted.count == 2)
+  }
+
+  @Test func aRelaunchDoesNotRepeatWhatTheDatabaseRemembers() async throws {
+    let full = [backup(1, name: "Documents", drive: .full)]
+    try await deliver(full)
+
+    // A new notifier stands for a new launch: only the store carries over.
+    let afterRelaunch = RecordingNotifier()
+    try await BackupAlerts.deliver(
+      states(full), store: store, notifier: afterRelaunch, now: now.addingTimeInterval(60),
+      calendar: calendar)
+
+    #expect(await afterRelaunch.posted.isEmpty)
+  }
+
+  @Test func eachCauseHasItsOwnDay() async throws {
+    try await deliver([backup(1, name: "Documents", drive: .signedOut)])
+    try await deliver([backup(1, name: "Documents", drive: .full)])
+    #expect(await notifier.posted.map(\.cause) == ["backup.signInAgain", "backup.makeRoom"])
+  }
+
+  @Test func aNotificationMacOSRefusedIsTriedAgain() async throws {
+    let full = [backup(1, name: "Documents", drive: .full)]
+    await notifier.refuse(true)
+    try await deliver(full)
+    #expect(await notifier.posted.isEmpty)
+
+    await notifier.refuse(false)
+    try await deliver(full)
+    #expect(await notifier.posted.count == 1)
+  }
+}
+
+@Suite struct BackupCommands {
+  @Test func parsesTheTwoCommandsAndNothingElse() throws {
+    #expect(BackupCommand.parse((try #require(URL(string: "dirbuff://back-up-now")))) == .backUpNow)
+    #expect(BackupCommand.parse((try #require(URL(string: "dirbuff://check-now")))) == .checkNow)
+    #expect(BackupCommand.parse((try #require(URL(string: "dirbuff://folder?path=/x")))) == nil)
+    #expect(BackupCommand.parse((try #require(URL(string: "https://back-up-now")))) == nil)
+  }
+
+  @Test func eachBuildsTheURLItParses() {
+    for command in BackupCommand.allCases {
+      #expect(command.url.flatMap(BackupCommand.parse) == command)
+    }
+    #expect(BackupCommand.backUpNow.url?.absoluteString == "dirbuff://back-up-now")
+  }
+
+  @Test func aFolderActionIsNotACommand() {
+    for action in FinderAction.allCases {
+      #expect(action.url(for: URL(fileURLWithPath: "/x")).flatMap(BackupCommand.parse) == nil)
+    }
+  }
+}

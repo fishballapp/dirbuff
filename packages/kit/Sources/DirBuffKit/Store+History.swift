@@ -69,6 +69,16 @@ extension Store {
     }
   }
 
+  /// Registered after Backup's: a run is open from `beginRun` to `endRun`, so no other run's begin
+  /// takes it for empty, and a launch finds the ones a quit cut short.
+  static func registerOpenRunMigrations(_ migrator: inout DatabaseMigrator) {
+    migrator.registerMigration("open runs") { db in
+      try db.alter(table: "run") { t in
+        t.add(column: "isOpen", .boolean).notNull().defaults(to: false)
+      }
+    }
+  }
+
   /// Every run that removed something, newest first.
   public func runs() throws -> [HistoryRun] {
     try database.read { db in
@@ -134,8 +144,8 @@ extension Store {
     }
   }
 
-  /// Keeps the newest runs that fit in `limit` and forgets the rest, with their entries. Returns
-  /// how many runs went.
+  /// Keeps the newest runs that fit in `limit` and forgets the rest, with their entries, but not a
+  /// run that is open. Returns how many runs went.
   @discardableResult
   public func trimHistory(to limit: Int64 = Store.historyLimit) throws -> Int {
     try database.write { db in
@@ -149,23 +159,23 @@ extension Store {
           ), kept AS (
             SELECT id, sum(bytes) OVER (ORDER BY startedAt DESC, id DESC) AS upToHere FROM sized
           )
-          DELETE FROM run WHERE id IN (SELECT id FROM kept WHERE upToHere > ?)
+          DELETE FROM run WHERE NOT isOpen AND id IN (SELECT id FROM kept WHERE upToHere > ?)
           """,
         arguments: [limit])
       return db.changesCount
     }
   }
 
-  /// Forgets every run and what each removed, but the run a clean-up is writing now, which shows
-  /// once it finishes. Nothing in the Bin is touched.
-  public func clearHistory(keeping openRunID: Int64? = nil) throws {
+  /// Forgets every finished run and what each removed. A run still going stays, and shows once
+  /// it finishes. Nothing in the Bin is touched.
+  public func clearHistory() throws {
     try database.write { db in
       try db.execute(
         sql: """
-          DELETE FROM journalEntry WHERE runID IS NULL OR runID IS NOT :open;
-          DELETE FROM run WHERE id IS NOT :open
-          """,
-        arguments: ["open": openRunID])
+          DELETE FROM journalEntry
+          WHERE runID IS NULL OR runID NOT IN (SELECT id FROM run WHERE isOpen);
+          DELETE FROM run WHERE NOT isOpen
+          """)
     }
   }
 }

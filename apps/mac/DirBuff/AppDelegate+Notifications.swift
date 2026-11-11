@@ -41,11 +41,13 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     let userInfo = response.notification.request.content.userInfo
     let runID = CleanUpNotification.runID(from: userInfo)
     let putBackEntryIDs = CleanUpNotification.putBackEntryIDs(from: userInfo)
+    let backupFolderID = (userInfo[SystemBackupNotifier.folderIDKey] as? NSNumber)?.int64Value
 
     await handleNotificationResponse(
       actionIdentifier: actionIdentifier,
       runID: runID,
-      putBackEntryIDs: putBackEntryIDs
+      putBackEntryIDs: putBackEntryIDs,
+      backupFolderID: backupFolderID
     )
   }
 
@@ -53,8 +55,14 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
   private func handleNotificationResponse(
     actionIdentifier: String,
     runID: Int64?,
-    putBackEntryIDs: [Int64]
+    putBackEntryIDs: [Int64],
+    backupFolderID: Int64?
   ) async {
+    // A Backup notification opens the folder it names.
+    if let backupFolderID, actionIdentifier == UNNotificationDefaultActionIdentifier {
+      appModel.showFolderPage(backupFolderID)
+      return
+    }
     switch actionIdentifier {
     case CleanUpNotification.Action.putBack.rawValue:
       await appModel.putBackFromHistory(entryIDs: putBackEntryIDs)

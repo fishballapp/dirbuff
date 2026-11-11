@@ -173,6 +173,36 @@ private func step(_ timer: AfterChangeTimer, at now: Date, _ conditions: BackupC
 
   // MARK: Following
 
+  @Test func backUpNowOwesEveryFollowedFolderAtOnce() {
+    var timer = following(1, 2, lastRun: 5 * minute)
+    #expect(timer.owed(at: noon).isEmpty)
+
+    timer.owedNow()
+
+    #expect(timer.owed(at: noon).map(\.folderID) == [1, 2])
+    #expect(step(timer, at: noon) == .run(folderID: 1, dueAt: .distantPast))
+    // Still held by the Mac's conditions, like any run.
+    guard
+      case .wait(_, let heldBy) = step(
+        timer, at: noon, .init(network: .offline, isLowPowerMode: false, power: .mains))
+    else {
+      Issue.record("An owed run was not held")
+      return
+    }
+    #expect(heldBy == .offline)
+    // Each runs once, and is no longer owed.
+    timer.began(1, at: noon)
+    timer.ended(1, succeeded: true)
+    #expect(timer.owed(at: noon).map(\.folderID) == [2])
+  }
+
+  @Test func backUpNowWithNoFolderOwesNothing() {
+    var timer = timer()
+    #expect(!timer.followsAny)
+    timer.owedNow()
+    #expect(timer.owed(at: noon).isEmpty)
+  }
+
   @Test func aFolderTakenOffIsForgottenAndOneStillWornKeepsWhatItKnows() {
     var timer = following(1, 2)
     timer.changed(1, at: noon)

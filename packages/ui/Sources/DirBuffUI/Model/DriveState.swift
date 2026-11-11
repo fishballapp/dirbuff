@@ -1,3 +1,4 @@
+import DirBuffCore
 import Foundation
 
 /// Where Backup's Google Drive stands for the whole Mac: the account, its storage, the one
@@ -32,5 +33,15 @@ public enum DriveState: Sendable, Equatable {
     case lowPowerMode
     /// Google's daily upload cap or a rate limit; uploads resume at this time.
     case googleLimit(resumesAt: Date)
+
+    /// What an owed run is held by, as the row says it.
+    public init(_ hold: BackupHold) {
+      switch hold {
+      case .offline: self = .internet
+      case .expensiveNetwork: self = .wifi
+      case .lowPowerMode: self = .lowPowerMode
+      case .lowBattery: self = .power
+      }
+    }
   }
 }

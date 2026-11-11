@@ -23,26 +23,7 @@ func backupMeaning(_ settings: BackupSettings) -> String {
   }
 }
 
-/// How many runs in a row fail before a backup says it is failing.
-let failingRunCount = 3
-/// How long every run may fail before a backup says it is failing.
-let failingDuration: TimeInterval = 3 * 3_600
-/// How long a folder may go without a good backup before it says so.
-let staleDuration: TimeInterval = 3 * 86_400
-
 extension BackupStatus {
-  /// Runs have failed several times in a row, or for hours on end.
-  func isFailing(now: Date) -> Bool {
-    guard lastError != nil || failedRunsInARow > 0 else { return false }
-    if failedRunsInARow >= failingRunCount { return true }
-    return failingSince.map { now.timeIntervalSince($0) >= failingDuration } ?? false
-  }
-
-  /// No backup has finished for days, whatever the cause.
-  func isStale(now: Date) -> Bool {
-    now.timeIntervalSince(lastSuccessAt ?? lastRunAt) >= staleDuration
-  }
-
   /// The last error on one line, for the card.
   var lastErrorLine: String? {
     lastError?.split(whereSeparator: \.isNewline).first.map {
