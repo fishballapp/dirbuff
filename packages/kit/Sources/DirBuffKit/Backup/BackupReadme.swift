@@ -1,5 +1,7 @@
 /// `README.txt` in `DirBuff Backup/`: what the folder is, and how to restore from it with DirBuff
-/// gone.
+/// gone. Its `restic` commands are run as written by `StockResticTests`, and are the ones the
+/// site's `/restore` page shows (`restoreCommands.ts`, held equal by a test): change all three
+/// together.
 enum BackupReadme {
   static let text = """
     DirBuff Backup

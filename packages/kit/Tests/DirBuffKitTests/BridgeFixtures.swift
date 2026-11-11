@@ -40,19 +40,7 @@ struct BridgeFixture {
 
   /// Copies the repository's folder out of Drive into `directory`, as a download of it would.
   func download(to directory: URL) async throws {
-    try await download(repository, to: directory)
-  }
-
-  private func download(_ folder: DriveFileID, to directory: URL) async throws {
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    for item in try await drive.allChildren(of: folder) {
-      let target = directory.appendingPathComponent(item.name)
-      if item.isFolder {
-        try await download(item.id, to: target)
-      } else {
-        try await drive.download(item.id, range: nil).write(to: target)
-      }
-    }
+    try await drive.export(repository, to: directory)
   }
 
   /// Every file (not folder) in the repository's folder on Drive, by its path there.

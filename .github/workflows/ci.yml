@@ -38,6 +38,9 @@ jobs:
       # kit's tests run the real restic the app ships.
       - uses: ./.github/actions/restic
         if: matrix.package == 'kit'
+      # The restore-without-DirBuff test reads the layout through rclone, as README.txt tells.
+      - run: command -v rclone || brew install rclone
+        if: matrix.package == 'kit'
       - run: swift test --package-path packages/${{ matrix.package }}
 
   app:

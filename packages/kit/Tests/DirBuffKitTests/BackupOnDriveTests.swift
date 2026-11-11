@@ -161,16 +161,7 @@ extension InMemoryDrive {
 
   /// Copies the folder at `path` in Drive to `directory`, as a download of it would.
   private func download(_ path: [String], to directory: URL) async throws {
-    let folder = try #require(try await drive.item(at: path))
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    for item in try await drive.allChildren(of: folder.id) {
-      let target = directory.appendingPathComponent(item.name)
-      if item.isFolder {
-        try await download(path + [item.name], to: target)
-      } else {
-        try await drive.download(item.id, range: nil).write(to: target)
-      }
-    }
+    try await drive.export(#require(try await drive.item(at: path)).id, to: directory)
   }
 
   // MARK: Restore on this Mac
