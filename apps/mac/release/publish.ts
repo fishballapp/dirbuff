@@ -223,6 +223,7 @@ const writeItem = (isDev: boolean): void => {
   const itemXml = formatItemXml({
     channel: release.channel,
     title: `Version ${release.version}`,
+    // biome-ignore lint/plugin/no-date: The appcast's pubDate is RFC 822; toUTCString is the only formatter for it.
     pubDate: new Date().toUTCString(),
     version: release.build,
     shortVersionString: release.version,

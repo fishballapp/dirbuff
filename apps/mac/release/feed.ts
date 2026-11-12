@@ -101,6 +101,7 @@ export const feedItemOf = (release: GitHubRelease, itemXml: string): FeedItem =>
   }
   const pubDate = extractPubDate(itemXml);
   // RFC 822, as Sparkle reads it; Temporal parses no such format.
+  // biome-ignore lint/plugin/no-date: The appcast's pubDate is RFC 822, which Temporal cannot parse.
   if (pubDate === null || Number.isNaN(Date.parse(pubDate))) {
     throw new Error(`${tag}'s ${ITEM_ASSET} has no readable pubDate (${pubDate}).`);
   }
