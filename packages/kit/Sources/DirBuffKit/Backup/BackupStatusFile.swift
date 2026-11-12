@@ -1,3 +1,4 @@
+import DirBuffCore
 import Foundation
 
 /// `backup-status.json`: what Backup is doing, for a watchdog outside DirBuff to read. Its format
@@ -13,7 +14,8 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
   public static let attemptLimit = 10
 
   public var version: Int
-  /// When this file was written; a file that stops changing means DirBuff isn't running.
+  /// When this file was written. While a backup runs it is rewritten about once a minute, as long
+  /// as the backup moves (`BackupStatusWriter`).
   public var writtenAt: Date
   /// The last weekly check that ran to its end; absent before the first.
   public var check: Check?
@@ -107,6 +109,8 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
     public var lastSuccessAt: Date?
     /// Since when a backup is running; absent otherwise.
     public var runningSince: Date?
+    /// How far the running backup has got; absent when none runs, and until restic has reported.
+    public var progress: Progress?
     /// Why the last run failed; absent once one succeeds.
     public var lastError: String?
     public var failingSince: Date?
@@ -116,9 +120,13 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
     /// Newest first.
     public var attempts: [Attempt]
 
-    public init(path: String, status: BackupStatus, attempts: [BackupAttempt], now: Date) {
+    public init(
+      path: String, status: BackupStatus, attempts: [BackupAttempt], progress: Progress? = nil,
+      now: Date
+    ) {
       let running = attempts.first { $0.outcome == .running }
       self.path = path
+      self.progress = running == nil ? nil : progress
       lastRunAt = status.lastRunAt
       lastSuccessAt = status.lastSuccessAt
       runningSince = running?.startedAt
@@ -141,6 +149,28 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
         } else {
           .upToDate
         }
+    }
+  }
+
+  /// How far a running backup has got: restic's own running count, the one the app's progress
+  /// line shows.
+  public struct Progress: Codable, Equatable, Sendable {
+    public var filesDone: Int
+    /// Absent until restic has counted the folder.
+    public var filesTotal: Int?
+    public var bytesDone: Int64
+    /// Absent until restic has counted the folder.
+    public var bytesTotal: Int64?
+    /// When the count last changed, which is how a reader tells a backup that is moving from one
+    /// that has stalled. Up to a minute older than the truth: the file is written no oftener.
+    public var movedAt: Date
+
+    init(_ progress: RunProgress, movedAt: Date) {
+      filesDone = progress.itemsDone
+      filesTotal = progress.itemsTotal == 0 ? nil : progress.itemsTotal
+      bytesDone = progress.bytesDone
+      bytesTotal = progress.bytesTotal == 0 ? nil : progress.bytesTotal
+      self.movedAt = movedAt
     }
   }
 
@@ -196,8 +226,11 @@ public struct BackupStatusFile: Codable, Equatable, Sendable {
 }
 
 extension BackupBuff {
-  /// Every Backup folder as the status file tells it, from the database alone.
-  public func statusFile(now: Date = Date()) throws -> BackupStatusFile {
+  /// Every Backup folder as the status file tells it, from the database and the progress of the
+  /// backups running now (by folder).
+  public func statusFile(
+    now: Date = Date(), progress: [Int64: BackupStatusFile.Progress] = [:]
+  ) throws -> BackupStatusFile {
     let folders = try store.backupWearers().compactMap { wear -> BackupStatusFile.Folder? in
       // A folder removed from DirBuff takes its Backup with it.
       guard let folder = try store.folder(id: wear.folderID),
@@ -213,7 +246,7 @@ extension BackupBuff {
         path: folder.path, status: status,
         attempts: try store.backupAttempts(
           folderID: wear.folderID, limit: BackupStatusFile.attemptLimit),
-        now: now)
+        progress: progress[wear.folderID], now: now)
     }
     let problems = try store.accountProblems()
     let account = DriveAccountProblem.allCases.lazy.compactMap { problem in
@@ -224,5 +257,89 @@ extension BackupBuff {
     return BackupStatusFile(
       writtenAt: now, check: try lastCheck().map(BackupStatusFile.Check.init), account: account,
       folders: folders)
+  }
+}
+
+// MARK: - Writing it
+
+/// Keeps `backup-status.json` true while backups run: every write goes through here, one at a
+/// time, so a progress write can't land after the write that says the backup ended.
+///
+/// A running backup rewrites the file when what it would say has changed (the counts, the totals
+/// or `movedAt`), and no oftener than `progressInterval` after the last write of any kind. A
+/// backup that has stopped moving writes nothing: the file's `progress.movedAt` stops there, and
+/// a Mac's disk isn't woken for it. `movedAt` moves only when files done or bytes done do.
+public actor BackupStatusWriter {
+  /// About once a minute: finer than the half hour restic is given to stand still, and a few
+  /// hundred small writes over the longest first backup, made while it uploads anyway.
+  public static let progressInterval: TimeInterval = 60
+
+  private struct Running {
+    /// The newest report, so the totals written are current.
+    var latest: RunProgress?
+    /// When files done or bytes done last changed: the totals restic keeps raising while it
+    /// counts, and the item it is on, are not getting further.
+    var movedAt: Date?
+    /// What the file last said, to write only when what it would say has changed.
+    var written: BackupStatusFile.Progress?
+
+    var file: BackupStatusFile.Progress? {
+      latest.flatMap { latest in movedAt.map { BackupStatusFile.Progress(latest, movedAt: $0) } }
+    }
+  }
+
+  private let backup: BackupBuff
+  private let url: URL
+  private let now: @Sendable () -> Date
+  private var running: [Int64: Running] = [:]
+  private var lastWriteAt: Date?
+
+  public init(backup: BackupBuff, url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+    self.backup = backup
+    self.url = url
+    self.now = now
+  }
+
+  /// Rewrites the file from the database and the progress of the backups running now: for
+  /// anything that changed what it says (a check, the account, the folders, DirBuff starting).
+  public func write() throws {
+    let at = now()
+    // The attempt is stamped before the write, so a disk that fails is tried again after the
+    // interval, not at every report.
+    lastWriteAt = at
+    let progress = running.compactMapValues(\.file)
+    try backup.statusFile(now: at, progress: progress).write(to: url)
+    running = running.mapValues {
+      Running(latest: $0.latest, movedAt: $0.movedAt, written: $0.file)
+    }
+  }
+
+  /// A backup of the folder has started, and the file says so at once.
+  public func backupBegan(folderID: Int64) throws {
+    running[folderID] = Running()
+    try write()
+  }
+
+  /// A report of how far the running backup has got, which is restic's every second; a report
+  /// for a folder that isn't running (one that arrives late) is dropped.
+  public func report(_ progress: RunProgress) throws {
+    guard var run = running[progress.folderID] else { return }
+    let at = now()
+    if run.latest?.itemsDone != progress.itemsDone || run.latest?.bytesDone != progress.bytesDone {
+      run.movedAt = at
+    }
+    run.latest = progress
+    running[progress.folderID] = run
+    guard run.file != run.written,
+      at.timeIntervalSince(lastWriteAt ?? .distantPast) >= Self.progressInterval
+    else { return }
+    try write()
+  }
+
+  /// The backup of the folder is over, however it ended (the database already says how): the
+  /// file says so at once.
+  public func backupEnded(folderID: Int64) throws {
+    running[folderID] = nil
+    try write()
   }
 }

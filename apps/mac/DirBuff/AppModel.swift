@@ -69,6 +69,8 @@ final class AppModel {
   let temporary: TemporaryBuff
   /// Backup's module, against the Macs' backups in the Google Drive signed in to.
   let backup: BackupBuff
+  /// Writes `backup-status.json`, one write at a time, with the progress of a running backup.
+  let backupStatus: BackupStatusWriter
   /// The Google account Backup keeps the backups in.
   let googleSignIn: GoogleSignIn
   /// Where the fixes that lead to a window go. Set once at launch by the app that owns the windows
@@ -94,6 +96,7 @@ final class AppModel {
       temporary = TemporaryBuff(engine: engine)
       googleSignIn = GoogleSignIn(client: .fromInfoPlist(), store: KeychainRefreshTokenStore())
       backup = Self.makeBackup(engine: engine, googleSignIn: googleSignIn)
+      backupStatus = BackupStatusWriter(backup: backup, url: Self.backupStatusURL)
       licenceRecord = try engine.store.licence()
       polarSettings = try PolarSettings.fromInfoPlist()
       machine = try Machine.id()

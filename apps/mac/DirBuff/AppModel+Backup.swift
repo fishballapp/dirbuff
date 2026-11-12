@@ -60,14 +60,30 @@ extension AppModel: AfterChangeWork {
   }
 
   /// Backs the folder up under a History run of its own, which is open while it runs. The status
-  /// file says it is running at once, and what it did when it ends.
+  /// file says it is running at once, how far it has got about once a minute, and what it did the
+  /// moment it ends.
   func backUp(folderID: Int64, startedAt: Date) async -> Bool {
     let engine = engine
     let backup = backup
     let runID = openBackupRun(folderID: folderID, at: startedAt)
     backingUp.insert(folderID)
-    await writeBackupStatus()
+    await writeBackupStatus { try await $0.backupBegan(folderID: folderID) }
+    // The progress line and the status file hear the same report. The stream keeps the reports in
+    // order and drops all but the newest while the file's write is under way.
+    let (reports, report) = AsyncStream.makeStream(
+      of: RunProgress.self, bufferingPolicy: .bufferingNewest(1))
+    let statusTask = Task { [backupStatus] in
+      for await progress in reports {
+        do {
+          try await backupStatus.report(progress)
+        } catch {
+          logger.error(
+            "Couldn't write the status file: \(error.localizedDescription, privacy: .public)")
+        }
+      }
+    }
     let context = RunContext(runID: runID, scheduledAt: startedAt) { progress in
+      report.yield(progress)
       // A report that lands after its folder finished is dropped.
       Task { @MainActor in
         if self.backingUp.contains(progress.folderID) { self.backupProgress = progress }
@@ -87,6 +103,8 @@ extension AppModel: AfterChangeWork {
         "Backup of folder \(folderID) failed: \(error.localizedDescription, privacy: .public)")
       isDone = false
     }
+    report.finish()
+    await statusTask.value
     backingUp.remove(folderID)
     backupProgress = nil
     if let runID {
@@ -96,9 +114,12 @@ extension AppModel: AfterChangeWork {
         logger.error("Couldn't close the run: \(error.localizedDescription, privacy: .public)")
       }
     }
+    // However it ended (saved, failed, cut short, held by the account), the file says so before
+    // anything slower: the run's row is settled and closed by now.
+    await writeBackupStatus { try await $0.backupEnded(folderID: folderID) }
     historyDidChange()
     await refresh()
-    await backupDidChange()
+    await notifyBackupNeedsYou()
     return isDone
   }
 
@@ -175,13 +196,19 @@ extension AppModel: AfterChangeWork {
       .appendingPathComponent(BackupStatusFile.fileName)
   }
 
-  /// Rewrites `backup-status.json` from the database, atomically.
+  /// Rewrites `backup-status.json` from the database and the running backup's progress,
+  /// atomically.
   func writeBackupStatus() async {
-    let backup = backup
+    await writeBackupStatus { try await $0.write() }
+  }
+
+  /// A write of the file that `BackupStatusWriter` does for the change: a backup beginning or
+  /// ending, or a plain rewrite.
+  private func writeBackupStatus(
+    _ write: (BackupStatusWriter) async throws -> Void
+  ) async {
     do {
-      try await Task.detached {
-        try backup.statusFile().write(to: Self.backupStatusURL)
-      }.value
+      try await write(backupStatus)
     } catch {
       logger.error(
         "Couldn't write the status file: \(error.localizedDescription, privacy: .public)")
