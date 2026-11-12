@@ -28,6 +28,23 @@ on the hour, by the clock, and at no other time.
   clearing them would break the Mac.
 - DirBuff lists a folder's items and their dates. It never reads a file's contents.
 
+## Backup
+
+A folder wearing Backup is copied to the user's own Google Drive, with every version kept: the
+latest 10, then hourly for 48 hours, daily for 30 days, weekly for 12 weeks, monthly for 24 months
+and one a year. Backup asks Google for the `drive.file` scope only, so DirBuff sees just the files it
+creates there, and no server of ours receives them. A backup is a [restic](https://restic.net)
+repository, so restic alone reads it without DirBuff; the folder in Drive carries a `README.txt` with
+the commands, and [dirbuff.fsh.ba/restore](https://dirbuff.fsh.ba/restore) shows them.
+
+- Browse Backup… opens any backup as a folder in Finder's column view: restore an item, or drag it
+  out.
+- It has no password unless one is set in Settings › Backup, kept in the Keychain.
+- It leaves out `~/Library` under the home folder, the Photos library (not backed up yet), what Time
+  Machine skips, cache folders, `node_modules`-like folders and files only in iCloud.
+- The bundled restic is built from source in the release job; the app's Swift code does the Google
+  sign-in and every Drive call, and restic reaches Drive through a local bridge.
+
 ## How it is built
 
 Every capability runs the same pipeline: **snapshot** the folder → **plan** what clears → **preview**

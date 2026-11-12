@@ -1,5 +1,19 @@
 # Changelog — DirBuff
 
+## 0.3.0
+
+- Backup is the second buff. Give a folder Backup and its files go to your own Google Drive, every version kept. A folder backs up within an hour of a change; the card says when it last did, and DirBuff tells you when a backup needs you.
+- DirBuff asks Google for one permission, to the files it creates in your Drive, and nothing else: it can't see anything else there. Nothing is backed up until you've confirmed the account. Your files go from your Mac to your Drive and nowhere else.
+- History thins with age and never runs out: the latest 10 backups, then hourly for 2 days, daily for 30 days, weekly for 12 weeks, monthly for 2 years, and one a year after that. A folder can keep only a year or 30 days instead, which deletes the older versions from Drive.
+- Browse Backup… on a Backup folder's card opens a backup like a folder in Finder's column view. Pick any backup kept, open folders, see what has changed or gone on your Mac since, and read a file's other versions. Preview a file with Quick Look (up to 100 MB), or drag it out to Finder.
+- Restore puts a file or folder back where it was, under its own name, or beside it with the backup's date in the name when that name is taken. It never replaces anything. If the folder is gone, Restore To… asks where to put it. Restore Folder brings a whole backup back as a new folder beside the original.
+- On a new Mac, or after losing a folder, Settings › Backup › Restore from Google Drive… brings back any of your Macs' backups. Keep Backing Up Here carries on in that backup, so nothing uploads twice.
+- A backup has no password by default, so anyone who can open your Google account can read it. Settings › Backup › Protect with a Password… adds one, kept in your Keychain. On a Mac that doesn't have it, Browse Backup… asks for it. A lost password is a lost backup.
+- Backup leaves out your Library when you back up your home folder, anything macOS tells Time Machine to skip, cache folders, `node_modules`, `.venv`, `.next`, `.turbo`, `.terraform`, `__pycache__` and `.DS_Store`, and files that are only in iCloud. The card lists what is left out, Leave Out adds a file, folder or name, and Bring Back undoes it.
+- The Photos library isn't backed up yet.
+- Files DirBuff couldn't read are listed under Show Files, each with why. Backups wait while the Mac is offline, on a hotspot or cellular connection or in Low Data Mode, in Low Power Mode, or on battery below 20%.
+- Your backup can be read without DirBuff: a README in the Drive folder and dirbuff.fsh.ba/restore show how to get your files back with restic alone.
+
 ## 0.2.0
 
 - DirBuff is rebuilt around buffs: a folder wears a buff, and Temporary is the first. Add one from the Buffs page, by dragging it onto a folder, or by right-clicking a folder in Finder and choosing DirBuff: Add Buff.
