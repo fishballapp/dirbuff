@@ -93,6 +93,51 @@ import Testing
     #expect(try fixture.store.uploads(since: .distantPast).map(\.bytes) == [1_000])
   }
 
+  @Test(.timeLimit(.minutes(1)))
+  func twoPacksAtOnceOneFailingStoreOnlyTheOther() async throws {
+    let fixture = try await BridgeFixture()
+    let both = Rendezvous(count: 2)
+    var bridge = fixture.bridge
+    bridge.drive = InterceptedDrive(kept: fixture.drive) {
+      [otherName, kept = fixture.drive] data, name, folder in
+      await both.arrive()
+      if name == otherName { throw DriveProblem.checksumMismatch(sent: "a", stored: "b") }
+      return try await kept.upload(data, named: name, in: folder)
+    }
+    let server = BridgeServer(bridge)
+    async let stored = server.respond(
+      to: request("POST", "/data/\(name)", body: Data(count: 1_000)))
+    async let failed = server.respond(
+      to: request("POST", "/data/\(otherName)", body: Data(count: 2_000)))
+    // restic hears "stored" only for the pack Drive has, and retries the other.
+    #expect(await [stored.status, failed.status] == [200, 500])
+    #expect(await server.respond(to: request("HEAD", "/data/\(name)")).status == 200)
+    #expect(await server.respond(to: request("HEAD", "/data/\(otherName)")).status == 404)
+    #expect(try fixture.store.uploads(since: .distantPast).map(\.bytes) == [1_000])
+    #expect(await server.failure == nil)
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func uploadsUnderWayCountAgainstTheDailyLimit() async throws {
+    let fixture = try await BridgeFixture(dailyUploadLimit: 1_500)
+    let (started, released) = (Rendezvous(count: 2), Rendezvous(count: 2))
+    var bridge = fixture.bridge
+    bridge.drive = InterceptedDrive(kept: fixture.drive) {
+      [kept = fixture.drive] data, name, folder in
+      await started.arrive()
+      await released.arrive()
+      return try await kept.upload(data, named: name, in: folder)
+    }
+    let server = BridgeServer(bridge)
+    async let first = server.respond(to: request("POST", "/data/\(name)", body: Data(count: 1_000)))
+    await started.arrive()
+    let second = await server.respond(
+      to: request("POST", "/data/\(otherName)", body: Data(count: 1_000)))
+    #expect(second.status == 507)
+    await released.arrive()
+    #expect(await first.status == 200)
+  }
+
   @Test func locksGoUpWhileUploadsArePausedAndAreNotCounted() async throws {
     let fixture = try await BridgeFixture(dailyUploadLimit: 10)
     let server = BridgeServer(fixture.bridge)

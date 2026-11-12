@@ -213,7 +213,7 @@ import Testing
   @Test func nothingIsLeftServingOnceTheCommandEnds() async throws {
     let fixture = try await BridgeFixture()
     let served = try await fixture.bridge.serving(fixture.restic) { $0 }
-    #expect(served.restConnections == 2)
+    #expect(served.restConnections == DriveBridge.connections)
     #expect(served.stuckRequestTimeout == .seconds(3600))
     let repository = served.repository
     #expect(repository.hasPrefix("rest:http+unix:///"))

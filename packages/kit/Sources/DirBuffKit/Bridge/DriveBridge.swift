@@ -12,13 +12,16 @@ import Foundation
 public struct DriveBridge: Sendable {
   /// Google lets an account upload 750 GB a day; the bridge pauses short of it.
   public static let defaultDailyUploadLimit: Int64 = 700_000_000_000
-  /// Long enough for a 64 MiB pack to reach Drive on a slow uplink. The bridge answers a write
-  /// only once Drive has it, and restic would otherwise give up on the request after 5 minutes;
-  /// a Drive request that stalls fails on its own, sooner.
+  /// Long enough for a pack to reach Drive on a slow uplink. The bridge answers a write only
+  /// once Drive has it, and restic would otherwise give up on the request after 5 minutes; a
+  /// Drive request that stalls fails on its own, sooner.
   public static let stuckRequestTimeout = Duration.seconds(3600)
-  /// The bridge holds each write in memory until Drive has it: two at once is two packs (128 MiB
-  /// at `--pack-size 64`), and enough to keep an uplink busy.
-  public static let connections = 2
+  /// How many packs restic uploads at once, each over a Drive connection of its own
+  /// (`DriveClient.UploadPolicy.connections`). Each pack waits for seconds of round trips
+  /// (Google starting the session, then its reply), which other uploads fill. The bridge holds
+  /// each write in memory until Drive has it: four packs at restic's default 16 MiB are about
+  /// 70 MB.
+  public static let connections = 4
   static let uploadWindow: TimeInterval = 86_400
 
   public var drive: any DriveFiles
@@ -26,6 +29,8 @@ public struct DriveBridge: Sendable {
   /// The repository's folder in Drive (`DirBuff Backup/<Mac name>`).
   public var repository: DriveFileID
   var dailyUploadLimit: Int64
+  /// restic's connections to the bridge; another number only in a test that compares them.
+  var connections = Self.connections
   var now: @Sendable () -> Date
 
   public init(drive: any DriveFiles, store: Store, repository: DriveFileID) {
@@ -64,7 +69,7 @@ public struct DriveBridge: Sendable {
     var restic = restic
     restic.repository = "rest:http+unix://\(listener.path):/"
     restic.stuckRequestTimeout = Self.stuckRequestTimeout
-    restic.restConnections = Self.connections
+    restic.restConnections = connections
     let outcome: Result<Value, any Error>
     do {
       outcome = .success(try await body(restic))

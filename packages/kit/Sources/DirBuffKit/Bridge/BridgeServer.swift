@@ -347,14 +347,16 @@ actor BridgeServer {
     for use in failure.stops where stoppedBy[use] == nil { stoppedBy[use] = failure }
   }
 
-  /// Pauses before an upload that would take the last day's uploads past the limit.
+  /// Pauses before an upload that would take the last day's uploads, and those still on their
+  /// way, past the limit.
   private func checkUploadAllowance(for size: Int) throws {
     if let failure = stoppedBy[.upload] { throw failure }
     let now = bridge.now()
     let uploads = try store.uploads(since: now.addingTimeInterval(-DriveBridge.uploadWindow))
+    let underWay = writes.filter { !Self.isLock($0.key) }.values.reduce(0) { $0 + $1.data.count }
     guard
       let resumption = DriveBridge.resumption(
-        of: Int64(size), after: uploads, limit: bridge.dailyUploadLimit, now: now)
+        of: Int64(size + underWay), after: uploads, limit: bridge.dailyUploadLimit, now: now)
     else { return }
     let failure = BridgeFailure.uploadPaused(until: resumption)
     record(failure)

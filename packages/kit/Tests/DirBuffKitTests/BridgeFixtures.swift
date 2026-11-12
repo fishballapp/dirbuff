@@ -61,3 +61,49 @@ struct BridgeFixture {
     return files
   }
 }
+
+/// An in-memory Drive whose uploads go through `upload` instead, for a test to hold, fail or send
+/// them elsewhere.
+struct InterceptedDrive: DriveFiles {
+  let kept: InMemoryDrive
+  let upload: @Sendable (Data, String, DriveFileID) async throws -> DriveItem
+
+  func upload(_ data: Data, named name: String, in folder: DriveFileID) async throws -> DriveItem {
+    try await upload(data, name, folder)
+  }
+
+  func about() async throws -> DriveAbout { try await kept.about() }
+  func createFolder(named name: String, in parent: DriveFileID?) async throws -> DriveItem {
+    try await kept.createFolder(named: name, in: parent)
+  }
+  func children(of folder: DriveFileID, after pageToken: String?) async throws -> DrivePage {
+    try await kept.children(of: folder, after: pageToken)
+  }
+  func created(after pageToken: String?) async throws -> DrivePage {
+    try await kept.created(after: pageToken)
+  }
+  func metadata(of id: DriveFileID) async throws -> DriveItem { try await kept.metadata(of: id) }
+  func download(_ id: DriveFileID, range: Range<Int64>?) async throws -> Data {
+    try await kept.download(id, range: range)
+  }
+  func delete(_ id: DriveFileID) async throws { try await kept.delete(id) }
+  func untrash(_ id: DriveFileID) async throws -> DriveItem { try await kept.untrash(id) }
+}
+
+/// Lets tasks go on only once `count` of them have arrived, so a test knows they are all under
+/// way at once.
+actor Rendezvous {
+  private let count: Int
+  private var waiting: [CheckedContinuation<Void, Never>] = []
+
+  init(count: Int) { self.count = count }
+
+  func arrive() async {
+    guard waiting.count + 1 >= count else {
+      await withCheckedContinuation { waiting.append($0) }
+      return
+    }
+    for task in waiting { task.resume() }
+    waiting = []
+  }
+}

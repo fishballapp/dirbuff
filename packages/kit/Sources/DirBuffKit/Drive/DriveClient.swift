@@ -3,24 +3,33 @@ import Foundation
 
 /// Drive over HTTPS (API v3) with the `drive.file` token of `GoogleSignIn`.
 public struct DriveClient: DriveFiles {
-  /// How an upload goes: one request up to `multipartLimit`, in `chunkSize` pieces above it.
+  /// How an upload goes: one request up to `multipartLimit`, in `chunkSize` pieces above it, and
+  /// over as many as `connections` connections at once.
   public struct UploadPolicy: Sendable, Equatable {
-    public static let standard = UploadPolicy(multipartLimit: 5_000_000, chunkSize: 16 << 20)
+    /// A restic pack (16 MiB and a little more, at restic's default pack size) goes up in one
+    /// request after the session's start; a 16 MiB chunk left its last few hundred KB to a
+    /// second request, a round trip of seconds per pack. Four connections, one for each of the
+    /// bridge's (`DriveBridge.connections`).
+    public static let standard = UploadPolicy(
+      multipartLimit: 5_000_000, chunkSize: 128 << 20, connections: 4)
 
     /// Google wants each chunk but the last to be a multiple of 256 KiB.
     static let chunkQuantum = 256 << 10
 
     public var multipartLimit: Int
     public var chunkSize: Int
+    public var connections: Int
 
-    public init(multipartLimit: Int, chunkSize: Int) {
+    public init(multipartLimit: Int, chunkSize: Int, connections: Int = 1) {
       self.multipartLimit = multipartLimit
       self.chunkSize = max(1, chunkSize / Self.chunkQuantum) * Self.chunkQuantum
+      self.connections = max(1, connections)
     }
   }
 
   let transport: DriveTransport
   let uploads: UploadPolicy
+  let lanes: UploadLanes
 
   public init(
     tokens: any DriveAccessTokens, session: URLSession = .shared,
@@ -36,6 +45,7 @@ public struct DriveClient: DriveFiles {
   ) {
     transport = DriveTransport(session: session, tokens: tokens, pause: pause)
     self.uploads = uploads
+    lanes = UploadLanes(count: uploads.connections, configuration: session.configuration)
   }
 
   static let api = URL(constant: "https://www.googleapis.com/drive/v3")
@@ -98,10 +108,13 @@ public struct DriveClient: DriveFiles {
     -> DriveItem
   {
     let metadata = FileMetadata(name: name, parents: [folder], mimeType: nil)
-    let stored =
-      data.count <= uploads.multipartLimit
-      ? try await uploadInOneRequest(data, metadata)
-      : try await uploadInChunks(data, metadata)
+    let stored = try await lanes.withLane { session in
+      var lane = transport
+      lane.session = session
+      return data.count <= uploads.multipartLimit
+        ? try await uploadInOneRequest(data, metadata, over: lane)
+        : try await uploadInChunks(data, metadata, over: lane)
+    }
     return try await verify(stored, holds: data)
   }
 
