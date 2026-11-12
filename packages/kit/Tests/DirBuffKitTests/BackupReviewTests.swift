@@ -254,7 +254,7 @@ import Testing
       path: "a.txt", snapshotID: snapshot.id, savedAt: snapshot.time, change: .added, size: 100)
 
     await #expect(throws: BackupBuff.Failure.notEnoughRoom(needed: 100, available: 10)) {
-      try await mac.backup.restoreCopy(version, folderID: folderID)
+      try await mac.backup.restore(version, folderID: folderID)
     }
   }
 
@@ -274,7 +274,7 @@ import Testing
       size: 5)
 
     await #expect(throws: BackupBuff.Failure.self) {
-      try await mac.backup.restoreCopy(version, folderID: folderID)
+      try await mac.backup.restore(version, folderID: folderID)
     }
     #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
   }
@@ -294,7 +294,7 @@ import Testing
     await drive.clearCalls()
 
     await #expect {
-      try await mac.backup.restoreFolder(folderID: folderID, snapshot: snapshot)
+      try await mac.backup.restoreFolder(folderID: folderID, backup: KeptBackup(snapshot))
     } throws: { error in
       guard case BackupBuff.Failure.cannotWrite(let folder) = error else { return false }
       return try canonicalPath(of: folder) == canonicalPath(of: locked)
@@ -304,7 +304,7 @@ import Testing
     let elsewhere = try mac.scratch.folder("Restored")
 
     let restored = try await mac.backup.restoreFolder(
-      folderID: folderID, snapshot: snapshot, into: elsewhere)
+      folderID: folderID, backup: KeptBackup(snapshot), into: elsewhere)
 
     #expect(try mac.read(restored.appendingPathComponent("a.txt")) == "saved")
   }
@@ -320,10 +320,10 @@ import Testing
       path: "a.txt", snapshotID: snapshot.id, savedAt: snapshot.time, change: .added, size: nil)
 
     await #expect(throws: BackupBuff.Failure.notEnoughRoom(needed: 100, available: 10)) {
-      try await mac.backup.restoreFolder(folderID: folderID, snapshot: snapshot)
+      try await mac.backup.restoreFolder(folderID: folderID, backup: KeptBackup(snapshot))
     }
     await #expect(throws: BackupBuff.Failure.notEnoughRoom(needed: 100, available: 10)) {
-      try await mac.backup.restoreCopy(version, folderID: folderID)
+      try await mac.backup.restore(version, folderID: folderID)
     }
   }
 }

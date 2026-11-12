@@ -121,7 +121,7 @@ import Testing
   ) async throws -> [String] {
     var texts: [String] = []
     for version in history.versions where version.change != .removed {
-      let copy = try await fixture.backup.restoreCopy(version, folderID: folderID)
+      let copy = try await fixture.backup.restore(version, folderID: folderID)
       texts.append(try String(contentsOf: copy, encoding: .utf8))
     }
     return texts
@@ -263,7 +263,7 @@ import Testing
 
     let restore = Task {
       try await backup.restoreFolder(
-        folderID: folderID, snapshot: snapshot, onProgress: { _ in writing.raise() })
+        folderID: folderID, backup: KeptBackup(snapshot), onProgress: { _ in writing.raise() })
     }
     try await writing.waitUntilRaised()
     restore.cancel()

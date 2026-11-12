@@ -15,16 +15,6 @@ private func version(
 
 private let day: TimeInterval = 86_400
 
-private func versions(_ list: [BackupVersion], notKept: Set<String> = []) -> VersionsState {
-  VersionsState(
-    folderID: 1, folderName: "Documents", folderPath: "\(home)/Documents",
-    histories: Dictionary(grouping: list, by: \.path).map { path, versions in
-      FileHistory(
-        path: path, versions: versions.sorted { $0.savedAt < $1.savedAt },
-        hasEarlierVersionNotKept: notKept.contains(path))
-    }, now: now, calendar: calendar)
-}
-
 private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = nil) throws
   -> ResticSnapshot
 {
@@ -38,115 +28,6 @@ private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = ni
   return try decoder.decode(ResticSnapshot.self, from: Data(json.utf8))
 }
 
-@Suite struct VersionsStateTests {
-  @Test func filesAreGroupedByPathNewestChangeFirst() {
-    let state = versions([
-      version("a.txt", 3 * day, .added), version("b.txt", day, .added),
-      version("a.txt", 2 * day, .changed),
-    ])
-
-    #expect(state.files.map(\.path) == ["b.txt", "a.txt"])
-    #expect(state.files[1].versions.map(\.change) == [.changed, .added])
-  }
-
-  @Test func aFileWhoseLastVersionIsADeletionIsDeleted() {
-    let state = versions([
-      version("gone.txt", 3 * day, .added), version("gone.txt", day, .removed),
-      version("here.txt", day, .changed),
-    ])
-
-    #expect(state.files(.onThisMac, matching: "").map(\.path) == ["here.txt"])
-    #expect(state.files(.deleted, matching: "").map(\.path) == ["gone.txt"])
-    #expect(state.count(.deleted) == 1)
-  }
-
-  @Test func aDeletionHoldsNothingToRestore() throws {
-    let state = versions([version("gone.txt", 3 * day, .added), version("gone.txt", day, .removed)])
-    let file = try #require(state.files.first)
-
-    #expect(file.versions.map(\.canRestore) == [false, true])
-    #expect(file.restorableCount == 1)
-    #expect(file.versionCount == "1 version")
-    #expect(file.versions.first?.detail == "Deleted")
-    #expect(file.size == bytes(100))
-  }
-
-  @Test func theNewestVersionIsTheLatestBackup() throws {
-    let state = versions([version("a.txt", 3 * day, .added), version("a.txt", day, .changed)])
-    let file = try #require(state.files.first)
-
-    #expect(
-      file.versions.map(\.detail) == ["Latest backup · \(bytes(100))", "Added · \(bytes(100))"])
-  }
-
-  @Test func theVersionBeforeTheFirstChangeSaysWhatItIs() throws {
-    let before = BackupVersion(
-      path: "a.txt", snapshotID: "before", savedAt: now.addingTimeInterval(-9 * day),
-      change: .changed, size: nil, replacedAt: now.addingTimeInterval(-3 * day))
-    let state = versions([before, version("a.txt", 3 * day, .changed)])
-    let file = try #require(state.files.first)
-    let style = Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
-    let replaced = now.addingTimeInterval(-3 * day)
-
-    #expect(file.versions.map(\.canRestore) == [true, true])
-    #expect(file.versionCount == "2 versions")
-    #expect(
-      file.versions[1].detail
-        == "As backed up before \(replaced.formatted(style.day().month(.abbreviated)))")
-    #expect(file.hasEarlierVersionNotKept == false)
-  }
-
-  @Test func aFileWhoseEarlierVersionWasThinnedAwaySaysSo() throws {
-    let state = versions([version("a.txt", day, .changed)], notKept: ["a.txt"])
-    let file = try #require(state.files.first)
-
-    #expect(file.hasEarlierVersionNotKept)
-    #expect(file.versionCount == "1 version")
-    #expect(VersionedFile.earlierNotKept.hasPrefix("No earlier version is kept"))
-  }
-
-  @Test func theSearchMatchesNameAndFolder() {
-    let state = versions([
-      version("Finance/Receipts.xlsx", day, .changed), version("Lease.pdf", day, .changed),
-    ])
-
-    #expect(state.files(.onThisMac, matching: "receipts").map(\.name) == ["Receipts.xlsx"])
-    #expect(state.files(.onThisMac, matching: "finance").map(\.name) == ["Receipts.xlsx"])
-    #expect(state.files(.onThisMac, matching: "").count == 2)
-    #expect(state.files.first { $0.name == "Receipts.xlsx" }?.parent == "Finance")
-  }
-
-  @Test func eachEmptyListSaysWhy() {
-    let none = versions([])
-    let onlyDeleted = versions([version("x", day, .removed)])
-
-    #expect(none.emptiness(.onThisMac, query: "").title.contains("No file has changed"))
-    #expect(
-      none.emptiness(.onThisMac, query: "").detail.contains("earlier versions are listed here"))
-    #expect(none.emptiness(.onThisMac, query: "x").title == "No matches")
-    #expect(onlyDeleted.emptiness(.onThisMac, query: "").title.contains("deleted"))
-    #expect(
-      versions([version("a", day, .changed)]).emptiness(.deleted, query: "").title
-        == "No file has been deleted")
-    #expect(none.subtitle == "Backup · no file has changed yet")
-    #expect(versions([version("a", day, .changed)]).subtitle == "Backup · 1 file with versions")
-  }
-
-  @Test func aVersionSavedTodayIsToldWithItsTimeAndAnOldOneWithItsYear() {
-    let style = Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
-    let recent = now.addingTimeInterval(-60)
-    let old = now.addingTimeInterval(-800 * day)
-
-    #expect(
-      versionMoment(recent, now: now, calendar: calendar)
-        == "Today, \(recent.formatted(style.hour().minute()))")
-    #expect(
-      versionMoment(old, now: now, calendar: calendar)
-        == "\(old.formatted(style.day().month(.abbreviated).year())), \(old.formatted(style.hour().minute()))"
-    )
-  }
-}
-
 @Suite struct RestoreProblemTests {
   private func problem(_ error: any Error, _ subject: RestoreProblem.Subject = .backup)
     -> RestoreProblem
@@ -156,7 +37,7 @@ private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = ni
 
   @Test func theWordsAreBackupErrorWordsWithWhatToDoAndThatNothingChanged() {
     let error = BackupBuff.Failure.outsideFolder("Finance")
-    let words = problem(error, .copy(name: "a.txt"))
+    let words = problem(error, .item(name: "a.txt"))
 
     #expect(words.message.hasPrefix(backupErrorWords(error) ?? "x"))
     #expect(words.message.hasSuffix(RestoreProblem.untouched))
@@ -167,12 +48,12 @@ private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = ni
   @Test func notEnoughRoomGivesBothSizesAndAWayOutForAFolder() {
     let error = BackupBuff.Failure.notEnoughRoom(needed: 48_000_000_000, available: 12_300_000_000)
     let folder = problem(error, .folder(name: "Documents"))
-    let copy = problem(error, .copy(name: "a.txt"))
+    let copy = problem(error, .item(name: "a.txt"))
 
     #expect(folder.message.contains(bytes(48_000_000_000)))
     #expect(folder.message.contains(bytes(12_300_000_000)))
     #expect(folder.fix == .chooseFolder)
-    // A copy lands beside its original: another folder is no way out.
+    // An item goes back where it was: another folder is no way out.
     #expect(copy.fix == .none)
     #expect(!copy.message.contains("choose a folder"))
   }
@@ -186,13 +67,19 @@ private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = ni
     #expect(found.message.contains("Choose another folder"))
   }
 
-  @Test func eachPasswordFailureAsksForThePasswordExceptForACopy() {
+  @Test func eachPasswordFailureAsksForThePassword() {
     #expect(problem(BackupBuff.Failure.passwordNeeded).fix == .enterPassword)
     #expect(problem(BackupBuff.Failure.passwordDoesNotOpen).fix == .enterPassword)
-    let copy = problem(BackupBuff.Failure.passwordNeeded, .copy(name: "a.txt"))
-    #expect(copy.fix == .none)
-    #expect(copy.message.contains("only from this Mac's Keychain and can't ask for it"))
-    #expect(copy.message.contains("Restore Folder asks"))
+    #expect(problem(BackupBuff.Failure.passwordNeeded, .item(name: "a.txt")).fix == .enterPassword)
+  }
+
+  @Test func onlyWhatWouldHaveWrittenSaysNothingWasChanged() {
+    let offline = DriveProblem.unreachable
+    #expect(problem(offline, .listing).message == backupErrorWords(offline))
+    #expect(problem(offline, .listing).fix == .tryAgain)
+    #expect(!problem(offline, .preview(name: "a.pdf")).message.contains(RestoreProblem.untouched))
+    #expect(problem(offline, .preview(name: "a.pdf")).title == "Couldn't preview a.pdf")
+    #expect(problem(offline, .item(name: "a.pdf")).message.hasSuffix(RestoreProblem.untouched))
   }
 
   @Test func theAccountsStatesSayWhatToDo() {
@@ -223,11 +110,11 @@ private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = ni
 
   @Test func theKitsOwnFailuresReadAsSentencesWithWhatToDo() {
     let failures: [BackupBuff.Failure] = [
-      .nothingToRestore, .notInBackup("a/b.txt"), .outsideFolder("a/b"), .seriesShared("x"),
+      .notInBackup("a/b.txt"), .outsideFolder("a/b"), .seriesShared("x"),
       .backupIsEmpty,
     ]
     for failure in failures {
-      let words = problem(failure, .copy(name: "b.txt"))
+      let words = problem(failure, .item(name: "b.txt"))
       #expect(words.message.count > 60)
       #expect(!words.message.contains("BackupBuff"))
     }
@@ -275,13 +162,6 @@ private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = ni
     #expect(dates.map(\.id) == ["new", "old"])
     #expect(dates[0].detail == "Latest backup · \(bytes(2_000_000))")
     #expect(dates[1].detail == bytes(1_000_000))
-  }
-
-  @Test func theSheetsWordsNameTheFolderAndPromiseNoReplacement() {
-    let state = RestoreFolderState(folderName: "Documents", folderPath: "\(home)/Documents")
-
-    #expect(state.explanation.contains("Nothing in Documents is replaced"))
-    #expect(!state.explanation.contains("Documents’s"))
   }
 }
 
@@ -403,55 +283,22 @@ private func snapshot(_ id: String, secondsAgo: TimeInterval, bytes: Int64? = ni
 
     #expect(ask.explanation.contains("only if you choose Keep Backing Up Here"))
     #expect(ask.wrongSentence.contains("doesn't open"))
-    let forFolder = PasswordAsk(macName: "x", isForRestoreFolder: true)
-    #expect(forFolder.explanation.contains("doesn't keep it"))
-    #expect(!forFolder.explanation.contains("Keep Backing Up Here"))
+    let thisMac = PasswordAsk(macName: "x", isForThisMac: true)
+    #expect(thisMac.explanation.contains("doesn't keep it"))
+    #expect(!thisMac.explanation.contains("Keep Backing Up Here"))
   }
 
   @Test func versionsAreAPageOverTheFolder() {
     #expect(
-      MainNavigation(opening: .versions(7)) == MainNavigation(.folder(7), path: [.versions(7)]))
+      MainNavigation(opening: .backup(7)) == MainNavigation(.folder(7), path: [.backup(7)]))
     #expect(
-      MainNavigation(.folder(7), path: [.versions(7)]).keeping(folders: []) == MainNavigation())
+      MainNavigation(.folder(7), path: [.backup(7)]).keeping(folders: []) == MainNavigation())
   }
 }
 
 @Suite struct RestoreSelectionTests {
   private let other = BackedUpMac(id: "m", name: "Mei’s MacBook Pro", isThisMac: false)
   private let this = BackedUpMac(id: "t", name: "Mei’s Mac mini", isThisMac: true)
-
-  private func dates() throws -> [RestoreDate] {
-    RestoreDate.list(
-      [try snapshot("old", secondsAgo: 5 * day), try snapshot("new", secondsAgo: 60)], now: now,
-      calendar: calendar)
-  }
-
-  @Test func aSheetOpenedWhileLoadingHasTheNewestDateSelectedOnceTheyArrive() throws {
-    var state = RestoreFolderState(folderName: "Documents", folderPath: "\(home)/Documents")
-    #expect(state.selectedDateID == nil)
-
-    state.step = .choose(try dates())
-
-    #expect(state.selectedDateID == "new")
-  }
-
-  @Test func aPickedDateStaysSelectedAndOneThatIsGoneFallsBackToTheNewest() throws {
-    var state = RestoreFolderState(
-      folderName: "Documents", folderPath: "\(home)/Documents", step: .choose(try dates()))
-
-    state.pickedDateID = "old"
-    #expect(state.selectedDateID == "old")
-
-    state.pickedDateID = "forgotten"
-    #expect(state.selectedDateID == "new")
-  }
-
-  @Test func theDatesAreNotSelectedOutsideTheChoice() {
-    var state = RestoreFolderState(folderName: "Documents", folderPath: "\(home)/Documents")
-    state.pickedDateID = "old"
-
-    #expect(state.selectedDateID == nil)
-  }
 
   @Test func theMacsListHasAnotherMacsBackupSelectedWhenItArrives() {
     var state = RestoreFromDriveState()

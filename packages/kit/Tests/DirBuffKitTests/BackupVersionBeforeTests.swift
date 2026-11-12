@@ -31,7 +31,7 @@ import Testing
         texts.append(nil)
         continue
       }
-      let copy = try await fixture.backup.restoreCopy(version, folderID: folderID)
+      let copy = try await fixture.backup.restore(version, folderID: folderID)
       texts.append(try String(contentsOf: copy, encoding: .utf8))
     }
     return texts

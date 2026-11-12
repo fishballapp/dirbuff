@@ -109,9 +109,9 @@ extension Store {
         sql: """
           UPDATE backup SET lastRunAt = ?, lastSuccessAt = NULL, lastSnapshotID = NULL,
             lastError = NULL, failingSince = NULL, failedRunsInARow = 0, lastForgetAt = NULL,
-            cloudOnlyCount = 0
+            cloudOnlyCount = 0, versionsTrackedSince = ?
           """,
-        arguments: [now])
+        arguments: [now, now])
       try db.execute(sql: "DELETE FROM backupSkipped")
       try db.execute(sql: "DELETE FROM backupVersion")
       try db.execute(sql: "DELETE FROM backupSnapshot")

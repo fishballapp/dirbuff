@@ -123,7 +123,7 @@ public struct BuffCardView: View {
           Button("What's Cleared Next…") { pageActions.showFiles(folder.id) }
         }
         if card.backup != nil {
-          Button("Show Versions…") { pageActions.showVersions(folder.id) }
+          Button("Browse Backup…") { pageActions.browseBackup(folder.id) }
         }
         // It asks first, so a quiet icon is enough.
         GhostIconButton("Take Off \(card.buff.name)", systemImage: "xmark") {

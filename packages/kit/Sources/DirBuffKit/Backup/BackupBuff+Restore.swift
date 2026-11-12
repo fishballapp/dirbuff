@@ -11,7 +11,7 @@ extension BackupBuff {
     try store.backupVersions(folderID: folderID, path: path)
   }
 
-  /// The folder's snapshots, oldest first: the dates Restore Folder offers.
+  /// The folder's snapshots, oldest first, asked of the repository.
   public func snapshots(folderID: Int64, now: Date = Date()) async throws -> [ResticSnapshot] {
     try await commands.run {
       guard try store.backupAccount() != nil,
@@ -23,68 +23,172 @@ extension BackupBuff {
     }
   }
 
-  /// Restore a Copy: the file as `version` saved it, beside the original as
-  /// "Report (3 Mar 2027, 10.00).pages", once its volume has room. restic writes it into a
-  /// temporary folder on the same volume first, and it's moved into place only under a name
-  /// nothing has. A folder on the way that's now a link out of the folder is refused. Returns
-  /// where it went.
-  public func restoreCopy(_ version: BackupVersion, folderID: Int64, now: Date = Date())
-    async throws -> URL
-  {
-    guard version.change != .removed else { throw Failure.nothingToRestore }
-    let folder = try engine.locate(folderID: folderID).url
-    let original = folder.appendingPathComponent(version.path)
-    try RestorePlace.requireInside(folder, original.deletingLastPathComponent())
+  /// Restore: `item` as `backup` saved it, back where it was in the folder, once the folder's
+  /// volume has room; or into `chosen` (Choose Folder…, when the folder isn't on this Mac now).
+  /// It keeps its own name when nothing has that name there now; otherwise it goes beside what
+  /// does, with the backup's date in its name ("Report (3 Mar 2027, 10.00).pages", "Finance
+  /// (3 Mar 2027)"): nothing is replaced. restic writes it into a temporary folder on the same
+  /// volume first, and it is moved into place whole, under a name nothing has. The folder is
+  /// located when the restore's turn comes and again once the download is done, so one moved
+  /// meanwhile is followed, and one removed from DirBuff gets nothing; a folder on the way that's
+  /// now a link out of the folder is refused. The folder itself (`item.path` empty) is Restore
+  /// Folder's. Returns where it went. `onProgress` hears how far a folder's download has got.
+  public func restore(
+    _ item: BackupItem, from backup: KeptBackup, folderID: Int64, into chosen: URL? = nil,
+    password: String? = nil, onProgress: (@Sendable (RestoreProgress) -> Void)? = nil
+  ) async throws -> URL {
+    precondition(!item.path.isEmpty, "The folder itself is restored by restoreFolder")
+    let name: @Sendable (Int) -> String = { number in
+      number == 1
+        ? item.name : RestorePlace.datedName(of: item, savedAt: backup.savedAt, number: number - 1)
+    }
     return try await commands.run {
-      let session = try await openRepository(now: now)
-      let size: Int64? =
-        if let size = version.size {
-          size
-        } else {
-          try await restic(session) {
-            try await $0.size(of: "/" + version.path, in: version.snapshotID)
-          }
+      if let chosen {
+        let session = try await session(password: password)
+        return try await RestorePlace.withTemporaryFolder(near: chosen) { temporary in
+          let restored = try await extract(
+            item, of: backup, session: session, into: temporary, roomIn: chosen,
+            onProgress: onProgress)
+          return try RestorePlace.move(restored, into: chosen, naming: name)
         }
-      guard let size else { throw Failure.notInBackup(version.path) }
-      try requireRoom(for: size, in: folder)
+      }
+      // Where the folder is once its turn comes, which may be hours behind a backup.
+      let folder = try engine.locate(folderID: folderID).url
+      try RestorePlace.requireInside(folder, place(of: item, in: folder))
+      let session = try await session(password: password)
       return try await RestorePlace.withTemporaryFolder(near: folder) { temporary in
-        _ = try await restic(session) {
-          try await $0.restore(
-            snapshot: version.snapshotID, to: temporary,
-            including: [RestorePlace.pattern(matching: version.path)])
-        }
-        let restored = temporary.appendingPathComponent(version.path)
-        guard FileManager.default.fileExists(atPath: restored.path) else {
-          throw Failure.notInBackup(version.path)
-        }
-        // The folder it was in may have gone since.
-        let directory = original.deletingLastPathComponent()
+        let restored = try await extract(
+          item, of: backup, session: session, into: temporary, roomIn: folder,
+          onProgress: onProgress)
+        // Where it is now the download is done: moved or renamed meanwhile, it is followed. Then
+        // the folders on the way, which may have gone or become links, are checked before any is
+        // made for it, and again after.
+        let folder = try engine.locate(folderID: folderID).url
+        let directory = place(of: item, in: folder)
+        try RestorePlace.requireInside(folder, directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try RestorePlace.move(restored, into: directory) {
-          RestorePlace.copyName(
-            of: original.lastPathComponent, savedAt: version.savedAt, number: $0)
-        }
+        try RestorePlace.requireInside(folder, directory)
+        return try RestorePlace.move(restored, into: directory, naming: name)
       }
     }
   }
 
-  /// Restore Folder: the folder as `snapshot` saved it, in a new folder beside it (or in
-  /// `directory`), "Documents (3 Mar 2027)", once its volume has room. Beside a folder whose
+  /// The folder `item` was in, inside `folder`.
+  private func place(of item: BackupItem, in folder: URL) -> URL {
+    folder.appendingPathComponent(item.path).deletingLastPathComponent()
+  }
+
+  /// A copy of `item` as `backup` saved it, written to exactly `destination`: for a drag out to
+  /// Finder, and for Quick Look. The folder itself (`item.path` empty) comes out whole. A file
+  /// promise names its file before it is written: Finder has already made `destination`'s name
+  /// one nothing in that folder has, and shows it under that name. So the copy goes there or
+  /// nowhere: if something took that name meanwhile, this throws `EEXIST` rather than replace it
+  /// or land under a name Finder doesn't know.
+  public func download(
+    _ item: BackupItem, from backup: KeptBackup, folderID: Int64, to destination: URL,
+    password: String? = nil
+  ) async throws -> URL {
+    let directory = destination.deletingLastPathComponent()
+    return try await commands.run {
+      let session = try await session(password: password)
+      return try await RestorePlace.withTemporaryFolder(near: directory) { temporary in
+        let restored = try await extract(
+          item, of: backup, session: session, into: temporary, roomIn: directory,
+          onProgress: nil)
+        return try RestorePlace.move(restored, to: destination)
+      }
+    }
+  }
+
+  /// The name Restore gives `item` when its own is taken: "Report (3 Mar 2027, 10.00).pages",
+  /// "Finance (3 Mar 2027)".
+  public static func datedName(of item: BackupItem, savedAt: Date) -> String {
+    RestorePlace.datedName(of: item, savedAt: savedAt, number: 1)
+  }
+
+  /// Restore Folder: the folder as `backup` saved it, in a new folder beside it (or in
+  /// `directory`, which a folder that isn't on this Mac now needs), "Documents (3 Mar 2027)", once its volume has room. Beside a folder whose
   /// parent can't be written to (a disk's top folder sits in `/Volumes`), this throws
   /// `cannotWrite` before anything downloads, for the caller to ask for a `directory`. Returns
   /// the new folder. `onProgress` hears how far the download has got.
   public func restoreFolder(
-    folderID: Int64, snapshot: ResticSnapshot, into directory: URL? = nil, now: Date = Date(),
-    onProgress: (@Sendable (RestoreProgress) -> Void)? = nil
+    folderID: Int64, backup: KeptBackup, into directory: URL? = nil, password: String? = nil,
+    now: Date = Date(), onProgress: (@Sendable (RestoreProgress) -> Void)? = nil
   ) async throws -> URL {
-    let folder = try engine.locate(folderID: folderID).url
-    let destination = directory ?? folder.deletingLastPathComponent()
-    return try await commands.run {
-      let session = try await openRepository(now: now)
+    try await commands.run {
+      // A folder that isn't on this Mac now can still come back, where the caller says.
+      let located: URL?
+      do {
+        located = try engine.locate(folderID: folderID).url
+      } catch {
+        guard directory != nil else { throw error }
+        located = nil
+      }
+      guard let destination = directory ?? located?.deletingLastPathComponent(),
+        let name = try located?.lastPathComponent
+          ?? store.folder(id: folderID).map({ URL(fileURLWithPath: $0.path).lastPathComponent })
+      else { throw Engine.Failure.folderNotFound(id: folderID) }
+      let session = try await session(password: password, now: now)
       return try await restore(
-        snapshot, session: session, named: folder.lastPathComponent, into: destination,
-        onProgress: onProgress)
+        snapshotID: backup.id, savedAt: backup.savedAt, size: nil, session: session,
+        named: name, into: destination, onProgress: onProgress)
     }
+  }
+
+  /// Writes `item` from `backup` into `temporary` and returns where: a file by an include
+  /// pattern, which fetches only its own blobs, and a folder as the snapshot's subfolder. A
+  /// file's size is checked against the room first; a folder's is known only as restic counts
+  /// it, so its restore stops the moment that count is more than the room.
+  private func extract(
+    _ item: BackupItem, of backup: KeptBackup, session: Session, into temporary: URL,
+    roomIn place: URL, onProgress: (@Sendable (RestoreProgress) -> Void)?
+  ) async throws -> URL {
+    guard item.isFolder || item.path.isEmpty else {
+      let size: Int64? =
+        if let size = item.size {
+          size
+        } else if item.kind == .file {
+          try await restic(session) { try await $0.size(of: "/" + item.path, in: backup.id) }
+        } else {
+          0
+        }
+      guard let size else { throw Failure.notInBackup(item.path) }
+      try requireRoom(for: size, in: place)
+      _ = try await restic(session) {
+        try await $0.restore(
+          snapshot: backup.id, to: temporary,
+          including: [RestorePlace.pattern(matching: item.path)])
+      }
+      let restored = temporary.appendingPathComponent(item.path)
+      // Not `fileExists`, which follows a link to what it points at.
+      guard (try? FileManager.default.attributesOfItem(atPath: restored.path)) != nil else {
+        throw Failure.notInBackup(item.path)
+      }
+      return restored
+    }
+    let restored = temporary.appendingPathComponent("restored")
+    let available = try freeSpace(place)
+    let room = RoomWatch(available: available)
+    do {
+      _ = try await restic(session) { restic in
+        try await room.run { hear in
+          try await restic.restore(
+            snapshot: item.path.isEmpty ? backup.id : "\(backup.id):/\(item.path)", to: restored,
+            onProgress: { progress in
+              hear(progress)
+              onProgress?(progress)
+            })
+        }
+      }
+    } catch ResticFailure.exited(.failed, let message) where message.hasSuffix(": not found") {
+      throw Failure.notInBackup(item.path)
+    } catch {
+      if let needed = room.needed {
+        throw Failure.notEnoughRoom(needed: needed, available: available)
+      }
+      throw error
+    }
+    return restored
   }
 
   // MARK: Restore from Google Drive
@@ -127,7 +231,8 @@ extension BackupBuff {
     try await commands.run {
       let session = try await session(of: mac, password: password)
       return try await restore(
-        snapshot, session: session, named: folder.name, into: directory, onProgress: onProgress)
+        snapshotID: snapshot.id, savedAt: snapshot.time, size: snapshot.size, session: session,
+        named: folder.name, into: directory, onProgress: onProgress)
     }
   }
 
@@ -235,26 +340,26 @@ extension BackupBuff {
 
   /// Checks the folder can be written to before anything downloads.
   private func restore(
-    _ snapshot: ResticSnapshot, session: Session, named name: String, into directory: URL,
-    onProgress: (@Sendable (RestoreProgress) -> Void)?
+    snapshotID: String, savedAt: Date, size: Int64?, session: Session, named name: String,
+    into directory: URL, onProgress: (@Sendable (RestoreProgress) -> Void)?
   ) async throws -> URL {
     guard FileManager.default.isWritableFile(atPath: directory.path) else {
       throw Failure.cannotWrite(directory)
     }
     let size: Int64 =
-      if let size = snapshot.size {
+      if let size {
         size
       } else {
-        try await withRestic(session) { try await $0.restoreSize(of: snapshot.id) }
+        try await withRestic(session) { try await $0.restoreSize(of: snapshotID) }
       }
     try requireRoom(for: size, in: directory)
     return try await RestorePlace.withTemporaryFolder(near: directory) { temporary in
       let restored = temporary.appendingPathComponent("restored")
       _ = try await withRestic(session) {
-        try await $0.restore(snapshot: snapshot.id, to: restored, onProgress: onProgress)
+        try await $0.restore(snapshot: snapshotID, to: restored, onProgress: onProgress)
       }
       return try RestorePlace.move(restored, into: directory) {
-        RestorePlace.folderName(name, savedAt: snapshot.time, number: $0)
+        RestorePlace.folderName(name, savedAt: savedAt, number: $0)
       }
     }
   }
@@ -288,6 +393,47 @@ public struct BackedUpFolder: Sendable, Equatable {
   }
 }
 
+/// Stops a restore whose size, as restic counts it while it goes, is more than the room there is.
+private final class RoomWatch: @unchecked Sendable {
+  private let available: Int64
+  private let lock = NSLock()
+  private var task: Task<RestoreSummary, any Error>?
+  private var over: Int64?
+
+  init(available: Int64) {
+    self.available = available
+  }
+
+  /// What the restore needs, once it is more than the room.
+  var needed: Int64? { lock.withLock { over } }
+
+  /// Runs `body`, which hands what restic reports to `hear`, and stops it once it needs more.
+  func run(
+    _ body:
+      @escaping @Sendable (@escaping @Sendable (RestoreProgress) -> Void) async throws
+      -> RestoreSummary
+  ) async throws -> RestoreSummary {
+    let task = Task { try await body { self.hear($0) } }
+    lock.withLock {
+      self.task = task
+      if over != nil { task.cancel() }
+    }
+    return try await withTaskCancellationHandler {
+      try await task.value
+    } onCancel: {
+      task.cancel()
+    }
+  }
+
+  private func hear(_ progress: RestoreProgress) {
+    lock.withLock {
+      guard over == nil, Int64(progress.totalBytes) > available else { return }
+      over = Int64(progress.totalBytes)
+      task?.cancel()
+    }
+  }
+}
+
 /// Where a restore puts what it wrote, and under what name.
 enum RestorePlace {
   /// A folder on the same volume as `folder`, so what's restored into it moves out by a rename,
@@ -315,6 +461,15 @@ enum RestorePlace {
     }
   }
 
+  /// Moves `item` to exactly `target`, refusing to replace anything there (`EEXIST`).
+  static func move(_ item: URL, to target: URL) throws -> URL {
+    try Task.checkCancellation()
+    guard renamex_np(item.path, target.path, UInt32(RENAME_EXCL)) == 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    return target
+  }
+
   /// "Report (3 Mar 2027, 10.00).pages", then "Report (3 Mar 2027, 10.00) 2.pages". The time
   /// has a dot: Finder shows a colon in a name as a slash.
   static func copyName(of fileName: String, savedAt: Date, number: Int) -> String {
@@ -325,6 +480,13 @@ enum RestorePlace {
       + String(format: ", %02d.%02d", time.hour ?? 0, time.minute ?? 0)
     let base = "\(name.deletingPathExtension) (\(stamp))" + (number > 1 ? " \(number)" : "")
     return name.pathExtension.isEmpty ? base : base + "." + name.pathExtension
+  }
+
+  /// A copy's name for `item` (`copyName` for a file or link, `folderName` for a folder).
+  static func datedName(of item: BackupItem, savedAt: Date, number: Int) -> String {
+    item.isFolder
+      ? folderName(item.name, savedAt: savedAt, number: number)
+      : copyName(of: item.name, savedAt: savedAt, number: number)
   }
 
   /// "Documents (3 Mar 2027)", then "Documents (3 Mar 2027) 2".

@@ -1,6 +1,7 @@
 import AppKit
 import DirBuffCore
 import DirBuffKit
+import DirBuffUI
 import os
 
 private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "backup")
@@ -111,8 +112,14 @@ final class AfterChangeDriver {
     Task { await reload() }
   }
 
-  /// Whether a backup or `maintain` runs, so restic is working and the Mac is kept awake.
-  private var isRunningRestic = false
+  /// The restic work running: a backup, the weekly check or the upkeep, so the Mac is kept
+  /// awake. Anything else that runs restic (the backup page) waits for it to end.
+  private var resticJob: BackupBusy? {
+    didSet { if resticJob != oldValue { onResticJob(resticJob) } }
+  }
+  private var isRunningRestic: Bool { resticJob != nil }
+  /// Told when `resticJob` changes, for the backup page to say what it waits for.
+  var onResticJob: @MainActor (BackupBusy?) -> Void = { _ in }
 
   /// Calls `block` once nothing runs restic: now, if nothing does. Returns whether it waits.
   func whenIdle(_ block: @escaping @MainActor () -> Void) -> Bool {
@@ -213,7 +220,7 @@ final class AfterChangeDriver {
         checkNowAskedAt = nil
       } else if conditions.network != .offline {
         checkNowAskedAt = nil
-        perform(isRunningRestic: true) { await self.work.checkNow() }
+        perform(running: .check) { await self.work.checkNow() }
         return
       }
     }
@@ -222,16 +229,16 @@ final class AfterChangeDriver {
       setHold(heldBy)
       if let until { arm(at: until) }
     case .check:
-      perform(isRunningRestic: false) {
+      perform(running: nil) {
         await self.work.checkAccount()
         self.timer.checked(at: self.now())
       }
     case .run(let folderID, _):
       setHold(nil)
-      perform(isRunningRestic: true) { await self.backUp(folderID) }
+      perform(running: .backup) { await self.backUp(folderID) }
     case .maintain:
       setHold(nil)
-      perform(isRunningRestic: true) {
+      perform(running: .upkeep) {
         let isDone = await self.work.maintain()
         self.timer.maintained(at: self.now(), succeeded: isDone)
         if isDone { self.memory.maintainedAt = self.now() }
@@ -256,15 +263,15 @@ final class AfterChangeDriver {
     memory.places = places
   }
 
-  private func perform(isRunningRestic isRestic: Bool, _ job: @escaping @MainActor () async -> Void)
-  {
+  private func perform(running restic: BackupBusy?, _ job: @escaping @MainActor () async -> Void) {
     isWorking = true
-    isRunningRestic = isRestic
-    sleepAssertion = isRestic ? SleepAssertion(reason: "DirBuff is backing up your folders") : nil
+    resticJob = restic
+    sleepAssertion =
+      restic != nil ? SleepAssertion(reason: "DirBuff is backing up your folders") : nil
     Task {
       await job()
       isWorking = false
-      isRunningRestic = false
+      resticJob = nil
       sleepAssertion = nil
       let callbacks = idleCallbacks
       idleCallbacks = []

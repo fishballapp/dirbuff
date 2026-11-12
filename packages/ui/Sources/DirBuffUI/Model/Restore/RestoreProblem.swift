@@ -40,8 +40,12 @@ public struct RestoreProblem: Sendable, Equatable {
 
   /// What was being restored, for the title.
   public enum Subject: Sendable, Equatable {
-    /// Restore a Copy of the file with this name.
-    case copy(name: String)
+    /// A file or folder of a backup, by its name: restored in place, downloaded or previewed.
+    case item(name: String)
+    /// Quick Look of the file with this name.
+    case preview(name: String)
+    /// A folder of a backup being listed on the backup page: nothing was being written.
+    case listing
     /// Restore Folder of the folder with this name.
     case folder(name: String)
     /// Restore from Google Drive, and Keep Backing Up Here.
@@ -62,13 +66,15 @@ public struct RestoreProblem: Sendable, Equatable {
   public init(_ error: any Error, while subject: Subject) {
     title =
       switch subject {
-      case .copy(let name), .folder(let name): "Couldn't restore \(name)"
+      case .item(let name), .folder(let name): "Couldn't restore \(name)"
+      case .preview(let name): "Couldn't preview \(name)"
       case .backup: "Couldn't restore from Google Drive"
+      case .listing: "Couldn't open this folder of the backup"
       }
     fix = Self.fix(for: error, subject)
     let words = Self.words(error)
-    message = [words, Self.hint(error, subject), Self.untouched].compactMap(\.self)
-      .joined(separator: " ")
+    message = [words, Self.hint(error, subject), subject.writes ? Self.untouched : nil]
+      .compactMap(\.self).joined(separator: " ")
   }
 
   /// Said at the end of every problem that stopped a restore.
@@ -91,9 +97,7 @@ public struct RestoreProblem: Sendable, Equatable {
         ? "Free up some space, or choose a folder on a disk with more room."
         : "Free up some space, then try again."
     case BackupBuff.Failure.passwordNeeded, BackupBuff.Failure.passwordDoesNotOpen:
-      subject.isCopy
-        ? "Restore a Copy reads the password only from this Mac's Keychain and can't ask for it. Restore Folder asks: restore the folder, then copy the file from it."
-        : "Enter it to open the backup."
+      "Enter it to open the backup."
     case BackupBuff.Failure.accountProblem(.signedOut): "Sign in again, then restore."
     case BackupBuff.Failure.accountProblem(.otherAccount),
       DriveAccount.Failure.backupInAnotherAccount:
@@ -114,7 +118,7 @@ public struct RestoreProblem: Sendable, Equatable {
     case BackupBuff.Failure.notEnoughRoom, BackupBuff.Failure.cannotWrite:
       subject.canChooseFolder ? .chooseFolder : .none
     case BackupBuff.Failure.passwordNeeded, BackupBuff.Failure.passwordDoesNotOpen:
-      subject.isCopy ? .none : .enterPassword
+      .enterPassword
     case BackupBuff.Failure.accountProblem(.signedOut), DriveProblem.signedOut: .signIn
     case BackupBuff.Failure.accountProblem(.otherAccount),
       BackupBuff.Failure.accountProblem(.unconfirmed), DriveAccount.Failure.backupInAnotherAccount:
@@ -133,11 +137,20 @@ public struct RestoreProblem: Sendable, Equatable {
 }
 
 extension RestoreProblem.Subject {
-  fileprivate var isCopy: Bool {
-    if case .copy = self { return true }
-    return false
+  /// Whether another folder to restore into is a way out: only for a whole folder, which comes
+  /// back as a new folder. An item goes back where it was.
+  /// Whether it would have written into the user's folders.
+  fileprivate var writes: Bool {
+    switch self {
+    case .item, .folder, .backup: true
+    case .preview, .listing: false
+    }
   }
 
-  /// Whether another folder to restore into is a way out: a copy lands beside its original.
-  fileprivate var canChooseFolder: Bool { !isCopy }
+  fileprivate var canChooseFolder: Bool {
+    switch self {
+    case .folder, .backup: true
+    case .item, .preview, .listing: false
+    }
+  }
 }

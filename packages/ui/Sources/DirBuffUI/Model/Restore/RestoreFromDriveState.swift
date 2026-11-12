@@ -83,24 +83,25 @@ public struct PasswordAsk: Sendable, Equatable {
   public var isWrong: Bool
   /// Checking the password typed.
   public var isChecking: Bool
-  /// Asked by Restore Folder, where nothing is taken over: the password is for that restore only.
-  public var isForRestoreFolder: Bool
+  /// Asked by the backup page for this Mac's own backup, where nothing is taken over: the
+  /// password is for that page only.
+  public var isForThisMac: Bool
 
   public init(
     macName: String, isWrong: Bool = false, isChecking: Bool = false,
-    isForRestoreFolder: Bool = false
+    isForThisMac: Bool = false
   ) {
     self.macName = macName
     self.isWrong = isWrong
     self.isChecking = isChecking
-    self.isForRestoreFolder = isForRestoreFolder
+    self.isForThisMac = isForThisMac
   }
 
   /// What the prompt says, with the reassurance about where the password goes: nowhere, unless
   /// the backup is taken over.
   public var explanation: String {
-    isForRestoreFolder
-      ? "This Mac's Keychain no longer opens the backup. Type the password it was protected with. DirBuff uses it for this restore only and doesn't keep it."
+    isForThisMac
+      ? "This Mac's Keychain doesn't open the backup. Type the password it was protected with. DirBuff uses it until you leave this page and doesn't keep it."
       : "Type the password it was protected with. DirBuff keeps it in this Mac's Keychain only if you choose Keep Backing Up Here afterwards."
   }
 

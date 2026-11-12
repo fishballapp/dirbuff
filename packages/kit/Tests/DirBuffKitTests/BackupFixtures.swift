@@ -114,3 +114,13 @@ func contents(of folder: URL) throws -> [String: Data] {
       contentsOf: file)
   }
 }
+
+extension BackupBuff {
+  /// Restore of one version of a file, as the backup page's timeline offers it: back where it
+  /// was, or beside what is there now with the backup's date in its name.
+  func restore(_ version: BackupVersion, folderID: Int64) async throws -> URL {
+    try await restore(
+      BackupItem(path: version.path, kind: .file, size: version.size),
+      from: KeptBackup(id: version.snapshotID, savedAt: version.savedAt), folderID: folderID)
+  }
+}

@@ -7,17 +7,20 @@ import os
 private let logger = Logger(subsystem: "app.fishball.dirbuff", category: "restore")
 
 /// What the open restore sheets remember between their steps. A backup's password is here only
-/// while a sheet is open: it is kept in the Keychain by Keep Backing Up Here, and nowhere else.
+/// while a sheet is open, or its hidden restore runs: it is kept in the Keychain by Keep Backing
+/// Up Here, and nowhere else.
 struct RestoreContext {
   // Restore Folder
   var folderID: Int64?
   var folderName = ""
   var folderPath = ""
-  var snapshots: [ResticSnapshot] = []
-  var chosenSnapshotID: String?
-  /// A folder of this Mac whose backup the Keychain no longer opens: the backup's folder it is,
-  /// in this Mac's backup, opened with the password typed.
-  var passwordSource: BackedUpFolder?
+  /// The backup chosen on the backup page.
+  var backup: KeptBackup?
+  /// Where it goes when not beside the folder: chosen because the folder isn't on this Mac, or
+  /// with Choose Folder….
+  var directory: URL?
+  /// The backup page's own ask for the password, which then restores again.
+  var askForPassword: (@MainActor () -> Void)?
   // Restore from Google Drive
   var mac: BackedUpMac?
   var folders: [BackedUpFolder] = []
@@ -28,7 +31,7 @@ struct RestoreContext {
   var retry: (@MainActor () -> Void)?
 }
 
-/// Restore in the app: Restore a Copy of a file, Restore Folder, and Restore from Google Drive
+/// Restore in the app: Restore Folder from the backup page, and Restore from Google Drive
 /// with Keep Backing Up Here. Every failure is turned into a sentence (`RestoreProblem`), and
 /// nothing is written over anything: the Kit restores beside the original, or into a new folder.
 ///
@@ -59,31 +62,7 @@ extension AppModel {
     restoreRun = nil
   }
 
-  // MARK: - Restore a Copy
-
-  /// Restores the version of a file beside the original, then shows it in Finder.
-  func restoreCopy(_ file: FileVersion, folderID: Int64) async {
-    guard versionsCopying == nil else { return }
-    versionsCopying = file.id
-    versionsToast = nil
-    defer { versionsCopying = nil }
-    let version = file.version
-    do {
-      let copy = try await backup.restoreCopy(version, folderID: folderID)
-      NSWorkspace.shared.activateFileViewerSelecting([copy])
-      versionsToast = VersionsToast(url: copy)
-    } catch is CancellationError {
-      // Its page went; nothing was written into place and there is nothing to tell.
-    } catch {
-      let name = URL(fileURLWithPath: version.path).lastPathComponent
-      await tell(RestoreProblem(error, while: .copy(name: name)), from: error)
-    }
-  }
-
-  /// Dismisses the toast after a copy, or when its page goes.
-  func dismissVersionsToast() {
-    versionsToast = nil
-  }
+  // MARK: - Alerts
 
   /// A system alert for a problem that stopped a restore with no sheet to say so; Sign In Again…
   /// and Choose Account… open the sign-in sheet.
@@ -109,98 +88,39 @@ extension AppModel {
 
   // MARK: - Restore Folder
 
-  /// Restore Folder…: asks which date, then brings the folder back beside itself.
-  func askToRestoreFolder(folderID: Int64) {
+  /// Restore Folder…, from the backup page: the folder as `backup` saved it comes back as a new
+  /// folder beside it, in a sheet that shows the download. `password` is the page's, when this
+  /// Mac's Keychain doesn't open the backup.
+  /// `directory` is where it goes when the folder isn't on this Mac to go beside;
+  /// `askForPassword` is the page's, for Enter Password….
+  func restoreFolder(
+    folderID: Int64, backup chosen: KeptBackup, password: String?, into directory: URL? = nil,
+    askForPassword: (@MainActor () -> Void)? = nil
+  ) {
     guard restoreFolderSheet == nil, restoreFromDriveSheet == nil, restoreRun == nil,
       let folder = folder(id: folderID)
     else { return }
     let name = URL(fileURLWithPath: folder.path).lastPathComponent
-    restoreContext = RestoreContext(folderID: folderID, folderName: name, folderPath: folder.path)
-    restoreFolderSheet = RestoreFolderState(folderName: name, folderPath: folder.path)
-    loadDates()
+    restoreContext = RestoreContext(
+      folderID: folderID, folderName: name, folderPath: folder.path, backup: chosen,
+      directory: directory, askForPassword: askForPassword, password: password)
+    let started = RestoreRun(folderName: name, path: folder.path)
+    restoreFolderSheet = RestoreFolderState(
+      folderName: name, folderPath: folder.path, step: .restoring(started))
+    runRestoreFolder(into: directory)
   }
 
-  /// The dates the folder can be restored to. With the password typed, the folder is found in
-  /// this Mac's backup, opened with it, by the series it carries on; otherwise by the Keychain's.
-  private func loadDates() {
-    guard let folderID = restoreContext.folderID else { return }
-    setRestoreFolder(.loading)
-    let (backup, password, name) = (backup, restoreContext.password, restoreContext.folderName)
-    startRestore { [self] run in
-      do {
-        var source: BackedUpFolder?
-        var thisMac: BackedUpMac?
-        let snapshots: [ResticSnapshot]
-        if let password {
-          guard let mac = try await backup.backedUpMacs().first(where: \.isThisMac) else {
-            throw BackupBuff.Failure.accountProblem(.backupGone)
-          }
-          let series = try backup.series(of: folderID)
-          let folders = try await backup.backedUpFolders(of: mac, password: password)
-          guard let found = folders.first(where: { $0.series == series }) else {
-            throw BackupBuff.Failure.notInBackup(name)
-          }
-          (source, thisMac, snapshots) = (found, mac, found.snapshots)
-        } else {
-          snapshots = try await backup.snapshots(folderID: folderID)
-        }
-        guard isCurrent(run) else { return }
-        restoreContext.snapshots = snapshots
-        restoreContext.passwordSource = source
-        restoreContext.mac = thisMac
-        guard !snapshots.isEmpty else {
-          setRestoreFolder(
-            .failed(
-              RestoreProblem(
-                title: "No backup of this folder has finished yet",
-                message:
-                  "There is nothing to restore until the first backup is done. Back Up Now starts one."
-              )))
-          return
-        }
-        setRestoreFolder(.choose(RestoreDate.list(snapshots, now: Date())))
-      } catch BackupBuff.Failure.passwordNeeded where isCurrent(run) {
-        // The Keychain no longer opens this Mac's backup: the password is asked for here.
-        setRestoreFolder(.password(PasswordAsk(macName: "This Mac", isForRestoreFolder: true)))
-      } catch BackupBuff.Failure.passwordDoesNotOpen where isCurrent(run) {
-        restoreContext.password = nil
-        setRestoreFolder(
-          .password(PasswordAsk(macName: "This Mac", isWrong: true, isForRestoreFolder: true)))
-      } catch {
-        guard isCurrent(run) else { return }
-        await failRestoreFolder(error)
-      }
-    }
-  }
-
-  /// Opens this Mac's own backup with the password typed, which is kept until the sheet closes.
-  func submitRestoreFolderPassword(_ password: String) {
-    guard restoreFolderSheet != nil else { return }
-    restoreContext.password = password
-    setRestoreFolder(
-      .password(PasswordAsk(macName: "This Mac", isChecking: true, isForRestoreFolder: true)))
-    loadDates()
-  }
-
-  /// A date chosen in the list.
-  func pickRestoreDate(_ snapshotID: String) {
-    restoreFolderSheet?.pickedDateID = snapshotID
-  }
-
-  /// Restore Folder, for the snapshot chosen: into a new folder beside the folder, or into
-  /// `directory` after Choose Folder….
-  func restoreFolder(snapshotID: String, into directory: URL? = nil) {
-    guard let folderID = restoreContext.folderID, restoreFolderSheet != nil,
-      let snapshot = restoreContext.snapshots.first(where: { $0.id == snapshotID })
+  /// Downloads the backup chosen into a new folder beside the folder, or into `directory` after
+  /// Choose Folder….
+  private func runRestoreFolder(into directory: URL?) {
+    guard let folderID = restoreContext.folderID, let chosen = restoreContext.backup,
+      restoreFolderSheet != nil
     else { return }
-    restoreContext.chosenSnapshotID = snapshotID
     let (name, path) = (restoreContext.folderName, restoreContext.folderPath)
     let started = RestoreRun(folderName: name, path: path)
     restoreRun = started
     setRestoreFolder(.restoring(started))
-    let (backup, source, mac, password) = (
-      backup, restoreContext.passwordSource, restoreContext.mac, restoreContext.password
-    )
+    let (backup, password) = (backup, restoreContext.password)
     startRestore { [self] run in
       let report: @Sendable (RestoreProgress) -> Void = { progress in
         Task { @MainActor in
@@ -208,16 +128,9 @@ extension AppModel {
         }
       }
       do {
-        let restored: URL
-        if let source, let mac {
-          restored = try await backup.restore(
-            snapshot, of: source, from: mac,
-            into: directory ?? URL(fileURLWithPath: path).deletingLastPathComponent(),
-            password: password, onProgress: report)
-        } else {
-          restored = try await backup.restoreFolder(
-            folderID: folderID, snapshot: snapshot, into: directory, onProgress: report)
-        }
+        let restored = try await backup.restoreFolder(
+          folderID: folderID, backup: chosen, into: directory, password: password,
+          onProgress: report)
         guard isCurrent(run) else { return }
         restoreRun = nil
         if restoreFolderSheet == nil {
@@ -230,7 +143,15 @@ extension AppModel {
         restoreRun = nil
         await failRestoreFolder(error)
       }
+      forgetHiddenRestore()
     }
+  }
+
+  /// A hidden restore that ended has no sheet to try again from: what it held, the password
+  /// among it, goes. A sheet still open keeps it for Try Again and Choose Folder… until it closes.
+  private func forgetHiddenRestore() {
+    guard restoreFolderSheet == nil else { return }
+    restoreContext = RestoreContext()
   }
 
   /// A fix the Restore Folder sheet offers.
@@ -238,22 +159,27 @@ extension AppModel {
     switch fix {
     case .none: break
     case .chooseFolder:
-      guard let snapshotID = restoreContext.chosenSnapshotID else { return }
       guard let directory = NSOpenPanel.chooseFolderToRestoreInto() else { return }
-      restoreFolder(snapshotID: snapshotID, into: directory)
+      restoreContext.directory = directory
+      runRestoreFolder(into: directory)
     case .signIn, .chooseAccount:
       closeRestoreFolder()
       askToSignIn(.signInAgain)
     case .enterPassword:
-      setRestoreFolder(.password(PasswordAsk(macName: "This Mac", isForRestoreFolder: true)))
+      // The backup page asks for it, and restores again once it opens the backup.
+      let ask = restoreContext.askForPassword
+      closeRestoreFolder()
+      ask?()
     case .tryAgain:
-      loadDates()
+      runRestoreFolder(into: restoreContext.directory)
     }
   }
 
-  /// Hide: the restore carries on, and the folder opens in Finder when it is back.
+  /// Hide: the restore carries on, and the folder opens in Finder when it is back. A sheet hidden
+  /// once its restore has ended (done, or failed) is closed.
   func hideRestoreFolder() {
     restoreFolderSheet = nil
+    if restoreRun == nil { restoreContext = RestoreContext() }
   }
 
   /// Cancel, Done and Close: stops a restore under way, which clears what it wrote.
@@ -302,30 +228,17 @@ extension NSOpenPanel {
   /// Asks where a restored folder goes when the one beside the original can't take it: another
   /// folder, on this disk or another.
   @MainActor
-  static func chooseFolderToRestoreInto() -> URL? {
+  static func chooseFolderToRestoreInto(
+    message: String = "Choose a folder to put the restored folder in"
+  ) -> URL? {
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.canCreateDirectories = true
     panel.allowsMultipleSelection = false
     panel.treatsFilePackagesAsDirectories = false
-    panel.message = "Choose a folder to put the restored folder in"
+    panel.message = message
     panel.prompt = "Restore Here"
     return panel.runModal() == .OK ? panel.url : nil
-  }
-}
-
-extension AppModel {
-  /// A folder's versions as Show Versions… lists them, read from the database off the main actor.
-  func versionsState(folderID: Int64, now: Date) async -> VersionsState? {
-    guard let folder = folder(id: folderID) else { return nil }
-    let store = engine.store
-    let histories = await Task.detached {
-      (try? store.backupFileHistories(folderID: folderID)) ?? []
-    }
-    .value
-    return VersionsState(
-      folderID: folderID, folderName: URL(fileURLWithPath: folder.path).lastPathComponent,
-      folderPath: folder.path, histories: histories, now: now)
   }
 }

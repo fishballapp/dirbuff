@@ -50,7 +50,6 @@ import Testing
 
   @Test func aRestoreSaysWhatHappenedAndWhatToDo() {
     let words = [
-      backupErrorWords(BackupBuff.Failure.nothingToRestore),
       backupErrorWords(BackupBuff.Failure.notInBackup("Finance/a.xlsx")),
       backupErrorWords(BackupBuff.Failure.notEnoughRoom(needed: 48_000_000_000, available: 1_000)),
       backupErrorWords(BackupBuff.Failure.cannotWrite(URL(fileURLWithPath: "/Volumes"))),
@@ -59,10 +58,10 @@ import Testing
       backupErrorWords(BackupBuff.Failure.backupIsEmpty),
     ]
     #expect(words.allSatisfy { ($0?.count ?? 0) > 50 && $0?.hasSuffix(".") == true })
-    #expect(words[2]?.contains(bytes(48_000_000_000)) == true)
-    #expect(words[2]?.contains(bytes(1_000)) == true)
-    #expect(words[3]?.contains("Volumes") == true)
-    #expect(words[5]?.contains("docs") == false)
+    #expect(words[1]?.contains(bytes(48_000_000_000)) == true)
+    #expect(words[1]?.contains(bytes(1_000)) == true)
+    #expect(words[2]?.contains("Volumes") == true)
+    #expect(words[4]?.contains("docs") == false)
   }
 
   @Test func resticSaysWhatItPrinted() {

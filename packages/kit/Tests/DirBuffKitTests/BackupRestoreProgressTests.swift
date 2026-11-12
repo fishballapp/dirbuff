@@ -36,7 +36,7 @@ import Testing
     let heard = Heard()
 
     let restored = try await backup.restoreFolder(
-      folderID: folderID, snapshot: snapshot, onProgress: { heard.add($0) })
+      folderID: folderID, backup: KeptBackup(snapshot), onProgress: { heard.add($0) })
 
     #expect(heard.all.map(\.filesRestored) == [1])
     #expect(heard.all.map(\.totalBytes) == [10])

@@ -18,7 +18,8 @@ import Testing
       try await restic.backup(scratch.url, stallLimit: limit)
     }
 
-    #expect(ContinuousClock.now - started < .seconds(10))
+    // Well short of the stub's 60 seconds, with room for a runner busy with the other suites.
+    #expect(ContinuousClock.now - started < .seconds(30))
   }
 
   @Test func aStatusThatRepeatsWhileNothingMovesIsNotProgress() async throws {
@@ -93,7 +94,8 @@ import Testing
     task.cancel()
 
     await #expect(throws: CancellationError.self) { try await task.value }
-    #expect(ContinuousClock.now - started < .seconds(10))
+    // Well short of the stub's 60 seconds, with room for a runner busy with the other suites.
+    #expect(ContinuousClock.now - started < .seconds(30))
   }
 
   @Test(

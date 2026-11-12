@@ -45,8 +45,6 @@ private func backupWords(_ failure: BackupBuff.Failure) -> String {
   case .passwordTooShort(let minimum): "A password needs at least \(minimum) characters."
   case .passwordHasSurroundingSpace: "A password can't start or end with a space."
   case .nameWithSlash(let name): "\(name) has a / in it, so it can't be left out by name."
-  case .nothingToRestore:
-    "That version is a deletion: there's nothing of it to restore. Choose an earlier version."
   case .notInBackup(let path):
     "\(path) isn't in that backup. Older versions thin out with age, so it may no longer hold it: choose another version, or restore the folder as it was on a date the backup still has."
   case .notEnoughRoom(let needed, let available):

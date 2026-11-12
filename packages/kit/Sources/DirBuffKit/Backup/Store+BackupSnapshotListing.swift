@@ -28,6 +28,7 @@ extension Store {
             folderID: folderID, snapshotID: snapshot.id, savedAt: snapshot.time, in: db)
         }
       }
+      try Self.fillVersionsTrackedSince(in: db)
       try db.execute(sql: "UPDATE backupSnapshotListing SET isPending = 0")
     }
   }

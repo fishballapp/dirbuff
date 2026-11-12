@@ -3,29 +3,22 @@ import DirBuffKit
 import DirBuffUI
 import SwiftUI
 
-/// Restore in the app: Show Versions…, Restore a Copy, Restore Folder, Restore from Google Drive
-/// with Keep Backing Up Here, the password prompt and every failure a restore can read as.
+/// Restore in the app: the backup page (Browse Backup…) and what it restores, Restore Folder,
+/// Restore from Google Drive with Keep Backing Up Here, the password prompt and every failure a
+/// restore can read as.
 @MainActor
 func restorePreviews() -> [Preview] {
   let full = CGSize(width: 1240, height: 800)
   let tall = CGSize(width: 1240, height: 900)
   let documentsPath = "\(Samples.pageHome)/Documents"
-  let documents = RestoreFolderState(folderName: "Documents", folderPath: documentsPath)
 
-  func versionsWindow(
-    _ state: VersionsState, tab: VersionsState.Tab = .onThisMac, query: String = "",
-    selected: String? = nil, version: String? = nil, copying: String? = nil,
-    toast: VersionsToast? = nil
-  ) -> AnyView {
+  func backupWindow(_ state: BackupBrowserState) -> AnyView {
     AnyView(
       MainView(
         state: Samples.backupShelf(Samples.backupLiveShelf),
-        navigation: .constant(MainNavigation(opening: .versions(1))),
+        navigation: .constant(MainNavigation(opening: .backup(1))),
         page: { _ in
-          AnyView(
-            VersionsPage(
-              state: state, tab: tab, query: query, selectedPath: selected,
-              selectedVersionID: version, copyingID: copying, toast: toast))
+          AnyView(BackupPage(state: state, now: Samples.pageMoment, calendar: Samples.pageCalendar))
         }))
   }
 
@@ -34,10 +27,11 @@ func restorePreviews() -> [Preview] {
     return (AnyView(AlertSnapshot(alert: alert)), AlertSnapshot.size(of: alert))
   }
 
-  /// Each sheet opens as the app opens it, loading, and is told its step afterwards: a preview
-  /// that starts at the step could hide what a sheet makes of arriving there.
-  func folderSheet(_ step: RestoreFolderState.Step, password: String = "") -> AnyView {
-    AnyView(FolderSheetArriving(step: step, folderPath: documentsPath, password: password))
+  func folderSheet(_ step: RestoreFolderState.Step) -> AnyView {
+    AnyView(
+      RestoreFolderSheet(
+        state: RestoreFolderState(
+          folderName: "Documents", folderPath: documentsPath, step: step)))
   }
 
   func driveSheet(
@@ -49,14 +43,6 @@ func restorePreviews() -> [Preview] {
         step: step, mac: mac, restored: restored, password: password))
   }
 
-  let versions = Samples.versions
-  let lease = versions.files.first { $0.name == "Lease-2026.pdf" }
-  let removed = versions.files.first { $0.isDeleted }
-  let notKept = versions.files.first { $0.hasEarlierVersionNotKept }
-  let secondOfLease = lease?.versions.dropFirst().first?.id
-  let rowOfRemoved = removed?.versions.first { $0.canRestore }?.id
-
-  let dates = Samples.restoreDates
   let pick = FolderPick(
     folders: Samples.backedUpFolders, destination: Samples.pageHome,
     destinationName: "~")
@@ -65,24 +51,22 @@ func restorePreviews() -> [Preview] {
   let restoredFolder = RestoredFolder(
     name: "Documents (20 Oct 2026)", path: documentsPath, source: Samples.backedUpFolders[0])
 
-  let nothing = alert(BackupBuff.Failure.nothingToRestore, .copy(name: "Lease-2026.pdf"))
   let missing = alert(
-    BackupBuff.Failure.notInBackup("Finance/Receipts.xlsx"), .copy(name: "Receipts.xlsx"))
+    BackupBuff.Failure.notInBackup("Finance/Receipts.xlsx"), .item(name: "Receipts.xlsx"))
   let noRoom = alert(
     BackupBuff.Failure.notEnoughRoom(needed: 1_400_000, available: 320_000),
-    .copy(name: "Lease-2026.pdf"))
+    .item(name: "Lease-2026.pdf"))
   let outside = alert(
-    BackupBuff.Failure.outsideFolder("Documents/Finance"), .copy(name: "Receipts.xlsx"))
-  let offline = alert(DriveProblem.unreachable, .copy(name: "Lease-2026.pdf"))
-  let signedOut = alert(DriveProblem.signedOut, .copy(name: "Lease-2026.pdf"))
-  let driveFull = alert(BackupBuff.Failure.accountProblem(.full), .copy(name: "Lease-2026.pdf"))
-  let gone = alert(BackupBuff.Failure.accountProblem(.backupGone), .copy(name: "Lease-2026.pdf"))
-  let inBin = alert(BackupBuff.Failure.accountProblem(.backupInBin), .copy(name: "Lease-2026.pdf"))
-  let keychain = alert(BackupBuff.Failure.passwordNeeded, .copy(name: "Lease-2026.pdf"))
+    BackupBuff.Failure.outsideFolder("Documents/Finance"), .item(name: "Receipts.xlsx"))
+  let offline = alert(DriveProblem.unreachable, .item(name: "Lease-2026.pdf"))
+  let signedOut = alert(DriveProblem.signedOut, .item(name: "Lease-2026.pdf"))
+  let driveFull = alert(BackupBuff.Failure.accountProblem(.full), .item(name: "Lease-2026.pdf"))
+  let gone = alert(BackupBuff.Failure.accountProblem(.backupGone), .item(name: "Lease-2026.pdf"))
+  let inBin = alert(BackupBuff.Failure.accountProblem(.backupInBin), .item(name: "Lease-2026.pdf"))
   let otherAccount = alert(
-    BackupBuff.Failure.accountProblem(.otherAccount), .copy(name: "Lease-2026.pdf"))
+    BackupBuff.Failure.accountProblem(.otherAccount), .item(name: "Lease-2026.pdf"))
   let unconfirmed = alert(
-    BackupBuff.Failure.accountProblem(.unconfirmed), .copy(name: "Lease-2026.pdf"))
+    BackupBuff.Failure.accountProblem(.unconfirmed), .item(name: "Lease-2026.pdf"))
 
   let rooms = RestoreProblem(
     BackupBuff.Failure.notEnoughRoom(needed: 48_000_000_000, available: 12_300_000_000),
@@ -92,44 +76,40 @@ func restorePreviews() -> [Preview] {
     while: .folder(name: "T7"))
 
   let previews: [Preview] = [
-    // Show Versions…
+    // The backup page (Browse Backup…).
     ("restore-card", pageWithCard(), tall),
+    ("restore-backup-open", backupWindow(Samples.browserOpen), full),
+    ("restore-backup-deep", backupWindow(Samples.browserDeep), full),
+    ("restore-backup-unchanged", backupWindow(Samples.browserUnchanged), full),
+    ("restore-backup-older-deleted", backupWindow(Samples.browserOlderDeleted), full),
+    ("restore-backup-folder", backupWindow(Samples.browserFolder), full),
+    ("restore-backup-loading", backupWindow(Samples.browserLoading), full),
+    ("restore-backup-waiting", backupWindow(Samples.browserWaiting), full),
+    ("restore-backup-restore-waiting", backupWindow(Samples.browserRestoreWaiting), full),
+    ("restore-backup-offline", backupWindow(Samples.browserOffline), full),
+    ("restore-backup-restoring", backupWindow(Samples.browserRestoring), full),
+    ("restore-backup-restored", backupWindow(Samples.browserRestored), full),
+    ("restore-backup-taken-over", backupWindow(Samples.browserTakenOver), full),
+    ("restore-backup-unreadable", backupWindow(Samples.browserUnreadable), full),
+    ("restore-backup-folder-away", backupWindow(Samples.browserAway), full),
+    ("restore-backup-too-big", backupWindow(Samples.browserTooBig), full),
     (
-      "restore-versions-list",
-      versionsWindow(versions, selected: lease?.path, version: secondOfLease), full
-    ),
-    ("restore-versions-none-selected", versionsWindow(versions), full),
-    (
-      "restore-versions-earlier-not-kept",
-      versionsWindow(
-        versions, selected: "Tax return 2025–26.pdf", version: notKept?.versions.first?.id), full
-    ),
-    (
-      "restore-versions-deleted",
-      versionsWindow(versions, tab: .deleted, selected: removed?.path, version: rowOfRemoved), full
-    ),
-    (
-      "restore-versions-copying",
-      versionsWindow(
-        versions, selected: lease?.path, version: secondOfLease, copying: secondOfLease), full
-    ),
-    (
-      "restore-versions-copied",
-      versionsWindow(
-        versions, selected: lease?.path, version: secondOfLease,
-        toast: VersionsToast(
-          url: URL(fileURLWithPath: "\(documentsPath)/Lease-2026 (20 Oct 2026, 18.40).pdf"))), full
+      "restore-backup-none-yet",
+      backupWindow(
+        BackupBrowserState(
+          folderName: "Documents", folderPath: documentsPath, backups: .loaded([]))), full
     ),
     (
-      "restore-versions-no-match",
-      versionsWindow(versions, query: "passport"), full
+      "restore-backup-password",
+      AnyView(BackupPasswordAskSheet(ask: PasswordAsk(macName: "This Mac", isForThisMac: true))),
+      nil
     ),
     (
-      "restore-versions-none-yet",
-      versionsWindow(
-        VersionsState(
-          folderID: 1, folderName: "Documents", folderPath: documentsPath, histories: [],
-          now: Samples.pageMoment, calendar: Samples.pageCalendar)), full
+      "restore-backup-password-wrong",
+      AnyView(
+        BackupPasswordAskSheet(
+          ask: PasswordAsk(macName: "This Mac", isWrong: true, isForThisMac: true),
+          password: "orange kettle")), nil
     ),
     (
       "restore-show-files",
@@ -146,7 +126,6 @@ func restorePreviews() -> [Preview] {
     ),
 
     // Restore a Copy: what stops it.
-    ("restore-alert-nothing", nothing.0, nothing.1),
     ("restore-alert-not-in-backup", missing.0, missing.1),
     ("restore-alert-no-room", noRoom.0, noRoom.1),
     ("restore-alert-outside-folder", outside.0, outside.1),
@@ -155,13 +134,10 @@ func restorePreviews() -> [Preview] {
     ("restore-alert-drive-full", driveFull.0, driveFull.1),
     ("restore-alert-backup-gone", gone.0, gone.1),
     ("restore-alert-backup-in-bin", inBin.0, inBin.1),
-    ("restore-alert-password-copy", keychain.0, keychain.1),
     ("restore-alert-other-account", otherAccount.0, otherAccount.1),
     ("restore-alert-unconfirmed", unconfirmed.0, unconfirmed.1),
 
     // Restore Folder.
-    ("restore-folder-loading", folderSheet(.loading), nil),
-    ("restore-folder-choose", folderSheet(.choose(dates)), nil),
     ("restore-folder-restoring", folderSheet(.restoring(restoring)), nil),
     (
       "restore-folder-starting",
@@ -173,17 +149,6 @@ func restorePreviews() -> [Preview] {
     ),
     ("restore-folder-no-room", folderSheet(.failed(rooms)), nil),
     ("restore-folder-cannot-write", folderSheet(.failed(cannotWrite)), nil),
-    (
-      "restore-folder-password",
-      folderSheet(.password(PasswordAsk(macName: "This Mac", isForRestoreFolder: true))), nil
-    ),
-    (
-      "restore-folder-password-wrong",
-      folderSheet(
-        .password(PasswordAsk(macName: "This Mac", isWrong: true, isForRestoreFolder: true)),
-        password: "orange kettle"),
-      nil
-    ),
 
     // Restore from Google Drive…
     (
@@ -314,21 +279,12 @@ func restorePreviews() -> [Preview] {
     "restore-drive-restoring": CGSize(width: 480, height: 197),
     "restore-drive-series-shared": CGSize(width: 480, height: 164),
     "restore-drive-signed-out": CGSize(width: 480, height: 132),
-    "restore-folder-cannot-write": CGSize(width: 480, height: 132),
-    "restore-folder-choose": CGSize(width: 480, height: 306),
-    "restore-folder-done": CGSize(width: 480, height: 120),
-    "restore-folder-loading": CGSize(width: 480, height: 137),
-    "restore-folder-no-room": CGSize(width: 480, height: 148),
-    "restore-folder-password": CGSize(width: 480, height: 188),
-    "restore-folder-password-wrong": CGSize(width: 480, height: 210),
-    "restore-folder-restoring": CGSize(width: 480, height: 197),
-    "restore-folder-starting": CGSize(width: 480, height: 197),
   ]
   return previews.map { preview in
     sheetSizes[preview.name].map { (preview.name, preview.view, $0) } ?? preview
   }
 
-  /// The Backup card on Documents, with Show Versions… beside Take Off.
+  /// The Backup card on Documents, with Browse Backup… beside Take Off.
   func pageWithCard() -> AnyView {
     let shelf = Samples.backupShelf(Samples.backupLiveShelf)
     return AnyView(
@@ -405,80 +361,6 @@ extension Samples {
     ]
   }
 
-  /// A file's versions and a few more, as the Documents folder's Versions page lists them: each
-  /// file's earliest version is the content from before its first recorded change (`replacedAt`),
-  /// except where no backup from before it is kept.
-  static var versions: VersionsState {
-    let day: TimeInterval = 86_400
-    func version(
-      _ path: String, _ ago: TimeInterval, _ change: BackupVersion.Change, _ size: Int64?,
-      before changeAgo: TimeInterval? = nil
-    ) -> BackupVersion {
-      BackupVersion(
-        path: path, snapshotID: "s\(Int(ago))", savedAt: pageMoment.addingTimeInterval(-ago),
-        change: change, size: size,
-        replacedAt: changeAgo.map { pageMoment.addingTimeInterval(-$0) })
-    }
-    func history(_ path: String, _ versions: [BackupVersion], isMissing: Bool = false)
-      -> FileHistory
-    {
-      FileHistory(
-        path: path, versions: versions.sorted { $0.savedAt < $1.savedAt },
-        hasEarlierVersionNotKept: isMissing)
-    }
-    return VersionsState(
-      folderID: 1, folderName: "Documents", folderPath: "\(pageHome)/Documents",
-      histories: [
-        history(
-          "Lease-2026.pdf",
-          [
-            version("Lease-2026.pdf", 4 * 3_600 + 1_500, .changed, 1_400_000),
-            version("Lease-2026.pdf", 4 * day + 18 * 3_600 + 3_420, .changed, 1_400_000),
-            version("Lease-2026.pdf", 20 * day + 9_300, .changed, 1_200_000),
-            version(
-              "Lease-2026.pdf", 20 * day + 62_520, .changed, nil, before: 20 * day + 9_300),
-          ]),
-        history(
-          "Mei-CV-2026.pages",
-          [
-            version("Mei-CV-2026.pages", 7 * day, .changed, 2_800_000),
-            version("Mei-CV-2026.pages", 12 * day, .changed, 2_700_000),
-            version("Mei-CV-2026.pages", 19 * day, .changed, 2_700_000),
-            version("Mei-CV-2026.pages", 30 * day, .changed, nil, before: 19 * day),
-          ]),
-        history(
-          "Tax return 2025–26.pdf",
-          [version("Tax return 2025–26.pdf", 23 * day, .changed, 640_000)], isMissing: true),
-        history(
-          "Wedding speech.docx",
-          [
-            version("Wedding speech.docx", 5 * 3_600, .changed, 88_000),
-            version("Wedding speech.docx", day, .changed, 80_000),
-            version("Wedding speech.docx", 3 * day, .changed, 62_000),
-            version("Wedding speech.docx", 6 * day, .changed, nil, before: 3 * day),
-          ]),
-        history(
-          "Finance/Receipts.xlsx",
-          [
-            version("Finance/Receipts.xlsx", 2 * day, .changed, 310_000),
-            version("Finance/Receipts.xlsx", 9 * day, .added, 290_000),
-          ]),
-        history(
-          "Old budget.numbers",
-          [
-            version("Old budget.numbers", 4 * day, .removed, nil),
-            version("Old budget.numbers", 30 * day, .changed, 1_900_000),
-            version("Old budget.numbers", 90 * day, .added, 1_700_000),
-          ]),
-        history(
-          "Draft chapter 3.docx",
-          [
-            version("Draft chapter 3.docx", 11 * day, .removed, nil),
-            version("Draft chapter 3.docx", 15 * day, .changed, nil, before: 11 * day),
-          ]),
-      ], now: pageMoment, calendar: pageCalendar)
-  }
-
   /// The popover while a folder is being brought back.
   static func restorePopover(_ run: RestoreRun) -> PopoverState {
     PopoverState(
@@ -487,32 +369,6 @@ extension Samples {
         binName: binName, home: pageHome),
       scheduleLines: scheduleLines(backupLiveShelf, now: pageMoment, calendar: pageCalendar),
       restore: run, licence: .licensed, now: pageMoment, calendar: pageCalendar)
-  }
-}
-
-/// Restore Folder's sheet, opened loading and then given its step, with a pick going back into
-/// the state as the app keeps it.
-private struct FolderSheetArriving: View {
-  var step: RestoreFolderState.Step
-  var folderPath: String
-  var password: String
-  @State private var state: RestoreFolderState
-
-  init(step: RestoreFolderState.Step, folderPath: String, password: String) {
-    self.step = step
-    self.folderPath = folderPath
-    self.password = password
-    _state = State(
-      initialValue: RestoreFolderState(
-        folderName: "Documents", folderPath: folderPath,
-        step: ProcessInfo.processInfo.environment["PREVIEW_DIRECT"] == nil ? .loading : step))
-  }
-
-  var body: some View {
-    RestoreFolderSheet(
-      state: state, password: password, onSelectDate: { state.pickedDateID = $0 }
-    )
-    .onAppear { state.step = step }
   }
 }
 

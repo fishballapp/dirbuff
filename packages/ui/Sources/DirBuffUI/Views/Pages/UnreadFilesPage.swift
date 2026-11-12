@@ -13,7 +13,7 @@ public struct UnreadFilesPage: View {
   /// Shows these in Finder: one file, or the folder.
   public var onShowInFinder: ([URL]) -> Void
   /// Opens the folder's versions: an unreadable file may have an earlier version that was read.
-  public var onShowVersions: () -> Void
+  public var onBrowseBackup: () -> Void
 
   public init(
     state: UnreadFilesState?,
@@ -21,14 +21,14 @@ public struct UnreadFilesPage: View {
     folderPath: String,
     onLeaveOut: @escaping (UnreadFile) -> Void = { _ in },
     onShowInFinder: @escaping ([URL]) -> Void = { _ in },
-    onShowVersions: @escaping () -> Void = {}
+    onBrowseBackup: @escaping () -> Void = {}
   ) {
     self.state = state
     self.folderName = folderName
     self.folderPath = folderPath
     self.onLeaveOut = onLeaveOut
     self.onShowInFinder = onShowInFinder
-    self.onShowVersions = onShowVersions
+    self.onBrowseBackup = onBrowseBackup
   }
 
   public var body: some View {
@@ -38,15 +38,10 @@ public struct UnreadFilesPage: View {
       .navigationTitle(folderName)
       .navigationSubtitle("Backup · \(state?.title ?? "every file backed up")")
       .toolbar {
-        ToolbarItem(placement: .navigation) {
-          Image(nsImage: folderIcon(atPath: folderPath))
-            .resizable()
-            .frame(width: 20, height: 20)
-            .accessibilityHidden(true)
-        }
+        FolderTitleIcon(path: folderPath)
         ToolbarItem(placement: .primaryAction) {
           GhostIconButton(
-            "Show Versions", systemImage: GhostIconButton.historySymbol, action: onShowVersions)
+            "Browse Backup", systemImage: GhostIconButton.historySymbol, action: onBrowseBackup)
         }
         ToolbarItem(placement: .primaryAction) {
           GhostIconButton("Show in Finder", systemImage: GhostIconButton.finderSymbol) {

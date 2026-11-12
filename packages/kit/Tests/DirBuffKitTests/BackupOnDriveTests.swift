@@ -176,7 +176,7 @@ extension InMemoryDrive {
 
   // MARK: Restore on this Mac
 
-  @Test func aCopyOfAnyVersionIsRestoredBesideTheOriginal() async throws {
+  @Test func anyVersionOfAFileStillThereIsRestoredBesideIt() async throws {
     let mac = try DriveMac("Jo's MacBook", host: "mac-a", drive: drive)
     let folderID = try mac.addWearing("docs")
     try mac.scratch.folder("docs/work")
@@ -195,8 +195,8 @@ extension InMemoryDrive {
       path: "work/Report.pages", snapshotID: first.id, savedAt: first.time, change: .added,
       size: 5)
 
-    let firstCopy = try await mac.backup.restoreCopy(original, folderID: folderID)
-    let secondCopy = try await mac.backup.restoreCopy(latest, folderID: folderID)
+    let firstCopy = try await mac.backup.restore(original, folderID: folderID)
+    let secondCopy = try await mac.backup.restore(latest, folderID: folderID)
 
     let work = mac.scratch.url.appendingPathComponent("docs/work")
     #expect(
@@ -223,8 +223,9 @@ extension InMemoryDrive {
       RestorePlace.folderName("docs", savedAt: snapshot.time, number: 1))
     try mac.write("mine too", to: takenFolder.lastPathComponent + "/notes.txt")
 
-    let copy = try await mac.backup.restoreCopy(version, folderID: folderID)
-    let folder = try await mac.backup.restoreFolder(folderID: folderID, snapshot: snapshot)
+    let copy = try await mac.backup.restore(version, folderID: folderID)
+    let folder = try await mac.backup.restoreFolder(
+      folderID: folderID, backup: KeptBackup(snapshot))
 
     #expect(
       copy.lastPathComponent
@@ -235,12 +236,6 @@ extension InMemoryDrive {
       folder.lastPathComponent
         == RestorePlace.folderName("docs", savedAt: snapshot.time, number: 2))
     #expect(try mac.read(takenFolder.appendingPathComponent("notes.txt")) == "mine too")
-    let removal = BackupVersion(
-      path: "notes.txt", snapshotID: snapshot.id, savedAt: snapshot.time, change: .removed,
-      size: nil)
-    await #expect(throws: BackupBuff.Failure.nothingToRestore) {
-      try await mac.backup.restoreCopy(removal, folderID: folderID)
-    }
   }
 
   @Test func aFolderIsRestoredAsItWasBesideItself() async throws {
@@ -252,7 +247,8 @@ extension InMemoryDrive {
     let snapshot = try #require(try await mac.backup.snapshots(folderID: folderID).last)
     try FileManager.default.removeItem(at: mac.scratch.url.appendingPathComponent("docs/deep"))
 
-    let restored = try await mac.backup.restoreFolder(folderID: folderID, snapshot: snapshot)
+    let restored = try await mac.backup.restoreFolder(
+      folderID: folderID, backup: KeptBackup(snapshot))
 
     #expect(
       try canonicalPath(of: restored.deletingLastPathComponent())
@@ -270,7 +266,7 @@ extension InMemoryDrive {
     let snapshot = try #require(try await mac.backup.snapshots(folderID: folderID).last)
 
     await #expect(throws: BackupBuff.Failure.notEnoughRoom(needed: 100, available: 10)) {
-      try await mac.backup.restoreFolder(folderID: folderID, snapshot: snapshot)
+      try await mac.backup.restoreFolder(folderID: folderID, backup: KeptBackup(snapshot))
     }
     let name = RestorePlace.folderName("docs", savedAt: snapshot.time, number: 1)
     #expect(!exists(mac.scratch.url.appendingPathComponent(name)))

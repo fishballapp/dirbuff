@@ -186,13 +186,14 @@ extension Store {
     for (folderID, tag) in series {
       try db.execute(
         sql: """
-          INSERT INTO backup (folderID, tag, history, lastRunAt) VALUES (?, ?, ?, ?)
+          INSERT INTO backup (folderID, tag, history, lastRunAt, versionsTrackedSince)
+          VALUES (?, ?, ?, ?, ?)
           ON CONFLICT (folderID) DO UPDATE SET tag = excluded.tag, pausedByLicence = 0,
             lastRunAt = excluded.lastRunAt, lastSuccessAt = NULL, lastSnapshotID = NULL,
             lastError = NULL, failingSince = NULL, failedRunsInARow = 0, lastForgetAt = NULL,
-            cloudOnlyCount = 0
+            cloudOnlyCount = 0, versionsTrackedSince = excluded.versionsTrackedSince
           """,
-        arguments: [folderID, tag, settings.history.rawValue, now])
+        arguments: [folderID, tag, settings.history.rawValue, now, now])
       try db.execute(sql: "DELETE FROM backupSkipped WHERE folderID = ?", arguments: [folderID])
       try db.execute(sql: "DELETE FROM backupVersion WHERE folderID = ?", arguments: [folderID])
       try db.execute(sql: "DELETE FROM backupSnapshot WHERE folderID = ?", arguments: [folderID])
@@ -291,10 +292,15 @@ extension Store {
       try db.execute(
         sql: """
           UPDATE backup SET lastSuccessAt = ?, lastSnapshotID = ?, lastError = NULL,
-            failingSince = NULL, failedRunsInARow = 0, cloudOnlyCount = ?
+            failingSince = NULL, failedRunsInARow = 0, cloudOnlyCount = ?,
+            versionsTrackedSince = CASE WHEN ? OR versionsTrackedSince IS NULL THEN ?
+              ELSE versionsTrackedSince END
           WHERE folderID = ? AND tag = ?
           """,
-        arguments: [saved.savedAt, saved.snapshotID, saved.cloudOnlyCount, folderID, record.tag])
+        arguments: [
+          saved.savedAt, saved.snapshotID, saved.cloudOnlyCount, saved.versions == nil,
+          saved.savedAt, folderID, record.tag,
+        ])
       // Its series is gone: what it saved belongs to no folder that wears Backup now.
       guard db.changesCount > 0 else { return }
       try db.execute(sql: "DELETE FROM backupSkipped WHERE folderID = ?", arguments: [folderID])
@@ -305,7 +311,7 @@ extension Store {
       }
       try recordBackupSnapshot(
         folderID: folderID, snapshotID: saved.snapshotID, savedAt: saved.savedAt, in: db)
-      for version in saved.versions {
+      for version in saved.versions ?? [] {
         try db.execute(
           sql: """
             INSERT INTO backupVersion (folderID, path, snapshotID, savedAt, change, size)
@@ -618,14 +624,14 @@ extension Store {
           """,
         arguments: [repository])
       // Every folder's record was of the repository this Mac leaves: each is owed a first backup
-      // into the one it takes, as Start Again owes them.
+      // into the one it takes, as Start Again owes them, and has followed no version in it.
       try db.execute(
         sql: """
           UPDATE backup SET lastRunAt = ?, lastSuccessAt = NULL, lastSnapshotID = NULL,
             lastError = NULL, failingSince = NULL, failedRunsInARow = 0, lastForgetAt = NULL,
-            cloudOnlyCount = 0
+            cloudOnlyCount = 0, versionsTrackedSince = ?
           """,
-        arguments: [now])
+        arguments: [now, now])
       try db.execute(sql: "DELETE FROM backupSkipped")
       try db.execute(sql: "DELETE FROM backupVersion")
       try db.execute(sql: "DELETE FROM backupSnapshot")
@@ -824,7 +830,9 @@ struct SavedBackup: Sendable {
   var filesChanged: Int
   var bytesAdded: Int64
   var skipped: [SkippedFile]
-  var versions: [SavedVersion]
+  /// What changed since the folder's last snapshot; nil when that isn't known (the first of a
+  /// series on this Mac, or a diff that failed), so versions are followed from this one on.
+  var versions: [SavedVersion]?
   var cloudOnlyCount: Int
 }
 

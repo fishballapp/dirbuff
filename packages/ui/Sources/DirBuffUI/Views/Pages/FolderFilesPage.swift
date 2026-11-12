@@ -52,12 +52,7 @@ public struct FolderFilesPage: View {
       .navigationTitle(folder.name)
       .navigationSubtitle("Temporary · \(temporarySetting(folder.settings, binName: binName))")
       .toolbar {
-        ToolbarItem(placement: .navigation) {
-          Image(nsImage: folderIcon(atPath: folder.path))
-            .resizable()
-            .frame(width: 20, height: 20)
-            .accessibilityHidden(true)
-        }
+        FolderTitleIcon(path: folder.path)
         ToolbarItem(placement: .primaryAction) {
           ShelfSearchField(text: $query, placeholder: "Search \(folder.name)")
             .frame(width: 210)

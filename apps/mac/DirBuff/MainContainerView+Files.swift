@@ -29,7 +29,7 @@ extension MainContainerView {
         folderPath: folder.path,
         onLeaveOut: { file in Task { await appModel.leaveOut(file, folderID: id) } },
         onShowInFinder: appModel.showInFinder,
-        onShowVersions: { windowState.navigation.open(.versions(id)) }
+        onBrowseBackup: { windowState.navigation.open(.backup(id)) }
       )
     }
   }

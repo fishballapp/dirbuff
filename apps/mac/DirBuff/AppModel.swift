@@ -33,6 +33,9 @@ final class AppModel {
   /// The folders a backup is running in now, and how far it has got. Set by the backup driver's
   /// work, in `AppModel+Backup`.
   var backingUp: Set<Int64> = []
+  /// The restic work Backup's schedule runs now (a backup, the check, the upkeep), which a
+  /// listing or restore on the backup page waits behind.
+  var resticJob: BackupBusy?
   var backupProgress: RunProgress?
   /// Where the Mac's Google Drive stands, which every folder wearing Backup shares.
   var driveState: DriveState = .ready
@@ -46,13 +49,11 @@ final class AppModel {
   /// The Google sign-in sheet, on the main window while it's asked for (`AppModel+GoogleSignIn`).
   var signInSheet: GoogleSignInState?
   @ObservationIgnored var signInTask: Task<Void, Never>?
-  /// The restore sheets on the main window while one is open, the restore under way, the Backup
-  /// folder's copy being restored and its toast (`AppModel+Restore`).
+  /// The restore sheets on the main window while one is open, and the restore under way
+  /// (`AppModel+Restore`). The backup page keeps its own (`BackupPageModel`).
   var restoreFolderSheet: RestoreFolderState?
   var restoreFromDriveSheet: RestoreFromDriveState?
   var restoreRun: RestoreRun?
-  var versionsCopying: String?
-  var versionsToast: VersionsToast?
   /// What the open restore sheets need between their steps, none of it kept past their closing.
   @ObservationIgnored var restoreContext = RestoreContext()
   @ObservationIgnored var restoreTask: Task<Void, Never>?
@@ -612,6 +613,7 @@ final class AppModel {
   private func startScheduler() {
     Task { await settleLicence(now: Date()) }
     Task { await writeBackupStatus() }
+    BackupPageModel.clearQuickLookLeftovers()
     guard
       let afterChange = AfterChangeDriver(
         schedule: backup.schedule, work: self,
@@ -620,6 +622,7 @@ final class AppModel {
           Task { await self.refreshDriveState() }
         })
     else { Self.quit(because: SchedulerFailure.backupIsNotAfterChange) }
+    afterChange.onResticJob = { self.resticJob = $0 }
     let scheduler = BuffScheduler(afterChange: afterChange) { schedule, date in
       await self.runDue(schedule, at: date)
     }

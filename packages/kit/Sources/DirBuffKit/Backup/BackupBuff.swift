@@ -73,8 +73,6 @@ public struct BackupBuff: BuffModule {
     case passwordHasSurroundingSpace
     /// A name to leave out can't hold a `/`; that's a path.
     case nameWithSlash(String)
-    /// A removal is no version of a file: there's nothing of it to restore.
-    case nothingToRestore
     /// The snapshot doesn't hold the file or folder asked for.
     case notInBackup(String)
     /// The folder's volume hasn't room for what a restore would write.
@@ -248,12 +246,13 @@ public struct BackupBuff: BuffModule {
     }
   }
 
-  /// What changed from the folder's last snapshot to this one, file by file. The first snapshot
-  /// has nothing before it: every file in it is the one version there is.
+  /// What changed from the folder's last snapshot to this one, file by file; nil when it isn't
+  /// known. The first snapshot of a series on this Mac has nothing before it, and a diff that
+  /// failed tells nothing: the versions are followed again from that snapshot on.
   private func versions(
     from previous: String?, to snapshotID: String, in root: String, session: Session
-  ) async throws -> [SavedVersion] {
-    guard let previous else { return [] }
+  ) async throws -> [SavedVersion]? {
+    guard let previous else { return nil }
     let changes: [DiffChange]
     do {
       changes = try await restic(session) { try await $0.diff(from: previous, to: snapshotID) }
@@ -262,7 +261,7 @@ public struct BackupBuff: BuffModule {
       // run's lines on the Versions page, not the backup. Un-park if it's ever seen in the log.
       Self.logger.error(
         "Couldn't list what changed: \(String(describing: error), privacy: .public)")
-      return []
+      return nil
     }
     var saved: [SavedVersion] = []
     for change in changes {
@@ -475,8 +474,13 @@ public struct BackupBuff: BuffModule {
   /// Opens the Mac's repository, creating it on first use with no password. A change cut short
   /// is finished first: a repository taken over gets its password into place, and a change of
   /// password leaves only the Keychain's key.
-  func openRepository(now: Date) async throws -> Session {
-    let session = try await openUnlistedRepository(now: now)
+  ///
+  /// `password`, typed on the backup page when this Mac's Keychain doesn't open the backup, only
+  /// ever reads: it opens the repository and lists its snapshots, but never finishes a change of
+  /// password (which removes keys), never creates the account or a repository, and never
+  /// touches the Keychain. Only the Keychain's own key does those.
+  func openRepository(now: Date, password: String? = nil) async throws -> Session {
+    let session = try await openUnlistedRepository(now: now, password: password)
     try await listSnapshotsIfPending(session)
     return session
   }
@@ -504,9 +508,14 @@ public struct BackupBuff: BuffModule {
     try store.finishSnapshotListing(listed)
   }
 
-  private func openUnlistedRepository(now: Date) async throws -> Session {
+  private func openUnlistedRepository(now: Date, password: String?) async throws -> Session {
     if try store.backupAccount()?.isAdoptionPending == true { try finishAdoption() }
     let repository = try await storage.thisMac()
+    if let password {
+      // Reading with what was typed: whatever is owed is left for the Keychain's key to finish.
+      let host = try store.backupAccount()?.host ?? machineID()
+      return Session(repository: repository, host: host, key: password)
+    }
     if let account = try store.backupAccount() {
       let session = Session(repository: repository, host: account.host, key: try keychain.key())
       if account.isKeyChangePending { try await finishKeyChange(session) }

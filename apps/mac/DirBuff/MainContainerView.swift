@@ -27,13 +27,10 @@ struct MainContainerView: View {
     .sheet(item: restoreFolderSheet) { sheet in
       RestoreFolderSheet(
         state: sheet,
-        onSelectDate: appModel.pickRestoreDate,
-        onRestore: { appModel.restoreFolder(snapshotID: $0) },
         onCancel: appModel.closeRestoreFolder,
         onHide: appModel.hideRestoreFolder,
         onShowInFinder: appModel.showRestoredFolderInFinder,
-        onFix: appModel.fixRestoreFolder,
-        onSubmitPassword: appModel.submitRestoreFolderPassword)
+        onFix: appModel.fixRestoreFolder)
     }
     .sheet(item: restoreFromDriveSheet) { sheet in
       RestoreFromDriveSheet(
@@ -93,7 +90,7 @@ struct MainContainerView: View {
         case .folderHistory(let id): AnyView(historyPage(folderID: id, now: now))
         case .run(let id): AnyView(runPage(id, now: now))
         case .unreadFiles(let id): AnyView(unreadFilesPage(id))
-        case .versions(let id): AnyView(versionsPage(id))
+        case .backup(let id): AnyView(backupPage(id))
         }
       }
     )
