@@ -49,7 +49,7 @@
     <key>DirBuffGoogleClientSecret</key>
     <string>$(DIRBUFF_GOOGLE_CLIENT_SECRET)</string>
     <key>SUFeedURL</key>
-    <string>https://dirbuff.fishball.app/appcast.xml</string>
+    <string>https://dirbuff.fsh.ba/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>z/sgDmB4rkR9alOhkMUEunHFDIleM4Ki7kXqzHhf0ao=</string>
     <key>SUEnableAutomaticChecks</key>

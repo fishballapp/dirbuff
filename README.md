@@ -4,7 +4,7 @@
 capabilities, called buffs. Right-click a folder → **DirBuff: Add Buff › Temporary**, or drag the
 buff from DirBuff onto it, and DirBuff clears old files out of it from then on.
 
-Download DirBuff, with automatic updates, from [dirbuff.fishball.app](https://dirbuff.fishball.app)
+Download DirBuff, with automatic updates, from [dirbuff.fsh.ba](https://dirbuff.fsh.ba)
 (price and licence there) or from [Releases](https://github.com/fishballapp/dirbuff/releases).
 Licensed under [GPL-3.0](LICENSE).
 
@@ -73,7 +73,8 @@ team's in both `.entitlements` files and `apps/mac/Shared/FinderFolders.swift`.
 
 A release is built, signed, notarised and published by [`release.yml`](.github/workflows/release.yml),
 run by a version tag (`v<version>`) on a commit of `main`. The DMG is a GitHub release asset; the update feed Sparkle reads is
-`dirbuff.fishball.app/appcast.xml`, and an update installs only if it is signed with the key whose
+`dirbuff.fsh.ba/appcast.xml` (copies built before the move ask `dirbuff.fishball.app/appcast.xml`,
+which redirects there), and an update installs only if it is signed with the key whose
 public half is `SUPublicEDKey` in `apps/mac/DirBuff/Info.plist`.
 
 Every commit to `main` also ships a signed dev build (a prerelease, `v<version>-dev.<n>`), offered

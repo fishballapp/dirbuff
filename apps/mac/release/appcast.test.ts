@@ -17,7 +17,7 @@ const sampleRelease: AppcastReleaseItem = {
   shortVersionString: '0.1.0',
   minimumSystemVersion: '14.0',
   releaseNotes: '## 0.1.0\n\n- Initial release with right-click Temporary tag.',
-  enclosureUrl: 'https://dirbuff.fishball.app/releases/DirBuff-0.1.0.dmg',
+  enclosureUrl: 'https://dirbuff.fsh.ba/releases/DirBuff-0.1.0.dmg',
   enclosureLength: 1234567,
   enclosureType: 'application/x-apple-diskimage',
   edSignature: 'mockSignatureBase64==',
@@ -43,7 +43,7 @@ describe('appcast logic', () => {
       '<description sparkle:format="markdown"><![CDATA[## 0.1.0\n\n- Initial release with right-click Temporary tag.]]></description>',
     );
     expect(extractEnclosure(xml)).toEqual({
-      url: 'https://dirbuff.fishball.app/releases/DirBuff-0.1.0.dmg',
+      url: 'https://dirbuff.fsh.ba/releases/DirBuff-0.1.0.dmg',
       length: '1234567',
       edSignature: 'mockSignatureBase64==',
     });
@@ -107,13 +107,13 @@ describe('appcast logic', () => {
     const xml = formatItemXml({
       ...sampleRelease,
       title: 'DirBuff <Special> & "Edition"\'s Update',
-      enclosureUrl: 'https://dirbuff.fishball.app/releases/DirBuff-0.1.1.dmg?foo=1&bar=2',
+      enclosureUrl: 'https://dirbuff.fsh.ba/releases/DirBuff-0.1.1.dmg?foo=1&bar=2',
     });
     expect(xml).toContain(
       '<title>DirBuff &lt;Special&gt; &amp; &quot;Edition&quot;&apos;s Update</title>',
     );
     expect(xml).toContain(
-      'url="https://dirbuff.fishball.app/releases/DirBuff-0.1.1.dmg?foo=1&amp;bar=2"',
+      'url="https://dirbuff.fsh.ba/releases/DirBuff-0.1.1.dmg?foo=1&amp;bar=2"',
     );
   });
 

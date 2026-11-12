@@ -1,8 +1,8 @@
 name: Update feed
 
 # The Sparkle feed (appcast.xml) and latest.json, built from the published GitHub releases (each
-# carries its own appcast item) and deployed to this repo's GitHub Pages. dirbuff.fishball.app
-# serves /appcast.xml and /download from there, so installed copies keep the feed URL they have.
+# carries its own appcast item) and deployed to this repo's GitHub Pages. dirbuff.fsh.ba serves
+# /appcast.xml and /download from there, so the feed URL a build has baked in doesn't change with its hosting.
 #
 # Runs whenever the releases change: when release.yml completes, whatever its conclusion (a release
 # it publishes or deletes with GITHUB_TOKEN fires no release event, and a failed or cancelled run

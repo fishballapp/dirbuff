@@ -143,7 +143,7 @@ export const createAppcast = (items: readonly string[]): string => {
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>DirBuff</title>
-    <link>https://dirbuff.fishball.app/appcast.xml</link>
+    <link>https://dirbuff.fsh.ba/appcast.xml</link>
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
 ${newestFirst.map(({ itemXml }) => `    ${itemXml}\n`).join('')}  </channel>

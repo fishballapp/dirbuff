@@ -184,7 +184,7 @@ jobs:
 
           - **Commit:** [\`${GITHUB_SHA:0:7}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
           - **Release:** [v${VERSION}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION})
-          - **Update feed:** [appcast.xml](https://dirbuff.fishball.app/appcast.xml)
+          - **Update feed:** [appcast.xml](https://dirbuff.fsh.ba/appcast.xml)
           EOF
 
       - name: Teardown keychain

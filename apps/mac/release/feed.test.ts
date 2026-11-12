@@ -92,10 +92,10 @@ describe('feedItemOf', () => {
       feedItemOf(
         releaseOf('0.1.4'),
         itemFor('0.1.4', {
-          enclosureUrl: 'https://dirbuff.fishball.app/releases/DirBuff-0.1.4.dmg',
+          enclosureUrl: 'https://dirbuff.fsh.ba/releases/DirBuff-0.1.4.dmg',
         }),
       ),
-    ).toThrowError(/downloads https:\/\/dirbuff.fishball.app/);
+    ).toThrowError(/downloads https:\/\/dirbuff.fsh.ba/);
     const withoutDmg = { ...releaseOf('0.1.4'), assets: [] };
     expect(() => feedItemOf(withoutDmg, itemFor('0.1.4'))).toThrowError(/has no DirBuff-0.1.4.dmg/);
   });
