@@ -215,19 +215,37 @@ import os
     let fixture = try await BridgeFixture()
     let source = try fixture.source()
     _ = try await fixture.bridge.serving(fixture.restic) { try await $0.createRepository() }
+    let held = Hold()
+    let uploads = OSAllocatedUnfairLock(initialState: 0)
+    var intercepted = fixture.bridge
+    intercepted.drive = InterceptedDrive(kept: fixture.drive) {
+      [kept = fixture.drive] data, name, folder in
+      // The command's first upload is restic's lock. Its second is held: restic sends it only
+      // once it has heard that the lock is stored, so by then it holds the lock and will remove
+      // it. (A lock stored on Drive isn't yet one restic knows it holds: stopped before the
+      // answer reaches it, restic leaves that lock, which the next command's `unlock` clears.)
+      if uploads.withLock({
+        $0 += 1
+        return $0
+      }) == 2 {
+        await held.hold()
+      }
+      return try await kept.upload(data, named: name, in: folder)
+    }
     let (bridge, restic, store, repository) =
-      (fixture.bridge, fixture.restic, fixture.store, fixture.repository)
+      (intercepted, fixture.restic, fixture.store, fixture.repository)
     @Sendable func locks() throws -> [RepositoryFile] {
       try store.repositoryFiles(in: repository, under: "locks")
     }
 
     let backup = Task { try await bridge.serving(restic) { try await $0.backup(source) } }
-    // Cancelled once restic holds its lock on Drive.
-    #expect(try await wait { try !locks().isEmpty }, "restic never took its lock")
+    await held.waitUntilHeld()
+    #expect(try !locks().isEmpty, "restic never took its lock")
     backup.cancel()
 
     await #expect(throws: CancellationError.self) { try await backup.value }
     #expect(try locks().isEmpty, "The cancelled restic's lock was left on Drive")
+    await held.letGo()
   }
 
   @Test func aCancelledCommandWaitsForNoDriveCallAndLeavesNoLockBehind() async throws {

@@ -281,55 +281,81 @@ private struct FolderColumn: View, Equatable {
   var body: some View {
     Group {
       switch column.listing {
-      case .loading:
-        VStack(spacing: 8) {
-          ProgressView().controlSize(.small)
-          Text(listingSentence)
-            .font(.subheadline)
-            .foregroundStyle(Palette.inkTertiary)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
-      case .failed(let problem):
-        BackupProblemView(problem: problem, isCompact: true) { fix in
-          fix == .tryAgain ? actions.retry(column.place) : actions.fix(fix)
-        }
-      case .loaded(let items) where items.isEmpty:
-        Text("Empty folder")
-          .font(.subheadline)
-          .foregroundStyle(Palette.inkTertiary)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      case .loaded(let items):
-        ScrollViewReader { proxy in
-          ScrollView {
-            LazyVStack(spacing: 1) {
-              ForEach(items) { item in
-                BackupItemRow(
-                  item: item, place: column.place,
-                  selection: column.selectedPath == item.path
-                    ? (column.isActive ? .active : .onTheWay) : nil,
-                  isRestoring: restoring.contains(item.path),
-                  actions: actions
-                )
-                .id(item.path)
-              }
-            }
-            .padding(6)
-          }
-          .onAppear {
-            if let selected = column.selectedPath { proxy.scrollTo(selected, anchor: .center) }
-          }
-        }
+      case .loaded(let items) where !items.isEmpty:
+        rows(items)
+      default:
+        notice
+          .contentShape(.rect)
+          .onTapGesture(perform: selectFolder)
       }
     }
     .frame(maxHeight: .infinity, alignment: .top)
-    .contentShape(.rect)
-    // A click on the column's empty space selects the folder it lists, as Finder does.
-    .onTapGesture {
-      actions.select(isTop ? nil : BackupItem(path: column.place.path, kind: .folder))
+  }
+
+  /// A click on the column's empty space selects the folder it lists, as Finder does.
+  private func selectFolder() {
+    actions.select(isTop ? nil : BackupItem(path: column.place.path, kind: .folder))
+  }
+
+  /// Why the column has no rows: it is loading, it couldn't be listed, or the folder is empty.
+  @ViewBuilder
+  private var notice: some View {
+    switch column.listing {
+    case .loading:
+      VStack(spacing: 8) {
+        ProgressView().controlSize(.small)
+        Text(listingSentence)
+          .font(.subheadline)
+          .foregroundStyle(Palette.inkTertiary)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .padding(.horizontal, 16)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .accessibilityElement(children: .combine)
+    case .failed(let problem):
+      BackupProblemView(problem: problem, isCompact: true) { fix in
+        fix == .tryAgain ? actions.retry(column.place) : actions.fix(fix)
+      }
+    case .loaded:
+      Text("Empty folder")
+        .font(.subheadline)
+        .foregroundStyle(Palette.inkTertiary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  /// The empty space is a layer behind the rows, as tall as the column at least, and never a
+  /// gesture on something that holds them: a click on a row is the row's alone, so nothing
+  /// takes its selection back when the mouse comes up.
+  private func rows(_ items: [BackupItem]) -> some View {
+    GeometryReader { geometry in
+      ScrollViewReader { proxy in
+        ScrollView {
+          LazyVStack(spacing: 1) {
+            ForEach(items) { item in
+              BackupItemRow(
+                item: item, place: column.place,
+                selection: column.selectedPath == item.path
+                  ? (column.isActive ? .active : .onTheWay) : nil,
+                isRestoring: restoring.contains(item.path),
+                actions: actions
+              )
+              .id(item.path)
+            }
+          }
+          .padding(6)
+          .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+          .background {
+            Color.clear
+              .contentShape(.rect)
+              .onTapGesture(perform: selectFolder)
+          }
+        }
+        .onAppear {
+          if let selected = column.selectedPath { proxy.scrollTo(selected, anchor: .center) }
+        }
+      }
     }
   }
 }

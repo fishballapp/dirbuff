@@ -1,5 +1,9 @@
 # Changelog — DirBuff
 
+## 0.3.2
+
+- Fixed: in Browse Backup…, a click on a file or folder could select it and then lose the selection as the mouse came up.
+
 ## 0.3.1
 
 - Fixed: DirBuff could quit without a word when a backup command was stopped just as it reached Google Drive.
