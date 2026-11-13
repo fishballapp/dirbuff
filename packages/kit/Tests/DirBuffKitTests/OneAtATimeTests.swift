@@ -12,36 +12,17 @@ import Testing
     func add(_ entry: String) { entries.append(entry) }
   }
 
-  /// A job that holds the gate until it is let go.
-  private actor Hold {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var isLetGo = false
-    func wait() async {
-      guard !isLetGo else { return }
-      await withCheckedContinuation { continuation = $0 }
-    }
-    func letGo() {
-      isLetGo = true
-      continuation?.resume()
-      continuation = nil
-    }
-  }
-
   private func waitUntil(_ gate: OneAtATime, has count: Int) async throws {
-    for _ in 0..<500 {
-      if await gate.waitingCount == count { return }
-      try await Task.sleep(for: .milliseconds(5))
-    }
-    Issue.record("The gate never had \(count) waiting")
+    let reached = try await wait { await gate.waitingCount == count }
+    #expect(reached, "The gate never had \(count) waiting")
   }
 
   @Test func aJobCancelledWhileItWaitsLeavesAtOnceAndNeverRuns() async throws {
     let gate = OneAtATime()
     let hold = Hold()
     let log = Log()
-    let holder = Task { try await gate.run { await hold.wait() } }
-    try await waitUntil(gate, has: 0)
-    try await Task.sleep(for: .milliseconds(20))
+    let holder = Task { try await gate.run { await hold.hold() } }
+    await hold.waitUntilHeld()
     let waiter = Task { try await gate.run { await log.add("ran") } }
     try await waitUntil(gate, has: 1)
 
@@ -60,14 +41,16 @@ import Testing
 
   @Test func theRunningJobCancelledPassesTheGateOn() async throws {
     let gate = OneAtATime()
+    let entered = Signal()
     let log = Log()
     let running = Task {
       try await gate.run {
+        await entered.send()
         while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
         throw CancellationError()
       }
     }
-    try await Task.sleep(for: .milliseconds(20))
+    await entered.wait()
     let next = Task { try await gate.run { await log.add("next") } }
     try await waitUntil(gate, has: 1)
 
@@ -82,8 +65,8 @@ import Testing
     let gate = OneAtATime()
     let hold = Hold()
     let log = Log()
-    let holder = Task { try await gate.run { await hold.wait() } }
-    try await Task.sleep(for: .milliseconds(20))
+    let holder = Task { try await gate.run { await hold.hold() } }
+    await hold.waitUntilHeld()
     var waiters: [Task<Void, any Error>] = []
     for name in ["a", "b", "c", "d"] {
       waiters.append(Task { try await gate.run { await log.add(name) } })

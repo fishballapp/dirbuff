@@ -5,7 +5,7 @@ import Testing
 
 /// The pinned, unmodified restic, through the bridge, on the in-memory Drive. Each command gets a
 /// bridge of its own, as the app runs them.
-@Suite struct DriveBridgeTests {
+@Suite(.runsRestic) struct DriveBridgeTests {
   @Test func everyCommandBackupNeedsWorksThroughTheBridge() async throws {
     let fixture = try await BridgeFixture()
     let (bridge, restic) = (fixture.bridge, fixture.restic)
@@ -32,7 +32,7 @@ import Testing
     #expect(snapshots.count == 2)
 
     let checked = try await bridge.serving(restic) {
-      try await $0.check(readDataSubset: "100%", wallClockLimit: .seconds(120))
+      try await $0.check(readDataSubset: "100%", wallClockLimit: hangLimit)
     }
     #expect(checked.isHealthy)
 
@@ -52,10 +52,10 @@ import Testing
       try await $0.forget(keeping: ForgetPolicy(last: 1), tags: ["folder=docs"])
     }
     #expect(groups.flatMap(\.remove).map(\.id) == [first.summary.snapshotId].compactMap { $0 })
-    try await bridge.serving(restic) { try await $0.prune(wallClockLimit: .seconds(120)) }
+    try await bridge.serving(restic) { try await $0.prune(wallClockLimit: hangLimit) }
 
     let afterPrune = try await bridge.serving(restic) {
-      try await $0.check(readDataSubset: "100%", wallClockLimit: .seconds(120))
+      try await $0.check(readDataSubset: "100%", wallClockLimit: hangLimit)
     }
     #expect(afterPrune.isHealthy)
     #expect(try await bridge.serving(restic) { try await $0.snapshots() }.count == 1)
@@ -83,7 +83,7 @@ import Testing
     stock.repository = downloaded.path
     let snapshots = try await stock.snapshots()
     #expect(snapshots.map(\.id) == [backup.summary.snapshotId].compactMap { $0 })
-    #expect(try await stock.check(readDataSubset: "100%", wallClockLimit: .seconds(120)).isHealthy)
+    #expect(try await stock.check(readDataSubset: "100%", wallClockLimit: hangLimit).isHealthy)
     let target = try fixture.scratch.folder("restored")
     _ = try await stock.restore(snapshot: "latest", to: target)
     #expect(
@@ -104,13 +104,13 @@ import Testing
     await fixture.drive.remove(lost.id)
 
     let stale = try await bridge.serving(restic) {
-      try await $0.check(wallClockLimit: .seconds(120))
+      try await $0.check(wallClockLimit: hangLimit)
     }
     #expect(stale.isHealthy)
 
     try await bridge.rebuildTable()
     let rebuilt = try await bridge.serving(restic) {
-      try await $0.check(wallClockLimit: .seconds(120))
+      try await $0.check(wallClockLimit: hangLimit)
     }
     #expect(!rebuilt.isHealthy)
   }

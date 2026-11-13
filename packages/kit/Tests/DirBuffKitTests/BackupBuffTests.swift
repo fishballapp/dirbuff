@@ -5,7 +5,7 @@ import Testing
 @testable import DirBuffKit
 
 /// Backup against a repository in a folder, with the real restic.
-@Suite struct BackupBuffTests {
+@Suite(.runsRestic) struct BackupBuffTests {
   let fixture: BackupFixture
 
   init() throws {
@@ -144,31 +144,42 @@ import Testing
   @Test func maintenanceThinsAFoldersHistoryOnceADay() async throws {
     let folderID = try fixture.addWearing("docs")
     let file = try scratch.file("docs/a.txt")
-    // Within one hour, the latest 10 count, and the oldest while the history is younger than its
-    // spans: so of 12, the second goes. b.txt is saved in the second and never changes after.
-    for count in 1...12 {
+    // The latest 10 count, and the oldest, and the newest of each hour, day, week, month and year
+    // the backups fall in: of 13 made within minutes of each other, the second and third go, unless
+    // they cross a change of one of those, which keeps one of the two. (It happens at one instant,
+    // so it can't keep both: with 12, the second alone could be saved.) So the test never counts
+    // what is kept, and asks the policy what is left to forget.
+    for count in 1...13 {
       try Data(count: count).write(to: file)
       if count == 2 { try scratch.file("docs/b.txt") }
       try await fixture.run(folderID)
     }
+    let second = try await fixture.snapshots(folderID).sorted { $0.time < $1.time }[1]
     let today = Date()
 
     try await backup.maintain(now: today)
 
     let snapshots = try await fixture.snapshots(folderID).sorted { $0.time < $1.time }
-    #expect(snapshots.count == 11)
+    #expect(snapshots.count < 13)
+    #expect(try await fixture.stillToForget(folderID).isEmpty)
     let versions = try fixture.store.backupVersions(folderID: folderID)
-    // a.txt's second version went with the second snapshot; b.txt's is in the third too.
-    #expect(versions.filter { $0.path == "a.txt" }.count == 10)
-    #expect(
-      versions.filter { $0.path == "b.txt" }.map(\.snapshotID) == [snapshots[1].id])
+    // Each snapshot kept after the first holds one version of a.txt, which changed in all of them.
+    #expect(versions.filter { $0.path == "a.txt" }.count == snapshots.count - 1)
+    // b.txt was saved in the second snapshot: it is in that one, or in the first kept after it.
+    let holder = try #require(snapshots.first { $0.time >= second.time })
+    #expect(versions.filter { $0.path == "b.txt" }.map(\.snapshotID) == [holder.id])
 
+    // The same day, nothing is forgotten again; the next day, the policy is applied again.
     try await fixture.run(folderID)
     try await backup.maintain(now: today)
-    #expect(try await fixture.snapshots(folderID).count == 12)
+    #expect(try await fixture.snapshots(folderID).count == snapshots.count + 1)
 
-    try await backup.maintain(now: today.addingTimeInterval(day))
-    #expect(try await fixture.snapshots(folderID).count == 11)
+    let tomorrow = today.addingTimeInterval(day)
+    try await backup.maintain(now: tomorrow)
+    #expect(try await fixture.stillToForget(folderID).isEmpty)
+    // (Stored to the millisecond.)
+    let forgotten = try #require(try fixture.record(folderID).lastForgetAt)
+    #expect(abs(forgotten.timeIntervalSince(tomorrow)) < 0.001)
     #expect(try await fixture.isHealthy())
   }
 

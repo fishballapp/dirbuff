@@ -7,7 +7,7 @@ import Testing
 /// The backup page against the real restic: a backup listed one folder at a time, what changed or
 /// went since marked from the database and the folder as it is, and any file or folder of an
 /// older backup put back where it was, or beside what is there now, never over it.
-@Suite struct BackupBrowseTests {
+@Suite(.runsRestic) struct BackupBrowseTests {
   private let fixture: BackupFixture
   private let folderID: Int64
 
@@ -207,7 +207,7 @@ import Testing
     let status =
       #"{"message_type":"status","percent_done":0,"total_files":1,"total_bytes":5000}"#
     let cramped = try wrapped(
-      beforeRestore: "echo '\(status)'; sleep 5", freeSpace: { _ in 1_000 })
+      beforeRestore: "echo '\(status)'; exec sleep 60", freeSpace: { _ in 1_000 })
     let item = BackupItem(path: "big", kind: .folder)
 
     await #expect(throws: BackupBuff.Failure.notEnoughRoom(needed: 5_000, available: 1_000)) {
@@ -255,10 +255,12 @@ import Testing
     let hold = Hold()
     let (buff, folderID) = (fixture.backup, folderID)
     // Another command has the gate, as a backup would.
-    let holder = Task { try await buff.commands.run { await hold.wait() } }
-    try await Task.sleep(for: .milliseconds(50))
+    let holder = Task { try await buff.commands.run { await hold.hold() } }
+    await hold.waitUntilHeld()
     let restore = Task { try await buff.restore(item, from: backup, folderID: folderID) }
-    try await Task.sleep(for: .milliseconds(50))
+    // The restore is in the queue behind it, not yet running.
+    let queued = try await wait { await buff.commands.waitingCount == 1 }
+    #expect(queued, "The restore never queued behind the other command")
 
     let moved = fixture.scratch.url.appendingPathComponent("docs moved")
     try FileManager.default.moveItem(at: url(""), to: moved)
@@ -376,11 +378,20 @@ import Testing
     let item = BackupItem(path: Self.awkward, kind: .file, size: 4)
     let engine = fixture.engine
     let folder = try #require(try fixture.store.folder(id: folderID))
-    let removing = try wrapped(beforeRestore: "sleep 1")
+    // restic is mid-download until the folder is out of DirBuff: the wrapper says so and waits to
+    // be told.
+    let reached = fixture.scratch.url.appendingPathComponent("download-begun")
+    let release = fixture.scratch.url.appendingPathComponent("download-may-end")
+    let removing = try wrapped(
+      beforeRestore: """
+        touch '\(reached.path)'
+        while [ ! -e '\(release.path)' ]; do sleep 0.02; done
+        """)
     let id = folderID
     let restore = Task { try await removing.restore(item, from: backup, folderID: id) }
-    try await Task.sleep(for: .milliseconds(300))
+    try await waitForFile(reached)
     try engine.remove(folder)
+    try Data().write(to: release)
 
     await #expect(throws: (any Error).self) { try await restore.value }
     #expect(!exists(url(Self.awkward)))
@@ -498,21 +509,6 @@ import Testing
       keychain: fixture.keychain, executable: wrapper,
       cacheDirectory: fixture.scratch.url.appendingPathComponent("cache"), home: fixture.home,
       qualityOfService: .userInitiated, freeSpace: freeSpace)
-  }
-
-  /// A job that holds the gate until it is let go.
-  private actor Hold {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var isLetGo = false
-    func wait() async {
-      guard !isLetGo else { return }
-      await withCheckedContinuation { continuation = $0 }
-    }
-    func letGo() {
-      isLetGo = true
-      continuation?.resume()
-      continuation = nil
-    }
   }
 
   private func dateOnly(_ date: Date) -> String {

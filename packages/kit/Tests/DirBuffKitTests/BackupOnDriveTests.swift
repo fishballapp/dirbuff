@@ -94,7 +94,7 @@ extension InMemoryDrive {
 
 /// Backup into Google Drive through the bridge, restoring from it, and the weekly check, against
 /// an in-memory Drive with the real restic.
-@Suite struct BackupOnDriveTests {
+@Suite(.runsRestic) struct BackupOnDriveTests {
   let drive = InMemoryDrive(pageSize: 100)
 
   // MARK: The repository in Drive
@@ -465,7 +465,7 @@ extension InMemoryDrive {
   }
 }
 
-@Suite struct BackupCheckSampleTests {
+@Suite(.runsRestic) struct BackupCheckSampleTests {
   @Test func theCheckRestoresASmallFileAndComparesItWithItsHash() async throws {
     let mac = try DriveMac("Jo's MacBook", host: "mac-a", drive: InMemoryDrive(pageSize: 100))
     let folderID = try mac.addWearing("docs")

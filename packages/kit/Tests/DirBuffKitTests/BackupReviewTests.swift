@@ -6,7 +6,7 @@ import Testing
 @testable import DirBuffKit
 
 /// What could go wrong between the steps of Backup's changes, each found in review.
-@Suite struct BackupCutShortTests {
+@Suite(.runsRestic) struct BackupCutShortTests {
   let drive = InMemoryDrive(pageSize: 100)
 
   // MARK: The password

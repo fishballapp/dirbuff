@@ -6,7 +6,7 @@ import Testing
 
 /// Every version a file's history lists is one restic can restore, with the right bytes: the ones
 /// recorded after each change, and the one before the first of them, which no row holds.
-@Suite struct BackupVersionBeforeTests {
+@Suite(.runsRestic) struct BackupVersionBeforeTests {
   /// Writes `text` into the folder's file, with a modification time of its own so a change of the
   /// same size is seen at once.
   private func write(

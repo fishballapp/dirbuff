@@ -7,6 +7,9 @@ import Testing
 /// Each restic command Backup runs, killed outright (as a crash or a power cut would) early, midway
 /// and late, leaves a repository that the next run completes and that `restic check` passes,
 /// reading every byte.
+///
+/// One test at a time, and the longest run of the package: it takes no turn with the other suites
+/// that run restic (`.runsRestic`), which would put it at the back of their queue.
 @Suite(.serialized) struct BackupKillTests {
   @Test func aBackupKilledAtAnyStageIsCompletedByTheNextRun() async throws {
     // A backup's stages are what it has written, which the clock can't tell on a busy Mac: as it
@@ -45,7 +48,11 @@ import Testing
         try await fixture.run(folderID)
       }
     }
-    // It keeps the latest 10, and the oldest while the history is young.
+    // It keeps the latest 10, and one for each hour, day, week, month and year they fall in: how
+    // many that is depends on the hour the test runs in, so it never counts them, only whether
+    // the policy still has any to forget.
+    // (15 by the first forget: five older than the latest 10, which one change of hour, day, week,
+    // month or year can't all save.)
     try await backUp(times: 11)
     let today = Date()
     let snapshots = fixture.repositoryFolder.appendingPathComponent("snapshots")
@@ -71,11 +78,16 @@ import Testing
       }
       #expect(await killer.value, "The kill \(stage) missed the forget")
 
+      let beforeMaintenance = try await fixture.snapshots(folderID).count
       try await fixture.backup.maintain(now: date)
+      #expect(try await fixture.stillToForget(folderID).isEmpty, "After the kill \(stage)")
       try await backUp(times: 1)
       #expect(try await fixture.isHealthy(), "After the kill \(stage)")
       let kept = try await fixture.snapshots(folderID)
-      #expect(kept.count == 12)
+      // The maintenance removed some of the snapshots the cut-short forget left, and kept the
+      // latest 10, the oldest and the new one at least.
+      #expect(kept.count < beforeMaintenance + 1)
+      #expect(kept.count >= 12)
       // No version points at a snapshot the cut-short forget removed.
       let versions = try fixture.store.backupVersions(folderID: folderID)
       #expect(Set(versions.map(\.snapshotID)).isSubset(of: Set(kept.map(\.id))))
@@ -86,7 +98,9 @@ import Testing
     let fixture = try BackupFixture()
     let folderID = try fixture.addWearing("docs")
     let file = try fixture.scratch.file("docs/a.txt")
-    for count in 1...12 {
+    // 13, so that three are older than the latest 10 and a change of hour, day, week, month or
+    // year between two of them, which saves two at most, still leaves one to forget.
+    for count in 1...13 {
       try Data(count: count).write(to: file)
       if count == 2 { try fixture.scratch.file("docs/b.txt") }
       try await fixture.run(folderID)
@@ -95,23 +109,29 @@ import Testing
     // The forget ran to its end and the app was killed before it heard, with a lock left behind
     // as a restic killed at its last moment leaves one.
     let restic = try fixture.restic()
-    _ = try await restic.forget(
+    let snapshotsBefore = try await fixture.snapshots(folderID).sorted { $0.time < $1.time }
+    let groups = try await restic.forget(
       keeping: BackupBuff.policy(record.history), tags: [record.resticTag],
       host: try Machine.id())
+    let keptByForget = Set(groups.flatMap(\.keep).map(\.id))
     let locks = fixture.repositoryFolder.appendingPathComponent("locks")
     let killer = Self.kill("check", in: fixture) {
       !((try? Self.files(in: locks)) ?? []).isEmpty
     }
-    _ = try? await restic.check(wallClockLimit: .seconds(300))
+    _ = try? await restic.check(wallClockLimit: hangLimit)
     #expect(await killer.value)
 
     try await fixture.backup.maintain()
 
     let kept = try await fixture.snapshots(folderID).sorted { $0.time < $1.time }
-    #expect(kept.count == 11)
+    // What the forget kept, however many that was.
+    #expect(Set(kept.map(\.id)) == keptByForget)
+    #expect(kept.count < snapshotsBefore.count)
     let versions = try fixture.store.backupVersions(folderID: folderID)
     #expect(Set(versions.map(\.snapshotID)).isSubset(of: Set(kept.map(\.id))))
-    #expect(versions.filter { $0.path == "b.txt" }.map(\.snapshotID) == [kept[1].id])
+    // b.txt was saved in the second backup: it is in that snapshot, or in the first one kept after.
+    let holder = try #require(kept.first { $0.time >= snapshotsBefore[1].time })
+    #expect(versions.filter { $0.path == "b.txt" }.map(\.snapshotID) == [holder.id])
     #expect(try await fixture.isHealthy())
   }
 
@@ -199,7 +219,7 @@ import Testing
   ) -> Task<Bool, Never> {
     let pattern = pattern(command, in: fixture)
     return Task.detached {
-      guard let processID = await processID(pattern, within: .seconds(120)) else { return false }
+      guard let processID = await processID(pattern, within: hangLimit) else { return false }
       while !isDue() {
         guard Darwin.kill(processID, 0) == 0 else { return false }
         try? await Task.sleep(for: .microseconds(500))

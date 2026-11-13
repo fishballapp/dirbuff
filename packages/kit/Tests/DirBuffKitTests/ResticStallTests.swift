@@ -4,22 +4,45 @@ import Testing
 @testable import DirBuffKit
 
 /// A shell script plays restic, so a hang or a flood of identical status lines can be played out.
+///
+/// None of these asserts how long anything took: a runner busy with other suites can make a test
+/// late, and a test that is late has proved nothing. Where a test says restic was stopped rather
+/// than waited out, the stub says so itself: it waits for two minutes, and leaves a mark if it is
+/// asked to stop (`SIGTERM`) before then.
 @Suite(.serialized) struct ResticStallTests {
   private static let status =
     #"{"message_type":"status","percent_done":0.1,"total_files":10,"files_done":1,"total_bytes":1000,"bytes_done":100}"#
 
+  /// A restic that prints `first`, leaves the mark `started`, and then waits for two minutes. Asked
+  /// to stop, it leaves the mark `stopped` and ends; if it gets to the end of its wait it leaves
+  /// `waitedOut`. (A runner so busy that restic is asked to stop before it has set up for it dies
+  /// of that, leaving neither: it was stopped all the same.)
+  private func waitingRestic(printing first: String, in scratch: Scratch) throws -> Restic {
+    try stubRestic(
+      """
+      trap 'kill $(jobs -p); touch "\(scratch.url.path)/stopped"; exit 0' TERM
+      echo '\(first)'
+      sleep 120 &
+      touch "\(scratch.url.path)/started"
+      wait
+      touch "\(scratch.url.path)/waitedOut"
+      """, in: scratch)
+  }
+
+  private func hasBeenWaitedOut(_ scratch: Scratch) -> Bool {
+    exists(scratch.url.appendingPathComponent("waitedOut"))
+  }
+
   @Test func aBackupThatPrintsNothingMoreIsKilledForNoProgress() async throws {
     let scratch = try Scratch()
-    let restic = try stubRestic("echo '\(Self.status)'\nexec sleep 60", in: scratch)
+    let restic = try waitingRestic(printing: Self.status, in: scratch)
     let limit = StallLimit.noProgress(for: .milliseconds(500))
-    let started = ContinuousClock.now
 
     await #expect(throws: ResticFailure.stalled(limit)) {
       try await restic.backup(scratch.url, stallLimit: limit)
     }
 
-    // Well short of the stub's 60 seconds, with room for a runner busy with the other suites.
-    #expect(ContinuousClock.now - started < .seconds(30))
+    #expect(!hasBeenWaitedOut(scratch), "restic was waited out and not stopped")
   }
 
   @Test func aStatusThatRepeatsWhileNothingMovesIsNotProgress() async throws {
@@ -38,39 +61,45 @@ import Testing
     let scratch = try Scratch()
     let restic = try stubRestic(
       """
-      for done in $(seq 1 40); do
-        echo '{"message_type":"status","percent_done":0.1,"total_files":40,"files_done":'$done',"total_bytes":1000,"bytes_done":100}'
+      for done in $(seq 1 60); do
+        echo '{"message_type":"status","percent_done":0.1,"total_files":60,"files_done":'$done',"total_bytes":1000,"bytes_done":100}'
         sleep 0.1
       done
-      echo '{"message_type":"summary","files_new":40,"files_changed":0,"files_unmodified":0,"dirs_new":1,"dirs_changed":0,"dirs_unmodified":0,"data_added":1,"data_added_packed":1,"total_files_processed":40,"total_bytes_processed":1000,"total_duration":1.5,"snapshot_id":"abc"}'
+      echo '{"message_type":"summary","files_new":60,"files_changed":0,"files_unmodified":0,"dirs_new":1,"dirs_changed":0,"dirs_unmodified":0,"data_added":1,"data_added_packed":1,"total_files_processed":60,"total_bytes_processed":1000,"total_duration":1.5,"snapshot_id":"abc"}'
       """, in: scratch)
     let progress = ProgressLog()
 
+    // It runs for six seconds, past the limit of five, with a status every tenth of a second: the
+    // limit only trips if a runner holds this stub back for fifty times its pace.
     let result = try await restic.backup(
-      scratch.url, stallLimit: .noProgress(for: .seconds(3)),
+      scratch.url, stallLimit: .noProgress(for: .seconds(5)),
       onProgress: { progress.add($0) })
 
     #expect(result.summary.snapshotId == "abc")
-    #expect(progress.all.count == 40)
-    #expect(progress.all.map(\.filesDone) == Array(1...40))
+    #expect(progress.all.count == 60)
+    #expect(progress.all.map(\.filesDone) == Array(1...60))
   }
 
   @Test func aPruneThatRunsTooLongIsKilledOnTheClock() async throws {
     let scratch = try Scratch()
-    let restic = try stubRestic("echo 'loading all snapshots...'\nexec sleep 60", in: scratch)
+    let restic = try waitingRestic(printing: "loading all snapshots...", in: scratch)
 
     await #expect(throws: ResticFailure.stalled(.wallClock(.milliseconds(300)))) {
       try await restic.prune(wallClockLimit: .milliseconds(300))
     }
+
+    #expect(!hasBeenWaitedOut(scratch), "restic was waited out and not stopped")
   }
 
   @Test func aCheckThatRunsTooLongIsKilledOnTheClock() async throws {
     let scratch = try Scratch()
-    let restic = try stubRestic("exec sleep 60", in: scratch)
+    let restic = try waitingRestic(printing: "", in: scratch)
 
     await #expect(throws: ResticFailure.stalled(.wallClock(.milliseconds(300)))) {
       try await restic.check(wallClockLimit: .milliseconds(300))
     }
+
+    #expect(!hasBeenWaitedOut(scratch), "restic was waited out and not stopped")
   }
 
   @Test func aResticThatIgnoresTheRequestToStopIsKilled() async throws {
@@ -86,16 +115,17 @@ import Testing
 
   @Test func aCancelledTaskStopsRestic() async throws {
     let scratch = try Scratch()
-    let restic = try stubRestic("exec sleep 60", in: scratch)
-    let started = ContinuousClock.now
+    let restic = try waitingRestic(printing: "", in: scratch)
 
-    let task = Task { try await restic.prune(wallClockLimit: .seconds(60)) }
-    try await Task.sleep(for: .milliseconds(300))
+    let task = Task { try await restic.prune(wallClockLimit: .seconds(120)) }
+    // Cancelled once restic is running, however long a busy runner takes to start it.
+    try await waitForFile(scratch.url.appendingPathComponent("started"))
     task.cancel()
 
     await #expect(throws: CancellationError.self) { try await task.value }
-    // Well short of the stub's 60 seconds, with room for a runner busy with the other suites.
-    #expect(ContinuousClock.now - started < .seconds(30))
+    // The call ends as soon as it is cancelled; restic ends a moment after it was asked to.
+    try await waitForFile(scratch.url.appendingPathComponent("stopped"))
+    #expect(!hasBeenWaitedOut(scratch))
   }
 
   @Test(

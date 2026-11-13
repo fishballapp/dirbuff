@@ -199,11 +199,16 @@ private func browser(
   }
 
   @Test func cancellingWhileWaitingForTheBrowserStops() async throws {
+    let browserOpened = Signal()
     let signIn = GoogleSignIn(
       client: client, store: MemoryTokenStore(), session: StubNetwork.session { _ in .reply(500) },
-      openBrowser: { _ in true })
+      openBrowser: { _ in
+        await browserOpened.send()
+        return true
+      })
     let attempt = Task { try await signIn.signIn() }
-    try await Task.sleep(for: .milliseconds(100))
+    // It waits for the browser to come back once it has sent the user there.
+    await browserOpened.wait()
     attempt.cancel()
     await #expect(throws: CancellationError.self) { try await attempt.value }
   }

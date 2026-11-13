@@ -4,7 +4,7 @@ import Testing
 @testable import DirBuffKit
 
 /// The real restic, bundled with the app, against a repository in a temporary folder.
-@Suite struct ResticTests {
+@Suite(.runsRestic) struct ResticTests {
   @Test func aRepositoryLivesFromInitToRestore() async throws {
     let scratch = try Scratch()
     let restic = try testRestic(in: scratch)
@@ -44,8 +44,8 @@ import Testing
     #expect(groups.flatMap(\.keep).map(\.id) == [second.summary.snapshotId].compactMap { $0 })
     #expect(try await restic.snapshots().count == 1)
 
-    try await restic.prune(wallClockLimit: .seconds(60))
-    let checked = try await restic.check(readDataSubset: "100%", wallClockLimit: .seconds(60))
+    try await restic.prune(wallClockLimit: hangLimit)
+    let checked = try await restic.check(readDataSubset: "100%", wallClockLimit: hangLimit)
     #expect(checked.isHealthy)
 
     let target = try scratch.folder("restored")
@@ -117,7 +117,7 @@ import Testing
     _ = try await restic.createRepository()
     _ = try await restic.backup(source)
     _ = try await restic.snapshots()
-    try await restic.check(wallClockLimit: .seconds(60))
+    try await restic.check(wallClockLimit: hangLimit)
 
     // The repository, restic's cache and every file the runner could have made.
     #expect(try !scratch.contains(testPassword))

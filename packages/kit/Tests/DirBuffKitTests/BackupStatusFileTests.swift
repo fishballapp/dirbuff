@@ -7,7 +7,7 @@ import os
 
 /// `backup-status.json` is read by programs outside DirBuff, so its encoding is pinned to a
 /// fixture: a change that breaks this test changes the format, and needs a new `version`.
-@Suite struct BackupStatusFileTests {
+@Suite(.runsRestic) struct BackupStatusFileTests {
   let now = Date(timeIntervalSince1970: 1_800_000_000)
   let documents = "\(fixtureHome)/Documents"
 

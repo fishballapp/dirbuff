@@ -6,7 +6,7 @@ import Testing
 
 /// What reviewing restore found: the Drive a restore lists, what taking over a backup leaves
 /// stale, a folder replaced by a file, the snapshots the database trusts, and a cancelled restore.
-@Suite struct BackupRestoreReviewTests {
+@Suite(.runsRestic) struct BackupRestoreReviewTests {
   let drive = InMemoryDrive(pageSize: 100)
 
   // MARK: Which DirBuff Backup folder is listed
@@ -294,10 +294,8 @@ private final class Flag: @unchecked Sendable {
   func raise() { lock.withLock { isRaised = true } }
 
   func waitUntilRaised() async throws {
-    for _ in 0..<400 {
-      if lock.withLock({ isRaised }) { return }
-      try await Task.sleep(for: .milliseconds(50))
+    guard try await wait(until: { lock.withLock { isRaised } }) else {
+      throw CancellationError()
     }
-    throw CancellationError()
   }
 }

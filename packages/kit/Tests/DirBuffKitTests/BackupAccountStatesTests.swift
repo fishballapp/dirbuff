@@ -6,7 +6,7 @@ import Testing
 /// Backup against a Google account that signs the user out, fills up, or loses the backup: the
 /// run waits and records nothing as failed, the cause is kept, and the backup goes on once the
 /// cause is gone. The real restic, an in-memory Drive.
-@Suite struct BackupAccountStatesTests {
+@Suite(.runsRestic) struct BackupAccountStatesTests {
   let drive = InMemoryDrive(pageSize: 100)
 
   /// A Mac with one folder already backed up once.

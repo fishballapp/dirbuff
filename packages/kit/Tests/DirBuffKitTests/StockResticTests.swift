@@ -23,7 +23,7 @@ extension InMemoryDrive {
 /// A repository DirBuff writes, read by the pinned restic exactly as `README.txt` tells a person to:
 /// the README's own commands, run in a shell, against the Drive folder laid out as plain files.
 /// Nothing of DirBuff's is in the read path: not `Restic`, not the bridge, not the database.
-@Suite struct StockResticTests {
+@Suite(.runsRestic) struct StockResticTests {
   let drive = InMemoryDrive(pageSize: 100)
   let macName = "Jo’s MacBook Pro"
   static let password = "correct horse battery"
@@ -364,7 +364,7 @@ struct Terminal {
     try process.run()
     // A restic that can't write retries for minutes: end it, so the test fails and doesn't hang.
     let timeout = Task {
-      try await Task.sleep(for: .seconds(90))
+      try await Task.sleep(for: hangLimit)
       process.terminate()
     }
     defer { timeout.cancel() }

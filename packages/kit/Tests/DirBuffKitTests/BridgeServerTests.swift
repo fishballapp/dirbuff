@@ -4,7 +4,7 @@ import Testing
 @testable import DirBuffKit
 
 /// The bridge's answers to single requests, and the ID table under them.
-@Suite struct BridgeServerTests {
+@Suite(.runsRestic) struct BridgeServerTests {
   let name = String(repeating: "ab", count: 32)
   let otherName = "ab" + String(repeating: "cd", count: 31)
 
@@ -93,7 +93,8 @@ import Testing
     #expect(try fixture.store.uploads(since: .distantPast).map(\.bytes) == [1_000])
   }
 
-  @Test(.timeLimit(.minutes(1)))
+  // Both end only when both packs have arrived, so the limit is there for a hang, not for speed.
+  @Test(.timeLimit(.minutes(10)))
   func twoPacksAtOnceOneFailingStoreOnlyTheOther() async throws {
     let fixture = try await BridgeFixture()
     let both = Rendezvous(count: 2)
@@ -117,7 +118,7 @@ import Testing
     #expect(await server.failure == nil)
   }
 
-  @Test(.timeLimit(.minutes(1)))
+  @Test(.timeLimit(.minutes(10)))
   func uploadsUnderWayCountAgainstTheDailyLimit() async throws {
     let fixture = try await BridgeFixture(dailyUploadLimit: 1_500)
     let (started, released) = (Rendezvous(count: 2), Rendezvous(count: 2))

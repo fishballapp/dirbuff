@@ -4,7 +4,7 @@ import Testing
 @testable import DirBuffKit
 
 /// Restore Folder tells how far the download has got, for the run the popover shows.
-@Suite struct BackupRestoreProgressTests {
+@Suite(.runsRestic) struct BackupRestoreProgressTests {
   /// restic wrapped in a script that adds one progress line to a restore, as restic prints one
   /// each second of a long one; a restore of a few bytes ends before its first.
   private func restoringWithAStatusLine(_ fixture: BackupFixture) throws -> BackupBuff {

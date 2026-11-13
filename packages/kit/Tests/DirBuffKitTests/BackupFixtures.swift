@@ -69,6 +69,38 @@ struct BackupFixture {
     try testRestic(in: scratch, password: keychain.key())
   }
 
+  /// The snapshots the folder's history would still forget, asked of restic with `--dry-run`:
+  /// none once a maintenance has completed. What a history keeps depends on which hours, days,
+  /// weeks, months and years its snapshots fall in, so backups made at the real time keep one more
+  /// when a run of them straddles a change of any of them. A test that counts the snapshots kept
+  /// would then pass or fail with the time of day it ran at, and asks this instead.
+  func stillToForget(_ folderID: Int64) async throws -> [ResticSnapshot] {
+    let record = try record(folderID)
+    // `--dry-run` goes right after `forget`: later on, past a `--`, restic would take it for an ID.
+    let wrapper = scratch.url.appendingPathComponent("restic-dry-run")
+    try """
+    #!/bin/sh
+    for argument in "$@"; do
+      shift
+      set -- "$@" "$argument"
+      if [ "$argument" = forget ]; then set -- "$@" --dry-run; fi
+    done
+    exec '\(try resticExecutable().path)' "$@"
+
+    """.write(to: wrapper, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
+    let dryRun = Restic(
+      executable: wrapper,
+      repository: repositoryFolder.path,
+      password: try keychain.key(),
+      cacheDirectory: scratch.url.appendingPathComponent("cache"),
+      qualityOfService: .userInitiated)
+    return try await dryRun.forget(
+      keeping: BackupBuff.policy(record.history), tags: [record.resticTag],
+      host: try Machine.id()
+    ).flatMap(\.remove)
+  }
+
   func snapshots(_ folderID: Int64) async throws -> [ResticSnapshot] {
     try await restic().snapshots(tags: [record(folderID).resticTag])
   }
@@ -87,7 +119,7 @@ struct BackupFixture {
   func isHealthy() async throws -> Bool {
     let restic = try restic()
     try await restic.unlock()
-    return try await restic.check(readDataSubset: "100%", wallClockLimit: .seconds(300)).isHealthy
+    return try await restic.check(readDataSubset: "100%", wallClockLimit: hangLimit).isHealthy
   }
 }
 
