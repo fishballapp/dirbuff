@@ -56,7 +56,7 @@ import Testing
     try await backUp(times: 11)
     let today = Date()
     let snapshots = fixture.repositoryFolder.appendingPathComponent("snapshots")
-    let locks = fixture.repositoryFolder.appendingPathComponent("locks")
+    let repository = fixture.repositoryFolder
 
     // Removing a snapshot is a moment before restic exits, too short to land a kill in: the next
     // test leaves the state such a kill would.
@@ -66,7 +66,7 @@ import Testing
       let killer = Self.kill("forget", in: fixture) {
         switch stage {
         case .starting: true
-        case .locked: ((try? Self.files(in: locks)) ?? []).count > 0
+        case .locked: !Self.heldLocks(in: repository).isEmpty
         case .changing: ((try? Self.files(in: snapshots)) ?? before).count < before.count
         }
       }
@@ -78,7 +78,9 @@ import Testing
       }
       #expect(await killer.value, "The kill \(stage) missed the forget")
 
-      let beforeMaintenance = try await fixture.snapshots(folderID).count
+      // Counted from the repository's files, not asked of restic: the killed forget may have left
+      // its lock, which the next maintenance clears and any other restic would stop at.
+      let beforeMaintenance = try Self.files(in: snapshots).count
       try await fixture.backup.maintain(now: date)
       #expect(try await fixture.stillToForget(folderID).isEmpty, "After the kill \(stage)")
       try await backUp(times: 1)
@@ -114,10 +116,8 @@ import Testing
       keeping: BackupBuff.policy(record.history), tags: [record.resticTag],
       host: try Machine.id())
     let keptByForget = Set(groups.flatMap(\.keep).map(\.id))
-    let locks = fixture.repositoryFolder.appendingPathComponent("locks")
-    let killer = Self.kill("check", in: fixture) {
-      !((try? Self.files(in: locks)) ?? []).isEmpty
-    }
+    let repository = fixture.repositoryFolder
+    let killer = Self.kill("check", in: fixture) { !Self.heldLocks(in: repository).isEmpty }
     _ = try? await restic.check(wallClockLimit: hangLimit)
     #expect(await killer.value)
 
@@ -139,7 +139,7 @@ import Testing
     let fixture = try BackupFixture()
     let folderID = try Self.folderWithData(in: fixture)
     try await fixture.run(folderID)
-    let locks = fixture.repositoryFolder.appendingPathComponent("locks")
+    let repository = fixture.repositoryFolder
 
     for (index, stage) in Stage.all.enumerated() {
       // A folder whose backup goes with it, so the prune has packs to delete.
@@ -153,7 +153,7 @@ import Testing
       let killer = Self.kill("prune", in: fixture) {
         switch stage {
         case .starting: true
-        case .locked: ((try? Self.files(in: locks)) ?? []).count > 0
+        case .locked: !Self.heldLocks(in: repository).isEmpty
         case .changing: !((try? Self.files(in: indexes)) ?? before).isSubset(of: before)
         }
       }
@@ -253,6 +253,14 @@ import Testing
     process.waitUntilExit()
     return String(decoding: printed, as: UTF8.self).split(separator: "\n").first.flatMap {
       pid_t($0)
+    }
+  }
+
+  /// The locks restic holds on the repository: each lock file once it is in place, not the
+  /// temporary file restic writes it to first (`<id>-tmp-<n>`), which no other restic heeds.
+  private static func heldLocks(in repository: URL) -> Set<String> {
+    ((try? files(in: repository.appendingPathComponent("locks"))) ?? []).filter {
+      !$0.contains("-tmp-")
     }
   }
 

@@ -64,7 +64,10 @@ public struct DriveBridge: Sendable {
     defer { try? FileManager.default.removeItem(atPath: folder) }
     let listener = try UnixSocketListener(path: folder + "/restic.sock")
     let server = BridgeServer(self)
-    async let served: Void = server.serve(listener)
+    // Not a child of this task, so cancelling the command doesn't stop it: restic, asked to stop,
+    // removes its lock through the bridge on its way out. It is cancelled once restic has gone,
+    // and with it every request and Drive call still in flight, which no one is waiting for.
+    let served = Task { await server.serve(listener) }
 
     var restic = restic
     restic.repository = "rest:http+unix://\(listener.path):/"
@@ -77,7 +80,8 @@ public struct DriveBridge: Sendable {
       outcome = .failure(error)
     }
     listener.stop()
-    await served
+    served.cancel()
+    await served.value
 
     if case .failure(let error) = outcome, !Self.isStopped(error),
       let failure = await server.failure

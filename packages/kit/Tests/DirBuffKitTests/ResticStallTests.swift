@@ -123,9 +123,67 @@ import Testing
     task.cancel()
 
     await #expect(throws: CancellationError.self) { try await task.value }
-    // The call ends as soon as it is cancelled; restic ends a moment after it was asked to.
-    try await waitForFile(scratch.url.appendingPathComponent("stopped"))
+    // The call ends once restic has, which it does as soon as it is asked to.
+    #expect(exists(scratch.url.appendingPathComponent("stopped")))
     #expect(!hasBeenWaitedOut(scratch))
+  }
+
+  /// A restic that ignores the request to stop and writes its process ID to `pid` once it does.
+  /// It ends by itself when its scratch folder goes, so a test that fails leaves none running and
+  /// none is ever signalled by a process ID that may already be free.
+  private func stubbornRestic(in scratch: Scratch) throws -> Restic {
+    try stubRestic(
+      """
+      trap '' TERM
+      echo $$ > "\(scratch.url.path)/pid"
+      while [ -d "\(scratch.url.path)" ]; do sleep 0.05; done
+      """, in: scratch, terminationGrace: .milliseconds(200))
+  }
+
+  /// The stub's process ID, once it has written it.
+  private func processID(in scratch: Scratch) async throws -> pid_t {
+    let file = scratch.url.appendingPathComponent("pid")
+    @Sendable func written() -> pid_t? {
+      (try? String(contentsOf: file, encoding: .utf8)).flatMap {
+        pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines))
+      }
+    }
+    // The shell makes the file before it writes the number in it.
+    _ = try await wait { written() != nil }
+    return try #require(written())
+  }
+
+  private func isRunning(_ processID: pid_t) -> Bool { kill(processID, 0) == 0 }
+
+  @Test func aCancelledResticThatIgnoresTheRequestToStopIsKilled() async throws {
+    let scratch = try Scratch()
+    let restic = try stubbornRestic(in: scratch)
+
+    let task = Task { try await restic.prune(wallClockLimit: .seconds(120)) }
+    let processID = try await processID(in: scratch)
+    task.cancel()
+
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(!isRunning(processID), "The cancelled restic is still running")
+    withExtendedLifetime(scratch) {}
+  }
+
+  @Test func theCommandAfterACancelledOneStartsOnceItsResticHasGone() async throws {
+    let scratch = try Scratch()
+    let restic = try stubbornRestic(in: scratch)
+    let commands = OneAtATime()
+
+    let cancelled = Task {
+      try await commands.run { try await restic.prune(wallClockLimit: .seconds(120)) }
+    }
+    let processID = try await processID(in: scratch)
+    cancelled.cancel()
+    // Next in line, as Backup's commands are.
+    let wasRunning = try await commands.run { isRunning(processID) }
+
+    #expect(!wasRunning, "The next command started while the cancelled restic still ran")
+    await #expect(throws: CancellationError.self) { try await cancelled.value }
+    withExtendedLifetime(scratch) {}
   }
 
   @Test(

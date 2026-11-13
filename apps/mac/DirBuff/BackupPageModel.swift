@@ -23,7 +23,10 @@ final class BackupPageModel {
   @ObservationIgnored private let appModel: AppModel
   @ObservationIgnored private var password: String?
   @ObservationIgnored private var listings: [BackupPlace: Task<Void, Never>] = [:]
-  @ObservationIgnored private var restores: [BackupPlace: Task<Void, Never>] = [:]
+  /// The restore running for each item, by run: one cancelled is dropped at once, and its task,
+  /// which ends only once restic has, touches nothing when it does.
+  @ObservationIgnored private var restores: [BackupPlace: (run: UUID, task: Task<Void, Never>)] =
+    [:]
   @ObservationIgnored private var quickLook: Task<Void, Never>?
   /// The folder the last preview was downloaded into, removed when the next starts.
   @ObservationIgnored private var previewFolder: URL?
@@ -255,37 +258,54 @@ final class BackupPageModel {
     let path = URL(fileURLWithPath: state.folderPath).appendingPathComponent(item.path).path
     state.restores[place] = .restoring(RestoreRun(folderName: item.name, path: path))
     let (backup, folderID, password) = (backup, folderID, password)
-    restores[place] = Task {
+    let run = UUID()
+    let task = Task {
       let report: @Sendable (RestoreProgress) -> Void = { progress in
-        Task { @MainActor in self.restoreDidProgress(progress, place: place, item: item) }
+        Task { @MainActor in self.restoreDidProgress(progress, place: place, item: item, run: run) }
       }
       do {
         let restored = try await backup.restore(
           item, from: kept, folderID: folderID, into: chosen, password: password,
           onProgress: report)
+        guard isCurrent(run, at: place) else { return }
         state.restores[place] = .done(path: restored.path)
         relistParent(of: item)
-      } catch is CancellationError {
-        state.restores[place] = nil
       } catch {
-        let problem = await describe(
-          error, while: .item(name: item.name), retry: { [weak self] in self?.restore(item) })
-        state.restores[place] = .failed(problem)
-        if isClosed { await appModel.tell(problem, from: error) }
+        guard isCurrent(run, at: place) else { return }
+        if error is CancellationError {
+          state.restores[place] = nil
+        } else {
+          let problem = await describe(
+            error, while: .item(name: item.name), retry: { [weak self] in self?.restore(item) })
+          guard isCurrent(run, at: place) else { return }
+          state.restores[place] = .failed(problem)
+          if isClosed { await appModel.tell(problem, from: error) }
+        }
       }
       restores[place] = nil
     }
+    restores[place] = (run, task)
   }
 
+  /// Cancel: the row lets go at once, while restic stops (a moment, 30 seconds at most).
   func cancelRestore(_ place: BackupPlace) {
-    restores[place]?.cancel()
+    restores[place]?.task.cancel()
+    restores[place] = nil
+    state.restores[place] = nil
   }
 
-  private func restoreDidProgress(_ progress: RestoreProgress, place: BackupPlace, item: BackupItem)
-  {
-    guard case .restoring(let run) = state.restores[place] else { return }
+  private func isCurrent(_ run: UUID, at place: BackupPlace) -> Bool {
+    restores[place]?.run == run
+  }
+
+  private func restoreDidProgress(
+    _ progress: RestoreProgress, place: BackupPlace, item: BackupItem, run: UUID
+  ) {
+    guard isCurrent(run, at: place), case .restoring(let shown) = state.restores[place] else {
+      return
+    }
     state.restores[place] = .restoring(
-      RestoreRun(folderName: item.name, path: run.path, progress: progress))
+      RestoreRun(folderName: item.name, path: shown.path, progress: progress))
   }
 
   /// What came back changes the marks of the folder it went into, in every backup listed.

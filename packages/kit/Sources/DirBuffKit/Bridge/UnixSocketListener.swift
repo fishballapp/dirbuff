@@ -2,7 +2,8 @@ import Foundation
 
 /// A unix socket that accepts connections until it is stopped. Each accepted connection is a
 /// blocking socket, handed out once through `connections`; whoever takes it closes it with
-/// `close(_:)`, and `stop()` shuts down any still open, so a read waiting on one returns.
+/// `close(_:)`, and `stop()` shuts down any still open, so a read waiting on one returns. What
+/// writes to one sends with `MSG_NOSIGNAL` (`HTTPConnection.write`): its client may have gone.
 final class UnixSocketListener: @unchecked Sendable {
   let path: String
   let connections: AsyncStream<Int32>
@@ -74,8 +75,6 @@ final class UnixSocketListener: @unchecked Sendable {
       guard connection >= 0 else { return }
       _ = fcntl(connection, F_SETFD, FD_CLOEXEC)
       _ = fcntl(connection, F_SETFL, fcntl(connection, F_GETFL) & ~O_NONBLOCK)
-      var isOn: Int32 = 1
-      setsockopt(connection, SOL_SOCKET, SO_NOSIGPIPE, &isOn, socklen_t(MemoryLayout<Int32>.size))
       let isTaken = lock.withLock {
         guard !isStopped else { return false }
         open.insert(connection)

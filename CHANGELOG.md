@@ -1,5 +1,10 @@
 # Changelog — DirBuff
 
+## 0.3.1
+
+- Fixed: DirBuff could quit without a word when a backup command was stopped just as it reached Google Drive.
+- Cancelling a restore, a preview or a download now lets it finish stopping before the next backup starts, so that backup is no longer recorded as failed.
+
 ## 0.3.0
 
 - Backup is the second buff. Give a folder Backup and its files go to your own Google Drive, every version kept. A folder backs up within an hour of a change; the card says when it last did, and DirBuff tells you when a backup needs you.

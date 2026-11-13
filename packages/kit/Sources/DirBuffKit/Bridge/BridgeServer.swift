@@ -193,7 +193,7 @@ actor BridgeServer {
   private func write(_ data: Data, to path: String) async throws -> HTTPResponse {
     if let pending = writes[path] {
       guard Self.isSame(data, as: pending.data, at: path) else { return Self.alreadyExists }
-      try await pending.upload.value
+      try await Self.outcome(of: pending.upload)
       return .ok
     }
     if let stored = try storedFile(at: path) {
@@ -204,7 +204,7 @@ actor BridgeServer {
     let upload = Task { try await self.upload(data, to: path, isLock: isLock) }
     writes[path] = PendingWrite(data: data, upload: upload)
     defer { writes[path] = nil }
-    try await upload.value
+    try await Self.outcome(of: upload)
     return .ok
   }
 
@@ -291,7 +291,7 @@ actor BridgeServer {
     if let known = try store.repositoryFiles(in: repository, at: path).first(where: \.isFolder) {
       return known.driveID
     }
-    if let creation = folderCreations[path] { return try await creation.value }
+    if let creation = folderCreations[path] { return try await Self.outcome(of: creation) }
     let creation = Task {
       let parent = try await folderID(at: Self.parent(of: path))
       let name = String(path.split(separator: "/").last ?? "")
@@ -310,7 +310,29 @@ actor BridgeServer {
     }
     folderCreations[path] = creation
     defer { folderCreations[path] = nil }
-    return try await creation.value
+    return try await Self.outcome(of: creation)
+  }
+
+  /// What `work` ends with, or `CancellationError` the moment the request waiting on it is
+  /// cancelled, whether `work` has ended or not; `work` is cancelled too. An upload or a folder
+  /// creation is a task of its own, shared by every request that asks for it (a retried write
+  /// waits for the upload already under way), so cancelling a request doesn't reach it, and
+  /// awaiting its value would wait out a Drive call retrying for minutes. The server's requests
+  /// are cancelled once restic has gone (`DriveBridge.serving`): nothing then finishes for a
+  /// restic that isn't there, such as a lock it would never remove.
+  private nonisolated static func outcome<Value: Sendable>(of work: Task<Value, any Error>)
+    async throws -> Value
+  {
+    let waiter = Waiter<Value>()
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        waiter.wait(continuation)
+        Task { waiter.finish(with: await work.result) }
+      }
+    } onCancel: {
+      work.cancel()
+      waiter.finish(with: .failure(CancellationError()))
+    }
   }
 
   private static func parent(of path: String) -> String {
@@ -398,5 +420,32 @@ struct ByteRange: Equatable {
   init(bounds: Range<Int64>, isPartial: Bool) {
     self.bounds = bounds
     self.isPartial = isPartial
+  }
+}
+
+/// One waiter on a shared task: resumed once, by the task's end or by its own cancellation,
+/// whichever comes first.
+private final class Waiter<Value: Sendable>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuation: CheckedContinuation<Value, any Error>?
+  private var result: Result<Value, any Error>?
+
+  func wait(_ continuation: CheckedContinuation<Value, any Error>) {
+    lock.withLock {
+      if let result {
+        continuation.resume(with: result)
+      } else {
+        self.continuation = continuation
+      }
+    }
+  }
+
+  func finish(with result: Result<Value, any Error>) {
+    lock.withLock {
+      guard self.result == nil else { return }
+      self.result = result
+      continuation?.resume(with: result)
+      continuation = nil
+    }
   }
 }

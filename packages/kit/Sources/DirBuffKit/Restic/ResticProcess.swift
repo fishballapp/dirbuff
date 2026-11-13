@@ -67,14 +67,18 @@ struct ResticProcess {
     newPasswordPipe?.write(until: { hasEnded.withLock { $0 } })
 
     let supervision = Supervision(
-      processID: process.processIdentifier, limit: limit, terminationGrace: terminationGrace)
+      processID: process.processIdentifier, limit: limit, terminationGrace: terminationGrace,
+      hasExited: { hasEnded.withLock { $0 } })
     let printed = Printed()
 
+    // Waited for in a task of its own, which cancelling this one doesn't reach: a cancelled run
+    // ends only once restic has, so the next command never meets its lock, and the SIGKILL that
+    // follows an ignored SIGTERM stays armed until then (at most `terminationGrace`).
+    let exit = Task { await terminations.first { _ in true } }
     let termination = await withTaskCancellationHandler {
       async let outputRead: Void = read(output.fileHandleForReading, into: printed, supervision)
       async let errorsRead: Void = read(errors.fileHandleForReading, into: printed, supervision)
-      var iterator = terminations.makeAsyncIterator()
-      let termination = await iterator.next()
+      let termination = await exit.value
       supervision.processEnded()
       await outputRead
       await errorsRead
@@ -145,9 +149,11 @@ struct ResticProcess {
   }
 
   private static func give(_ password: String, to handle: FileHandle) {
-    // A restic that has already died must cost this write an error, not the app a SIGPIPE.
-    _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
-    try? handle.write(contentsOf: Data(password.utf8))
+    // A restic that has already died must cost this write an error, not the app a SIGPIPE: with
+    // no such promise, nothing is written, and restic reads no password and fails.
+    if fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 {
+      try? handle.write(contentsOf: Data(password.utf8))
+    }
     try? handle.close()
   }
 }
@@ -179,6 +185,9 @@ private final class Supervision: @unchecked Sendable {
   private let processID: Int32
   private let limit: StallLimit
   private let terminationGrace: Duration
+  /// Whether restic has been reaped, as its termination handler says at once: `processEnded()`
+  /// comes a hop later, and a signal sent between the two would go to a process ID now free.
+  private let hasExited: @Sendable () -> Bool
   private let lock = NSLock()
   private let startedAt = ContinuousClock.now
   private var lastMark: ResticMessage.ProgressMark?
@@ -188,10 +197,14 @@ private final class Supervision: @unchecked Sendable {
   private var killer: DispatchWorkItem?
   private var stalled: StallLimit?
 
-  init(processID: Int32, limit: StallLimit, terminationGrace: Duration) {
+  init(
+    processID: Int32, limit: StallLimit, terminationGrace: Duration,
+    hasExited: @escaping @Sendable () -> Bool
+  ) {
     self.processID = processID
     self.limit = limit
     self.terminationGrace = terminationGrace
+    self.hasExited = hasExited
     startTimer()
   }
 
@@ -218,11 +231,11 @@ private final class Supervision: @unchecked Sendable {
   /// if it hasn't within the grace period.
   func stop() {
     lock.withLock {
-      guard !hasEnded, killer == nil else { return }
+      guard !hasEnded, !hasExited(), killer == nil else { return }
       kill(processID, SIGTERM)
       let killer = DispatchWorkItem { [self] in
         lock.withLock {
-          if !hasEnded { kill(processID, SIGKILL) }
+          if !hasEnded, !hasExited() { kill(processID, SIGKILL) }
         }
       }
       self.killer = killer
@@ -310,9 +323,11 @@ private final class NamedPipe: Sendable {
       while true {
         let descriptor = open(url.path, O_WRONLY | O_NONBLOCK)
         if descriptor >= 0 {
-          _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
-          _ = Data(secret.utf8).withUnsafeBytes {
-            Darwin.write(descriptor, $0.baseAddress, $0.count)
+          // As for the standard input: written only where it can't cost the app a SIGPIPE.
+          if fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0 {
+            _ = Data(secret.utf8).withUnsafeBytes {
+              Darwin.write(descriptor, $0.baseAddress, $0.count)
+            }
           }
           close(descriptor)
           return

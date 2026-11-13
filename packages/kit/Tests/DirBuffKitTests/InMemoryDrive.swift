@@ -5,7 +5,7 @@ import Foundation
 
 /// Drive in memory, for tests of what is built on `DriveFiles`. It keeps Drive's habits that
 /// matter to a caller: names aren't unique, listings come in pages and leave out the Bin, trashing
-/// a folder trashes what is in it, and deleting is for good.
+/// a folder trashes what is in it, deleting is for good, and a cancelled caller's call fails.
 actor InMemoryDrive: DriveFiles {
   struct Stored {
     var item: DriveItem
@@ -141,6 +141,8 @@ actor InMemoryDrive: DriveFiles {
 
   private func begin(_ call: String) throws {
     calls.append(call)
+    // As Google's: a cancelled caller's request fails (`DriveFiles`).
+    try Task.checkCancellation()
     if let failure = failingCalls[call] { throw failure }
     if let failure = pendingFailure {
       pendingFailure = nil

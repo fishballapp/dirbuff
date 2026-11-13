@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import DirBuffKit
 
@@ -208,6 +209,78 @@ import Testing
         throw CancellationError()
       }
     }
+  }
+
+  @Test func aCancelledCommandsResticRemovesItsLockThroughTheBridge() async throws {
+    let fixture = try await BridgeFixture()
+    let source = try fixture.source()
+    _ = try await fixture.bridge.serving(fixture.restic) { try await $0.createRepository() }
+    let (bridge, restic, store, repository) =
+      (fixture.bridge, fixture.restic, fixture.store, fixture.repository)
+    @Sendable func locks() throws -> [RepositoryFile] {
+      try store.repositoryFiles(in: repository, under: "locks")
+    }
+
+    let backup = Task { try await bridge.serving(restic) { try await $0.backup(source) } }
+    // Cancelled once restic holds its lock on Drive.
+    #expect(try await wait { try !locks().isEmpty }, "restic never took its lock")
+    backup.cancel()
+
+    await #expect(throws: CancellationError.self) { try await backup.value }
+    #expect(try locks().isEmpty, "The cancelled restic's lock was left on Drive")
+  }
+
+  @Test func aCancelledCommandWaitsForNoDriveCallAndLeavesNoLockBehind() async throws {
+    let fixture = try await BridgeFixture()
+    let source = try fixture.source()
+    _ = try await fixture.bridge.serving(fixture.restic) { try await $0.createRepository() }
+    let held = Hold()
+    let heldUploadEnded = Signal()
+    let uploads = OSAllocatedUnfairLock(initialState: 0)
+    var intercepted = fixture.bridge
+    intercepted.drive = InterceptedDrive(kept: fixture.drive) {
+      [kept = fixture.drive] data, name, folder in
+      guard
+        uploads.withLock({
+          $0 += 1
+          return $0
+        }) == 1
+      else {
+        return try await kept.upload(data, named: name, in: folder)
+      }
+      // The command's first upload, restic's lock, held as a Drive call retrying against
+      // Google's 5xx would hold it, for minutes.
+      await held.hold()
+      do {
+        let stored = try await kept.upload(data, named: name, in: folder)
+        await heldUploadEnded.send()
+        return stored
+      } catch {
+        await heldUploadEnded.send()
+        throw error
+      }
+    }
+    let (bridge, restic) = (intercepted, fixture.restic)
+
+    let backup = Task { try await bridge.serving(restic) { try await $0.backup(source) } }
+    await held.waitUntilHeld()
+    backup.cancel()
+
+    // It ends with the upload still held: once restic has gone, nothing waits for it. (A command
+    // that waited would never end, and no time limit ends a test stuck awaiting it: `hangLimit`
+    // bounds this wait instead.)
+    let outcome = OSAllocatedUnfairLock<Result<Void, any Error>?>(initialState: nil)
+    Task {
+      let result = await backup.result
+      outcome.withLock { $0 = result.map { _ in } }
+    }
+    #expect(try await wait { outcome.withLock { $0 != nil } }, "The command waited for Drive")
+    #expect(throws: CancellationError.self) { try outcome.withLock { $0 }?.get() }
+    // Let go after the command ended, the upload finds itself cancelled: no lock that no restic
+    // will remove.
+    await held.letGo()
+    await heldUploadEnded.wait()
+    #expect(try await fixture.filesOnDrive().keys.filter { $0.hasPrefix("locks/") }.isEmpty)
   }
 
   @Test func nothingIsLeftServingOnceTheCommandEnds() async throws {

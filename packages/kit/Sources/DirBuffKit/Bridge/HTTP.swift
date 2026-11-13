@@ -188,6 +188,10 @@ struct HTTPConnection {
     }
   }
 
+  /// Sent with `MSG_NOSIGNAL`: restic may have gone (killed, or stopped mid-request), and writing
+  /// to a connection whose other end has closed must cost this send an `EPIPE`, never the app a
+  /// SIGPIPE, which would end it. The flag holds for every send, where a socket option set once
+  /// on accepting can't be set on a connection already closed.
   static func write(_ response: HTTPResponse, to socket: Int32) async throws {
     let bytes = response.serialized
     try await withCheckedThrowingContinuation {
@@ -196,8 +200,8 @@ struct HTTPConnection {
         let failure = bytes.withUnsafeBytes { raw -> POSIXError? in
           var offset = 0
           while offset < raw.count {
-            let written = Darwin.write(
-              socket, raw.baseAddress?.advanced(by: offset), raw.count - offset)
+            let written = send(
+              socket, raw.baseAddress?.advanced(by: offset), raw.count - offset, MSG_NOSIGNAL)
             guard written >= 0 else {
               if errno == EINTR { continue }
               return POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
