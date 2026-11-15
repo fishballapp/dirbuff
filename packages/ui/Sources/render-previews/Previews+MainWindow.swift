@@ -31,6 +31,10 @@ func mainWindowPreviews() -> [Preview] {
   return [
     ("main-overview", window(Samples.shelf()), fullSize),
     ("main-shelf-working", window(Samples.shelf(working: [1])), fullSize),
+    (
+      "main-overview-trial-last-days", window(Samples.shelf(licence: .trial(daysLeft: 2))),
+      fullSize
+    ),
     ("main-overview-trial-ended", window(Samples.shelfPaused(licence: .trialEnded)), fullSize),
     (
       "main-overview-licence-ended",

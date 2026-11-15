@@ -62,6 +62,11 @@ func menuBarPreviews() -> [Preview] {
       nil
     ),
     (
+      "popover-trial-last-days",
+      AnyView(MenuBarView(state: Samples.popover(.trial(daysLeft: 2)))),
+      nil
+    ),
+    (
       "popover-trial-ended",
       AnyView(MenuBarView(state: Samples.popover(.trialEnded))),
       nil

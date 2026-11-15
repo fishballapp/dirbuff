@@ -332,14 +332,18 @@ private func popover(_ folders: [FolderState], licence: Licence = .licensed) -> 
     #expect(foot?.rest == " · 9 days left")
     #expect(foot?.buttonTitle == "Buy…")
     #expect(foot?.isPurchase == true)
-    #expect(foot?.isWarning == false)
+    #expect(foot?.isProminent == false)
+  }
+
+  @Test func asksForTheReaderInTheTrialsLastDays() {
+    #expect(popover([], licence: .trial(daysLeft: 3)).foot?.isProminent == true)
   }
 
   @Test func makesBuyTheDefaultOnceTheTrialHasEnded() {
     let foot = popover([], licence: .trialEnded).foot
     #expect(foot?.lead == "Trial ended")
     #expect(foot?.rest == "")
-    #expect(foot?.isWarning == true)
+    #expect(foot?.isProminent == true)
   }
 
   @Test func offersToRenewAnEndedLicence() {

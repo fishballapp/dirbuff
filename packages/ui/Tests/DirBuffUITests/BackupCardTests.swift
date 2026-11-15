@@ -277,20 +277,16 @@ private func attempt(
 }
 
 @Suite struct UndoingTheHistory {
-  @Test func undoingToAShorterHistoryAsksFirst() {
-    // 30 days → every version, then Undo: back to 30 days drops what every version kept.
-    let toast = SettingsToast(
-      change: "keeps every version now", previous: .backup(BackupSettings(history: .thirtyDays)))
-    #expect(toast.undoShortensHistory(from: .backup(BackupSettings(history: .forever))))
-  }
-
-  @Test func undoingToALongerOneDoesnt() {
-    let toast = SettingsToast(
-      change: "keeps versions for 30 days now", previous: .backup(BackupSettings(history: .forever))
-    )
-    #expect(!toast.undoShortensHistory(from: .backup(BackupSettings(history: .thirtyDays))))
-    let temporary = SettingsToast(change: "deletes permanently now", previous: TemporarySettings())
-    #expect(!temporary.undoShortensHistory(from: .temporary(TemporarySettings())))
+  @Test func onlyAShorterHistoryOffersUndo() {
+    // A shorter history deletes versions at the next upkeep, so the toast offers Undo; a longer
+    // one deletes nothing, and the card's recount says it.
+    #expect(mayDeleteSooner(from: BackupSettings(), to: BackupSettings(history: .oneYear)))
+    #expect(
+      mayDeleteSooner(
+        from: BackupSettings(history: .oneYear), to: BackupSettings(history: .thirtyDays)))
+    #expect(
+      !mayDeleteSooner(from: BackupSettings(history: .thirtyDays), to: BackupSettings()))
+    #expect(!mayDeleteSooner(from: BackupSettings(), to: BackupSettings()))
   }
 
   @Test func theConfirmationNamesTheFolder() {

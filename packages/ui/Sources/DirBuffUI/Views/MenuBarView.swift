@@ -136,13 +136,15 @@ public struct MenuBarView: View {
     }
   }
 
-  /// The licence line and the button that acts on it.
+  /// The licence line and the button that acts on it: quiet while the trial has days to run.
   private func footRow(_ foot: PopoverFoot) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       Divider()
       HStack(spacing: 8) {
         HStack(spacing: 0) {
-          Text(foot.lead).fontWeight(.semibold)
+          Text(foot.lead)
+            .fontWeight(foot.isProminent ? .semibold : .regular)
+            .foregroundStyle(foot.isProminent ? .primary : .secondary)
           Text(foot.rest).foregroundStyle(.secondary)
         }
         .font(.callout)
@@ -158,7 +160,7 @@ public struct MenuBarView: View {
   private func footButton(_ foot: PopoverFoot) -> some View {
     let button = Button(foot.buttonTitle, action: foot.isPurchase ? onBuy : onCheckLicence)
       .controlSize(.small)
-    if foot.isWarning {
+    if foot.isProminent {
       button.buttonStyle(.borderedProminent)
     } else {
       button.buttonStyle(.bordered)

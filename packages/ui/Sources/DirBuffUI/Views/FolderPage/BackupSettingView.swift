@@ -83,8 +83,7 @@ struct BackupSettingView: View {
   }
 }
 
-/// The question before a shorter history, from the pop-up or from Undo: what it drops is
-/// deleted from Drive at the next upkeep.
+/// The question before a shorter history: what it drops is deleted from Drive at the next upkeep.
 struct ShorterHistoryWords {
   var history: BackupHistory
   var folderName: String

@@ -26,9 +26,9 @@ func folderPagePreviews() -> [Preview] {
         1, Samples.pageReports(downloads: downloads),
         toast: SettingsToast(
           change: settingChange(
-            from: TemporarySettings(maxAgeDays: 14), to: TemporarySettings(maxAgeDays: 30),
+            from: TemporarySettings(maxAgeDays: 30), to: TemporarySettings(maxAgeDays: 14),
             binName: Samples.binName),
-          previous: TemporarySettings(maxAgeDays: 14))),
+          previous: TemporarySettings(maxAgeDays: 30))),
       short
     ),
     ("folder-page-restart", page(4, reports), short),

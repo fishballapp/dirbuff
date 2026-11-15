@@ -75,7 +75,7 @@ final class WindowCoordinator {
   /// Opens the welcome window: on its own the first time DirBuff runs, and from Settings' Set Up….
   func openWelcome() {
     appModel.markWelcomeSeen()
-    showContentSized(key: "welcome", title: "Welcome to DirBuff", isTitleHidden: true) {
+    showContentSized(key: "welcome", title: "Set Up DirBuff", isTitleHidden: true) {
       WelcomeContainerView(appModel: appModel, coordinator: self)
     }
   }

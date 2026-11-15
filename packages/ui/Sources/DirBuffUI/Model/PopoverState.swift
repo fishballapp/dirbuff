@@ -64,15 +64,16 @@ public struct PopoverFoot: Sendable, Equatable {
   public var buttonTitle: String
   /// Whether the button leads to a purchase, which a licence key goes with.
   public var isPurchase: Bool
-  /// Whether DirBuff isn't cleaning, so the button is the default one.
-  public var isWarning: Bool
+  /// Whether the line asks for the reader now (the trial's last days, or DirBuff isn't cleaning),
+  /// so it's set in semibold and the button is the default one.
+  public var isProminent: Bool
 
   init(_ line: LicenceLine) {
     let lead = line.text.range(of: " · ").map { String(line.text[..<$0.lowerBound]) } ?? line.text
     self.lead = lead
     rest = String(line.text.dropFirst(lead.count))
     isPurchase = line.action.isPurchase
-    isWarning = line.isWarning
+    isProminent = line.isProminent
     buttonTitle =
       switch line.action {
       case .buy: "Buy…"

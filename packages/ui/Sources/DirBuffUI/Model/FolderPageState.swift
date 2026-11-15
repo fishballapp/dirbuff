@@ -186,6 +186,24 @@ extension FolderPageState {
   }
 }
 
+/// Whether a change to Backup's setting can delete versions sooner: a shorter history. Only such a
+/// change gets the toast with Undo; any other is shown by the card's recount alone.
+public func mayDeleteSooner(from old: BackupSettings, to new: BackupSettings) -> Bool {
+  new.history.keepsLess(than: old.history)
+}
+
+/// Whether a change to Temporary's setting can clear things sooner: a shorter age, a smaller size,
+/// another rule (which may take what the old one kept), or deleting permanently instead of the Bin.
+/// Only such a change gets the toast with Undo; any other is shown by the card's recount alone.
+public func mayDeleteSooner(from old: TemporarySettings, to new: TemporarySettings) -> Bool {
+  if new.rule != old.rule || (new.disposal == .delete && old.disposal == .bin) { return true }
+  return switch new.rule {
+  case .age: new.maxAgeDays < old.maxAgeDays
+  case .size: new.sizeLimit < old.sizeLimit
+  case .emptyOnRestart, .automatic: false
+  }
+}
+
 /// Words for what changed, for the toast after Backup's setting changes: "keeps versions for one
 /// year now".
 public func settingChange(from old: BackupSettings, to new: BackupSettings) -> String {

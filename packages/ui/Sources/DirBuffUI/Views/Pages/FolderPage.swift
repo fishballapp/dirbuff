@@ -3,7 +3,8 @@ import SwiftUI
 
 /// A folder's page, its sidebar row's: + Buff in the toolbar; the folder's icon, name and size, with
 /// Show in Finder, its History and a menu that removes it; then one card per buff it wears, or the
-/// buffs to put on it. A setting changes at once, and a toast offers Undo.
+/// buffs to put on it. A setting changes at once and the card recounts; a change that can delete
+/// sooner also gets a toast offering Undo.
 public struct FolderPage: View {
   public var state: FolderPageState
   public var binName: String
@@ -11,8 +12,6 @@ public struct FolderPage: View {
   public var pageActions: FolderPageActions
 
   @State private var toast: SettingsToast?
-  /// An Undo that would shorten Backup's history, waiting for the user to confirm.
-  @State private var shorterUndo: SettingsToast?
 
   @Environment(\.addBuffHost) private var host
 
@@ -94,24 +93,6 @@ public struct FolderPage: View {
       // Take Off forgets the settings, so there is nothing left for Undo to put back.
       if let toast, !wornBuffs.contains(toast.buff) { self.toast = nil }
     }
-    .alert(
-      shorterUndo?.previous.backup.map {
-        ShorterHistoryWords(history: $0.history, folderName: folder.name).title
-      } ?? "",
-      isPresented: Binding(get: { shorterUndo != nil }, set: { if !$0 { shorterUndo = nil } }),
-      presenting: shorterUndo
-    ) { toast in
-      if let history = toast.previous.backup?.history {
-        Button(ShorterHistoryWords(history: history, folderName: folder.name).button) {
-          undo(toast)
-        }
-      }
-      Button("Cancel", role: .cancel) {}
-    } message: { toast in
-      if let history = toast.previous.backup?.history {
-        Text(ShorterHistoryWords(history: history, folderName: folder.name).message)
-      }
-    }
     .navigationTitle(folder.name)
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
@@ -187,78 +168,71 @@ public struct FolderPage: View {
     }
     let isLit = host.dropFolderID == folder.id && verdict?.isAdding == true
     let zone = RoundedRectangle(cornerRadius: Metrics.tileRadius)
-    return VStack(alignment: .leading, spacing: 14) {
-      VStack(spacing: 4) {
-        HStack(spacing: 6) {
-          FolderPill(folder.name, path: folder.path)
-          Text("wears no buffs yet")
-        }
-        .font(.headline)
-        .foregroundStyle(Palette.ink)
-        // Nothing goes on a folder on an unplugged drive, so its zone says why instead.
-        Text(folder.unreachableReason.map { "\($0)." } ?? "Click or drag a buff to add it.")
-          .foregroundStyle(Palette.inkSecondary)
-        HStack(spacing: 10) {
-          ForEach(Buff.allCases, id: \.self) { buff in
-            let item = state.addBuffItems.first { $0.buff == buff }
-            BuffPiece(buff, isEnabled: state.canAddBuff && item?.isEnabled == true) {
-              actions.add(buff, to: folder.id)
-            }
-            .fixedSize()
-            .help(item?.subtitle ?? "")
+    return VStack(spacing: 4) {
+      HStack(spacing: 6) {
+        FolderPill(folder.name, path: folder.path)
+        Text("wears no buffs yet")
+      }
+      .font(.headline)
+      .foregroundStyle(Palette.ink)
+      // Nothing goes on a folder on an unplugged drive, so its zone says why instead.
+      Text(folder.unreachableReason.map { "\($0)." } ?? "Click or drag a buff to add it.")
+        .foregroundStyle(Palette.inkSecondary)
+      HStack(spacing: 10) {
+        ForEach(Buff.allCases, id: \.self) { buff in
+          let item = state.addBuffItems.first { $0.buff == buff }
+          BuffPiece(buff, isEnabled: state.canAddBuff && item?.isEnabled == true) {
+            actions.add(buff, to: folder.id)
           }
-        }
-        .padding(.top, 14)
-      }
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 30)
-      .padding(.horizontal, 20)
-      .background(isLit ? Palette.blueTint : .clear, in: zone)
-      .overlay {
-        if isLit {
-          zone.strokeBorder(Palette.accentBlue, lineWidth: 1.5)
-        } else {
-          zone.strokeBorder(Palette.ruleStrong, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+          .fixedSize()
+          .help(item?.subtitle ?? "")
         }
       }
-      .buffDrop(on: folder.id, verdict: verdict) { actions.add($0, to: folder.id) }
-
-      Text("DirBuff leaves \(folder.name) alone until you add a buff.")
-        .font(.subheadline)
-        .foregroundStyle(Palette.inkTertiary)
-        .frame(maxWidth: 560, alignment: .leading)
-        .padding(.horizontal, 4)
+      .padding(.top, 14)
     }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 30)
+    .padding(.horizontal, 20)
+    .background(isLit ? Palette.blueTint : .clear, in: zone)
+    .overlay {
+      if isLit {
+        zone.strokeBorder(Palette.accentBlue, lineWidth: 1.5)
+      } else {
+        zone.strokeBorder(Palette.ruleStrong, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+      }
+    }
+    .buffDrop(on: folder.id, verdict: verdict) { actions.add($0, to: folder.id) }
   }
 
   // MARK: - Changing a setting
 
-  /// Saves the new settings at once and offers Undo, which puts back `previous`.
+  /// Saves the new settings at once. A change that can delete sooner offers Undo, which puts back
+  /// `previous`; any other is shown by the card's recount alone.
   private func change(to settings: TemporarySettings, from previous: TemporarySettings) {
     pageActions.changeSettings(folder.id, settings)
-    toast = SettingsToast(
-      change: settingChange(from: previous, to: settings, binName: binName), previous: previous)
+    toast =
+      mayDeleteSooner(from: previous, to: settings)
+      ? SettingsToast(
+        change: settingChange(from: previous, to: settings, binName: binName), previous: previous)
+      : nil
   }
 
   private func change(to settings: BackupSettings, from previous: BackupSettings) {
     pageActions.changeBackupSettings(folder.id, settings)
-    toast = SettingsToast(
-      change: settingChange(from: previous, to: settings), previous: .backup(previous))
+    toast =
+      mayDeleteSooner(from: previous, to: settings)
+      ? SettingsToast(
+        change: settingChange(from: previous, to: settings), previous: .backup(previous))
+      : nil
   }
 
   private func settingsToast(_ toast: SettingsToast) -> some View {
     Toast(actionTitle: "Undo") {
-      if let current = state.cards.first(where: { $0.buff == toast.buff })?.settings,
-        toast.undoShortensHistory(from: current)
-      {
-        shorterUndo = toast
-        return
-      }
       undo(toast)
     } message: {
       HStack(spacing: 10) {
         FolderPill(folder.name, path: folder.path)
-        Text(toastLine(toast))
+        Text(toast.change)
       }
     }
   }
@@ -270,17 +244,10 @@ public struct FolderPage: View {
     }
     self.toast = nil
   }
-
-  /// "older than 30 days now · nothing to clear tomorrow": what changed, then the card's new line.
-  private func toastLine(_ toast: SettingsToast) -> String {
-    guard let headline = state.cards.first(where: { $0.buff == toast.buff })?.headline.text,
-      let first = headline.first
-    else { return toast.change }
-    return "\(toast.change) · \(first.lowercased())\(headline.dropFirst())"
-  }
 }
 
-/// The toast after a setting changed: what changed, and the settings Undo puts back.
+/// The toast after a setting changed so that it can delete sooner: what changed, and the settings
+/// Undo puts back. Undo always goes back to keeping more, so it never asks first.
 public struct SettingsToast: Sendable, Equatable, Identifiable {
   public let id = UUID()
   /// "older than 30 days now".
@@ -294,15 +261,6 @@ public struct SettingsToast: Sendable, Equatable, Identifiable {
 
   public init(change: String, previous: TemporarySettings) {
     self.init(change: change, previous: .temporary(previous))
-  }
-
-  /// Whether Undo, from `current`, would shorten Backup's history, which deletes versions: it
-  /// asks first, as the pop-up does.
-  func undoShortensHistory(from current: CardSettings) -> Bool {
-    guard case .backup(let previous) = previous, case .backup(let current) = current else {
-      return false
-    }
-    return previous.history.keepsLess(than: current.history)
   }
 
   /// The buff whose setting changed.

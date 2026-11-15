@@ -1,8 +1,8 @@
 import DirBuffCore
 import SwiftUI
 
-/// The first-run window: the app, one sentence, the buffs as pieces to drop on four folder tiles,
-/// the setup checklist and the trial. **Set Up…** in Settings opens it again. It sits under a
+/// The first-run window: the app, the buffs as pieces to drop on four folder tiles, the setup
+/// checklist and the trial. **Set Up…** in Settings opens it again. It sits under a
 /// title bar the window draws transparent, so the top margin is short.
 public struct WelcomeView: View {
   public var state: WelcomeState
@@ -75,12 +75,9 @@ public struct WelcomeView: View {
         .resizable()
         .frame(width: 64, height: 64)
         .accessibilityHidden(true)
-      Text("Welcome to DirBuff")
+      Text("Set Up DirBuff")
         .font(.title.bold())
         .padding(.top, 14)
-      Text("Give a folder a buff to do a job automatically.")
-        .foregroundStyle(Palette.inkSecondary)
-        .padding(.top, 4)
     }
   }
 
@@ -161,12 +158,7 @@ public struct WelcomeView: View {
         Button("Turn On…", action: onOpenExtensionManagement)
       }
       if !state.setup.isExtensionEnabled {
-        Text("System Settings › General › Login Items & Extensions")
-          .font(.subheadline)
-          .foregroundStyle(Palette.inkTertiary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.leading, 26)
-          .padding(.bottom, 4)
+        setupHint("System Settings › General › Login Items & Extensions")
       }
       SetupRow(title: "Open at login", isDone: state.setup.isOpenAtLogin) {
         if state.setup.isOpenAtLoginRequiresApproval {
@@ -178,6 +170,10 @@ public struct WelcomeView: View {
       SetupRow(title: "Notifications", isDone: state.setup.isNotificationsEnabled) {
         Button("Turn On", action: onRequestNotifications)
       }
+      if !state.setup.isNotificationsEnabled {
+        setupHint(
+          "Says what each clean-up cleared, with Put Back, and when a folder can't be backed up.")
+      }
     }
     .padding(.horizontal, 36)
     .padding(.top, 8)
@@ -187,11 +183,21 @@ public struct WelcomeView: View {
     }
   }
 
+  /// The line under a setup row that isn't done yet: where to turn it on, or what it's for.
+  private func setupHint(_ text: String) -> some View {
+    Text(text)
+      .font(.subheadline)
+      .foregroundStyle(Palette.inkTertiary)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.leading, 26)
+      .padding(.bottom, 4)
+  }
+
   // MARK: - Foot
 
   private var foot: some View {
     HStack {
-      Text(state.licence.welcomeLine)
+      Text(state.licence.welcomeLine(price: Pricing.yearly()))
         .font(.callout)
         .foregroundStyle(Palette.inkTertiary)
       Spacer()
@@ -353,11 +359,7 @@ private struct SetupRow<Action: View>: View {
       Text(title)
         .font(.system(size: 12.5, weight: .medium))
       Spacer()
-      if isDone {
-        Text("On")
-          .font(.system(size: 12))
-          .foregroundStyle(Palette.inkTertiary)
-      } else {
+      if !isDone {
         action
       }
     }

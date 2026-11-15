@@ -130,10 +130,12 @@ public struct MainView: View {
   }
 
   /// The licence line and its action side by side while they fit, with Enter Licence Key… beneath.
+  /// Quiet while the trial has days to run; semibold, with Buy as the default, once it asks.
   private func licenceFoot(_ line: LicenceLine) -> some View {
     let text = VStack(alignment: .leading, spacing: 1) {
       Text(line.text)
-        .fontWeight(.semibold)
+        .fontWeight(line.isProminent ? .semibold : .regular)
+        .foregroundStyle(line.isProminent ? Palette.ink : Palette.inkSecondary)
       if let detail = licenceDetail(line) {
         Text(detail)
           .font(.subheadline)
@@ -173,7 +175,7 @@ public struct MainView: View {
 
   private func licenceDetail(_ line: LicenceLine) -> String? {
     if !state.mayClean { return "Every buff is paused" }
-    return line.action == .buy ? "then $10 a year" : nil
+    return line.action == .buy ? "then \(Pricing.yearly()) a year" : nil
   }
 
   @ViewBuilder
@@ -182,7 +184,7 @@ public struct MainView: View {
       line.action.shortTitle,
       action: line.action.isPurchase ? actions.buy : actions.checkLicence
     )
-    if state.mayClean {
+    if !line.isProminent {
       button
     } else {
       button

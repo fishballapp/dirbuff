@@ -15,8 +15,10 @@ public struct SettingsState: Sendable, Equatable {
   /// Settings › Backup.
   public var backup: BackupAccountSettings
 
-  /// What the Licence section says and offers.
-  public var licenceSettings: LicenceSettings { licence.settings(key: licenceKey) }
+  /// What the Licence section says and offers, priced in the reader's likely currency.
+  public var licenceSettings: LicenceSettings {
+    licence.settings(key: licenceKey, price: Pricing.yearly())
+  }
 
   public init(
     openAtLogin: Bool = false,

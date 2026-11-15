@@ -158,11 +158,11 @@ public struct SettingsView: View {
           .fixedSize(horizontal: false, vertical: true)
         HStack(spacing: 8) {
           if let primary = licence.primary {
-            Button(primary.title) { onLicenceAction(primary) }
+            Button(licence.title(primary)) { onLicenceAction(primary) }
               .keyboardShortcut(.defaultAction)
           }
           ForEach(licence.others, id: \.self) { action in
-            Button(action.title) { onLicenceAction(action) }
+            Button(licence.title(action)) { onLicenceAction(action) }
           }
         }
         .padding(.top, 6)

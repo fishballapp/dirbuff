@@ -203,4 +203,31 @@ private func card(_ report: FolderReport, working: Bool = false) -> BuffCard? {
   ) {
     #expect(settingChange(from: old, to: new, binName: "Bin") == words)
   }
+
+  @Test(arguments: [
+    (TemporarySettings(maxAgeDays: 30), TemporarySettings(maxAgeDays: 14), true),
+    (TemporarySettings(maxAgeDays: 14), TemporarySettings(maxAgeDays: 30), false),
+    (
+      TemporarySettings(rule: .size, sizeLimit: 50_000_000_000),
+      TemporarySettings(rule: .size, sizeLimit: 10_000_000_000), true
+    ),
+    (
+      TemporarySettings(rule: .size, sizeLimit: 10_000_000_000),
+      TemporarySettings(rule: .size, sizeLimit: 50_000_000_000), false
+    ),
+    (TemporarySettings(), TemporarySettings(rule: .emptyOnRestart), true),
+    (TemporarySettings(rule: .automatic), TemporarySettings(), true),
+    (TemporarySettings(), TemporarySettings(disposal: .delete), true),
+    (TemporarySettings(disposal: .delete), TemporarySettings(), false),
+    // The age kept while another rule is chosen isn't what clears.
+    (
+      TemporarySettings(rule: .emptyOnRestart, maxAgeDays: 30),
+      TemporarySettings(rule: .emptyOnRestart, maxAgeDays: 14), false
+    ),
+  ])
+  func onlyAChangeThatClearsSoonerOffersUndo(
+    old: TemporarySettings, new: TemporarySettings, offersUndo: Bool
+  ) {
+    #expect(mayDeleteSooner(from: old, to: new) == offersUndo)
+  }
 }
