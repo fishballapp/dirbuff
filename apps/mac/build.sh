@@ -15,7 +15,7 @@ echo "=========================================================="
 echo " Building DirBuff macOS App (Release)"
 echo "=========================================================="
 
-# The Developer ID certificate comes from 1Password through varlock, into a keychain that lasts
+# The Developer ID certificate comes from baymutt through varlock, into a keychain that lasts
 # as long as this script (signing-keychain.sh). Run it as `pnpm -F @dirbuff/mac with-secrets --
 # ./build.sh`. OTHER_CODE_SIGN_FLAGS splits on spaces, so a $TMPDIR with a space in it fails the
 # signing step; accepted, macOS's never has one.

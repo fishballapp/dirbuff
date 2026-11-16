@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@varlock/1password-plugin": "catalog:",
+    "@baymutt/varlock-plugin": "catalog:",
     "varlock": "catalog:",
     "vitest": "catalog:"
   }

@@ -1,6 +1,6 @@
 # Sourced by build.sh. `open_signing_keychain` imports the team's Developer ID certificate
 # (MAC_NATIVE_APP_APPLE_CERTIFICATE, a base64 .p12, and its password, both loaded by varlock from
-# 1Password) into a keychain that exists for this build alone, then unsets both, so nothing the
+# baymutt) into a keychain that exists for this build alone, then unsets both, so nothing the
 # build runs afterwards sees them. The .p12 goes to `security import` through a pipe and never
 # touches disk. The keychain is deleted when the shell exits, however it exits.
 #
@@ -40,7 +40,7 @@ edit_search_list() {
 open_signing_keychain() {
   if [[ -z "${MAC_NATIVE_APP_APPLE_CERTIFICATE:-}" || -z "${MAC_NATIVE_APP_APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
     echo "Error: the Developer ID certificate (MAC_NATIVE_APP_APPLE_CERTIFICATE and its password) is missing." >&2
-    echo "Run it through varlock, which loads it from 1Password: pnpm -F @dirbuff/mac with-secrets -- ./build.sh" >&2
+    echo "Run it through varlock, which loads it from baymutt: pnpm -F @dirbuff/mac with-secrets -- ./build.sh" >&2
     return 1
   fi
 

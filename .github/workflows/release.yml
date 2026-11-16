@@ -9,8 +9,8 @@ name: Release
 # appcast item beside it. feed.yml rebuilds the update feed from the releases when this workflow
 # completes, however it ends, so a run that changed a release and then failed still updates it.
 #
-# Its secrets live in 1Password and load through varlock (apps/mac/.env.schema). The one GitHub
-# secret is DIRBUFF_OP_TOKEN, a service account that reads DirBuff's Environments only, held by the
+# Its secrets live in baymutt and load through varlock (apps/mac/.env.schema). The one GitHub
+# secret is BAYMUTT_KEY, a service account that reads DirBuff's three environments only, held by the
 # `release` environment, which only `main` and `v*` tags may read and which needs no approval: only
 # the deploy key and the repo's admins push either, and the pr/<number> branches the private
 # monorepo pushes here can't reach it.
@@ -85,9 +85,9 @@ jobs:
         run: command -v xcodegen || brew install xcodegen
 
       # Every line of every value is masked before any later step can print it.
-      - name: Load secrets from 1Password
+      - name: Load secrets from baymutt
         env:
-          DIRBUFF_OP_TOKEN: ${{ secrets.DIRBUFF_OP_TOKEN }}
+          BAYMUTT_KEY: ${{ secrets.BAYMUTT_KEY }}
         run: |
           node -e '
           const { execFileSync } = require("node:child_process");
@@ -98,7 +98,7 @@ jobs:
             }),
           );
           for (const [key, value] of Object.entries(values)) {
-            if (key === "DIRBUFF_OP_TOKEN" || typeof value !== "string" || value === "") continue;
+            if (key === "BAYMUTT_KEY" || typeof value !== "string" || value === "") continue;
             for (const line of value.split(/\r?\n/)) {
               if (line.trim() !== "") console.log(`::add-mask::${line}`);
             }
